@@ -1,7 +1,7 @@
 # Stage 0 — Foundation (platform + repo skeleton + contracts)
 
 Written 2026-11-08 by Claude (orchestrator). Read `00-GLOBAL-RULES.md` first; it applies in full.
-**Base commit:** the commit tagged `stage-0-base` on `main`. Every Part starts from it.
+**Base commit:** `main` right after this spec is merged (pull request #1). Before any Part starts, Codex tags that commit `stage-0-base` and pushes the tag (`git tag -a stage-0-base -m "Stage 0 base" && git push origin stage-0-base`). Every Part starts from that tag.
 **Tag when accepted:** `spine-v0.0`.
 
 ## 0. Aziz's words and decisions (Malaysia time)
