@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: ooh-stage-check
+  namespace: ooh-platform
+  labels:
+    strimzi.io/cluster: ooh-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+    - resource:
+        type: topic
+        name: approvals.requested
+        patternType: literal
+      operations:
+      - Write
+      - Describe
+    - resource:
+        type: topic
+        name: approvals.decided
+        patternType: literal
+      operations:
+      - Read
+      - Describe
+    - resource:
+        type: topic
+        name: audit.events
+        patternType: literal
+      operations:
+      - Read
+      - Describe
+    - resource:
+        type: group
+        name: ooh-stage-check
+        patternType: literal
+      operations:
+      - Read

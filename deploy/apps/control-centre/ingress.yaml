@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: control-centre
+  namespace: ooh-apps
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - admin.faysalaziz.com
+    secretName: admin-tls
+  rules:
+  - host: admin.faysalaziz.com
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: control-centre
+            port:
+              number: 8080

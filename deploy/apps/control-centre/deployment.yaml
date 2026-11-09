@@ -1,0 +1,106 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: control-centre
+  namespace: ooh-apps
+  labels:
+    app: control-centre
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: control-centre
+  template:
+    metadata:
+      labels:
+        app: control-centre
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        fsGroup: 1654
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: migrate
+        image: ghcr.io/frozenfussion/ooh-control-centre:${IMAGE_TAG}
+        args: ["migrate"]
+        env:
+        - name: CC_DB_MIGRATE_CONNECTION
+          valueFrom:
+            secretKeyRef:
+              name: control-centre-db
+              key: migrate-connection
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: '1'
+            memory: 512Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      containers:
+      - name: control-centre
+        image: ghcr.io/frozenfussion/ooh-control-centre:${IMAGE_TAG}
+        ports:
+        - name: http
+          containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: control-centre
+        env:
+        - name: ASPNETCORE_HTTP_PORTS
+          value: '8080'
+        - name: CC_DB_CONNECTION
+          valueFrom:
+            secretKeyRef:
+              name: control-centre-db
+              key: connection
+        - name: CC_KAFKA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: control-centre-kafka
+              key: password
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: '1'
+            memory: 512Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 20
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir:
+          medium: Memory
+          sizeLimit: 64Mi

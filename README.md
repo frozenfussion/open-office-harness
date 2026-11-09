@@ -1,27 +1,208 @@
 # QUICK GUIDE
 
-**Stage 1 database setup (before the Control Centre tests).**
-Type this in your harness terminal, `shell` tile, plain shell, not Codex.
-This creates the live and test databases and four separate database roles.
-It asks for no password. Existing passwords are kept and never displayed.
-Good result: four roles and both databases are applied, the private test
-settings file is saved with mode 600, then `DONE`.
+## Stage 1 — Control Centre
 
-```bash
-cd ~/projects/worktrees/stage-1-part-b
-install/59-control-centre-databases.sh
-```
+Only Aziz runs the deployment and live-check scripts. Use the Shell tile, plain
+shell, for every command below. None of these scripts asks for a password.
+Before the Parts are merged, only the database setup is run from
+`~/projects/worktrees/stage-1-part-b`. After both Parts pass static checks and
+review, Codex merges them into `~/projects/worktrees/stage-1`. The push of that
+merged branch builds the image. Run secrets, deployment and live checks from
+that merged worktree, using its exact 12-character commit tag. On a fresh server,
+finish the Stage 0 setup below first; the apply/check order is
+**30 → 59 → 60 → 61 → 40 → 62**.
 
-The test settings are in `~/.config/ooh/control-centre-test.env`. They contain
-only test database connections. Never paste that file into chat or commit it.
-Re-running the script keeps existing credentials and refreshes this file.
-If it prints `STOP:`, fix the named problem and run it again: finish server
-setup for a missing tool; apply the platform if its namespace is missing;
-check PostgreSQL if it is not Ready or `ooh-pg-rw` has no ClusterIP; inspect
-Database and DatabaseRole status if resources do not become ready. Unexpected
-credentials must be inspected privately by the maintainer; do not replace or
-print the Secrets. For any other database setup failure, inspect PostgreSQL
-readiness before retrying. Tell Codex when the script finishes with `DONE`.
+1. **Install the .NET SDK once.** Type this in your harness terminal, Shell
+   tile, plain shell. The folder does not matter. This installs the pinned SDK
+   in your home folder and loads the permanent PATH settings in this shell.
+   No password. Good result: `10.0.403`.
+
+   ```bash
+   if curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && bash /tmp/dotnet-install.sh --version 10.0.403 --install-dir "$HOME/.dotnet"; then
+     mkdir -p "$HOME/.local/bin"
+     ln -sf "$HOME/.dotnet/dotnet" "$HOME/.local/bin/dotnet"
+     if ! grep -q DOTNET_ROOT "$HOME/.profile"; then
+       printf '\nexport DOTNET_ROOT="$HOME/.dotnet"\nexport DOTNET_CLI_TELEMETRY_OPTOUT=1\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$HOME/.profile"
+     fi
+     . "$HOME/.profile"
+     dotnet --version
+   else
+     echo "STOP: .NET install failed"
+   fi
+   ```
+
+2. **Make the databases.** Type this in your harness terminal, Shell tile,
+   plain shell. This creates the live and test databases, each with a separate
+   owner and app role. No password. Good result: four roles and two databases
+   meet their condition, private test settings are saved, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-1-part-b
+   install/59-control-centre-databases.sh
+   ```
+
+   Passwords are generated, never displayed and kept on repeat runs. The file
+   `~/.config/ooh/control-centre-test.env` has mode 600 and contains only test
+   database connections. Never paste it into chat or commit it.
+
+3. **Check the image build on GitHub.** Open the repository's Actions tab and
+   select **Control Centre image**. A green tick means the image is ready.
+   The tag is the first 12 characters of the merged `stage-1` commit.
+   If a merge did not start a build, choose **Run workflow** for that branch.
+   First time only, on GitHub: open package `ooh-control-centre` → **Package
+   settings** → **Change visibility** → **Public**, if it is not already public.
+   The deployment script checks the image without signing in.
+
+4. **Copy application secrets.** Type this in your harness terminal, Shell
+   tile, plain shell. This creates the two Kafka users and copies database and
+   Kafka credentials into the apps namespace. No password. Good result:
+   `Created` or `Already exists` for each application secret, then `DONE`.
+   A repeat run never overwrites an existing secret.
+
+   ```bash
+   cd ~/projects/worktrees/stage-1
+   install/60-control-centre-secrets.sh
+   ```
+
+5. **Deploy the image.** Type this in your harness terminal, Shell tile, plain
+   shell. Replace `MERGED_IMAGE_TAG` with the first 12 characters of the merged
+   commit.
+   This runs migrations as the database owner, then starts the app with its
+   restricted role. No password. `Waiting for migrations` is normal; allow up
+   to ten minutes. Good result: rollout succeeds, the old API placeholder is
+   removed, the running image is printed, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-1
+   install/61-control-centre-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+   The tag may be omitted when the workflow has built this worktree's current
+   commit.
+
+6. **Check the Control Centre.** Type this in your harness terminal, Shell
+   tile, plain shell. This checks sign-in, rights, registries, approvals,
+   outgoing Kafka events and database audit protection. No password in the
+   terminal. When the script prints a browser link and code, open that link,
+   enter the code and sign in as an administrator in your browser. Tokens are
+   held only in shell variables and refreshed before each admin call.
+   Good result: every check prints `PASS`, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-1
+   install/62-check-control-centre.sh
+   ```
+
+   Check data uses a new random user id on each run. Grants and model entries
+   are removed by setting their removal date; the generated tier right and
+   Slides registration remain. Approvals and audit records remain. Temporary
+   Kafka check pods remove themselves. Database protection checks always roll
+   back, including when a protection check unexpectedly succeeds.
+
+7. **Everyday status and logs.** Type this in your harness terminal, Shell
+   tile, plain shell. The folder does not matter. This shows readiness and
+   the exact running image. No password. Good result: `1/1` Ready and the
+   intended image tag.
+
+   ```bash
+   kubectl -n ooh-apps get deployment control-centre
+   kubectl -n ooh-apps get deployment control-centre -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+   ```
+
+   Type this in your harness terminal, Shell tile, plain shell. The folder
+   does not matter. This shows the app's recent logs. No password. Do not paste
+   private log content into chat.
+
+   ```bash
+   kubectl -n ooh-apps logs deployment/control-centre -c control-centre --tail=100
+   ```
+
+   Type this in your harness terminal, Shell tile, plain shell. The folder
+   does not matter. This shows the migration logs if startup failed. No password.
+
+   ```bash
+   kubectl -n ooh-apps logs deployment/control-centre -c migrate --tail=100
+   ```
+
+   Type this in your harness terminal, Shell tile, plain shell. The folder
+   does not matter. This restarts the Control Centre. No password. Good result:
+   rollout succeeds; migrations run again and keep existing data.
+
+   ```bash
+   kubectl -n ooh-apps rollout restart deployment/control-centre
+   kubectl -n ooh-apps rollout status deployment/control-centre --timeout=600s
+   ```
+
+   Type this in your harness terminal, Shell tile, plain shell. The folder
+   does not matter. This stops the app while keeping all data. No password.
+   Good result: deployment scaled.
+
+   ```bash
+   kubectl -n ooh-apps scale deployment/control-centre --replicas=0
+   ```
+
+   Type this in your harness terminal, Shell tile, plain shell. The folder
+   does not matter. This starts the app again. No password. Good result: rollout
+   succeeds.
+
+   ```bash
+   kubectl -n ooh-apps scale deployment/control-centre --replicas=1
+   kubectl -n ooh-apps rollout status deployment/control-centre --timeout=600s
+   ```
+
+8. **After a reboot.** Kubernetes starts the app by itself if it was running
+   before the reboot. Allow five minutes. Type this in your harness terminal,
+   Shell tile, plain shell. No password. This checks the platform, then the
+   Control Centre, including browser sign-in again. Good result: both scripts
+   finish with `DONE` and no `FAIL` lines.
+
+   ```bash
+   cd ~/projects/worktrees/stage-1
+   install/40-check-platform.sh
+   install/62-check-control-centre.sh
+   ```
+
+9. **Builder checks (after the merge).** Type this in your harness terminal,
+   plain shell. This formats, builds and tests the code, including the test
+   database. No password. Good result: all checks pass. Part A also documents
+   local migrations and its pinned EF tool in `services/control-centre/README.md`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-1/services/control-centre
+   dotnet format --verify-no-changes
+   dotnet build -warnaserror
+   dotnet test
+   ```
+
+10. **When a Stage 1 script stops.** A `STOP:` or `FAIL` line names the failed
+    step. Fix that problem, then repeat the same script. Never print or replace
+    credentials to diagnose a failure.
+
+    | Message | What to do |
+    |---|---|
+    | Missing tool | Finish server setup; for .NET use step 1 above. |
+    | Usage or invalid image tag | Use the command above with exactly the 12-character image tag. |
+    | Namespace missing | Finish platform setup and application before database setup. |
+    | PostgreSQL not Ready, missing ClusterIP, database resources not ready | Inspect platform pods and Database/DatabaseRole status; repeat database setup once PostgreSQL is healthy. |
+    | Unexpected credentials or password format | Have the maintainer inspect the named Secret privately; never paste it into chat or replace it. |
+    | Database setup failed | Check PostgreSQL readiness, fix the failing step and repeat 59. |
+    | Live database not ready | Run 59 first. |
+    | Kafka user not Ready or password missing | Inspect Strimzi and KafkaUser status, wait for Ready and repeat 60. |
+    | Secret setup failed or application secret missing | Check platform readiness and run 60 again. Existing secrets are kept. |
+    | Image not built yet | Run the workflow for the code commit; wait for a green tick and make the package public. |
+    | Registry returned an invalid token | Retry; inspect ghcr.io availability if it continues. |
+    | Unexpected admin certificate issuer | Inspect the existing admin Ingress; keep the certificate managed by that Ingress. |
+    | Deployment, revision or migrations not Ready | Read migration and pod logs above. Check the public package and exact tag. Never edit an applied migration. |
+    | Keycloak CLI login or client secret unavailable | Inspect Keycloak readiness and bootstrap access privately; the named existing client must exist. |
+    | Device sign-in unavailable | Run `install/35-realm-sync.sh`, then repeat 62. This updates existing clients only. |
+    | Device sign-in refused, expired, invalid timing or missing refresh token | Retry and sign in promptly as an administrator; inspect Keycloak client settings if it repeats. |
+    | HTTP sign-in, audience or registry access FAIL | Check the expected HTTP status printed with the check and the realm audience mappers. |
+    | Rights, model or skill FAIL | Check fixed rights rules, grants and the API contract; everyone grants may affect the empty-user check. |
+    | Approval or Kafka event FAIL | Inspect Control Centre consumer/outbox logs, Kafka users and topics; repeat after the cause is fixed. |
+    | Audit query or database protection FAIL | Stop testing and ask the maintainer to review migrations and database privileges; checks roll back without changing audit rows. |
+    | Check could not continue | Fix the last FAIL or platform readiness problem, then repeat 62. |
+
+## Stage 0 — Foundation
 
 1. **What this is.** Open Office Harness is an open-source office AI platform.
    Stage 0 installs its foundation; the apps are placeholder pages. The Droplet

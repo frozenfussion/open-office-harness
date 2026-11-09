@@ -135,6 +135,16 @@ while IFS= read -r client; do
     stop "client $client is missing from realm ooh; realm sync cannot create clients; inspect the initial realm setup"
   fi
   id="$(jq -er --arg client "$client" 'if length == 1 and .[0].clientId == $client then .[0].id else error("client missing or ambiguous") end' <<< "$representation")"
+  if [[ "$client" == ooh-admin-console ]]; then
+    client_config="$(kcadm get "clients/$id" -r ooh)"
+    printf '%s' "$client_config" | jq '.attributes = ((.attributes // {}) + {"oauth2.device.authorization.grant.enabled":"true"})' |
+      kcadm update "clients/$id" -r ooh -n -f - >/dev/null
+    client_config="$(kcadm get "clients/$id" -r ooh)"
+    jq -e '.attributes["oauth2.device.authorization.grant.enabled"] == "true"' <<< "$client_config" >/dev/null ||
+      stop "device sign-in is not enabled; inspect the existing admin console client"
+    unset client_config
+    printf 'Enabled device sign-in: ooh-admin-console\n'
+  fi
   endpoint="clients/$id/protocol-mappers/models"
   existing="$(kcadm get "$endpoint" -r ooh)"
   audiences="$(jq -c --arg client "$client" '.[$client]' <<< "$desired")"

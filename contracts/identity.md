@@ -7,7 +7,7 @@ use approvals. Brute-force protection is on. Access tokens last five minutes.
 | Client | Type | Use |
 |---|---|---|
 | ooh-workspace | Public, authorization code with PKCE S256 | Workspace; redirect URIs on https://harness.faysalaziz.com only |
-| ooh-admin-console | Public, authorization code with PKCE S256 | Admin Console; redirect URIs on https://admin.faysalaziz.com only |
+| ooh-admin-console | Public, authorization code with PKCE S256; device sign-in during Stage 1 | Admin Console; redirect URIs on https://admin.faysalaziz.com only |
 | ooh-harness-api | Confidential, service accounts | Harness service-to-service client credentials |
 | ooh-control-centre | Confidential, service accounts | Control Centre service-to-service client credentials |
 | ooh-model-gateway | Confidential, service accounts | Gateway service-to-service client credentials |
@@ -60,7 +60,8 @@ Future principals are created only in their implementation stages.
 | ooh-smoke | ooh.smoke | ooh.smoke | Stage 0 |
 | harness-api | skill.requests.slides, approvals.requested, audit.events, dlq.skill.results, dlq.approvals.decided | skill.results, approvals.decided | Later |
 | slides-worker | skill.results, audit.events, dlq.skill.requests.slides | skill.requests.slides | Later |
-| control-centre | approvals.decided, audit.events, dlq.approvals.requested | approvals.requested; all five dlq topics for admin view/replay | Later |
+| control-centre | approvals.decided, audit.events, dlq.approvals.requested | approvals.requested; all five dlq topics for admin view/replay | Stage 1 |
+| ooh-stage-check | approvals.requested | approvals.decided, audit.events | Stage 1 (check principal only) |
 | audit-writer | audit.events, dlq.skill.results, dlq.audit.events | skill.results, audit.events | Later |
 | safety-watcher | approvals.requested, audit.events, dlq.skill.results | skill.results | Later |
 | cost-meter | audit.events, dlq.skill.results | skill.results | Later |
@@ -75,3 +76,15 @@ through the Control Centre; browser clients never get Kafka credentials. Replay
 permissions and routes are deferred to their stage; no broad producer rights
 are granted here. Safety watcher may raise an approval request, never a skill
 job. The `ooh-smoke` principal must be refused writes to `skill.results`.
+
+The `control-centre` consumer group is exactly `control-centre`. The
+`ooh-stage-check` principal uses only group `ooh-stage-check`; it is reserved for
+installation checks and cannot borrow a production service's identity. Its
+short-lived check pods are removed after each check. DLQ screens and replay
+remain deferred even though the Control Centre has the contracted read ACLs.
+
+During Stage 1, device sign-in is enabled on the existing `ooh-admin-console`
+client for Aziz's browser sign-in during installation checks. Access and refresh
+tokens remain in shell variables and reach HTTP tools on standard input, never
+on a command line or in a saved file. The check refreshes before each admin call.
+Stage 4 disables device sign-in again when the Admin Console is available.

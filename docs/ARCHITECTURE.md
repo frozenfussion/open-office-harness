@@ -11,7 +11,7 @@ database rather than shared tables.
 |---|---|---|
 | Workspace (Angular 22) | Chat, uploads, outputs, approval inbox | Contact Kafka, models or the Control Centre database |
 | Admin Console (Angular 22) | Rights, tiers, registry, skills, approvals and audit screens | Contact the Harness directly |
-| Control Centre (.NET 10 modular monolith) | Deterministic rights, model and skill registries, approval rules, audit query contract | Call AI models |
+| Control Centre (.NET 10 modular monolith) | Deterministic rights, model and skill registries, approval rules, its own append-only change log and audit query | Call AI models |
 | Harness API (Python 3.14) | Conversations, agent loop, context, classifier routing, allowed tools, streaming | Decide rights or store secrets |
 | Model Gateway (Python 3.14) | Purpose/tier routing, credentials, rate limits, cost and failover | Know who the user is beyond user_id for cost |
 | Skill workers (Python 3.14) | One skill each; requests, files and results | Check rights after a job is published |
@@ -73,7 +73,10 @@ without waiting for workers or read-only consumers.
 ## Data and deployment
 
 Each service owns its own PostgreSQL database. The Harness owns conversations;
-the Control Centre owns policy and registries; the audit writer owns audit rows.
+the Control Centre owns policy, registries and its own append-only change log.
+It saves each change, its audit row and outgoing events in one database
+transaction; an outbox publisher sends the events to Kafka. The Audit writer
+(Stage 3) keeps the full trail across services by consuming audit.events.
 Other modules use contracts and never query those tables directly. Business
 records use deleted_at; audit records are append-only with database enforcement.
 Stage 0 creates only Keycloak's database. All stored times are UTC; the initial
