@@ -5,8 +5,8 @@ Read docs/specs/00-GLOBAL-RULES.md and the current stage spec in docs/specs/ bef
 ## 9. How to talk to Aziz (MANDATORY — identical copy in AGENTS.md and CLAUDE.md)
 
 - Anything Aziz must act on or decide goes at the TOP of the message.
-- Every command you give Aziz starts with one line saying exactly where to type it: "Type this in your ooh-01 terminal", "Type this in PowerShell on your PC", or "Do this in the DigitalOcean control panel". A command that reaches another machine through ssh is typed in the terminal you start from.
-- If a command asks for a password, say which one: "It will ask for ooh-01's sudo password".
+- Every command you give Aziz starts with one line saying exactly where to type it: "Type this in your harness terminal", "Type this in PowerShell on your PC", or "Do this in the DigitalOcean control panel". A command that reaches another machine through ssh is typed in the terminal you start from.
+- If a command asks for a password, say which one: "It will ask for harness's sudo password".
 - Say which folder to be in, with the exact `cd` command, or "the folder doesn't matter for this command".
 - Say where it goes: plain shell, or the Codex session.
 - Give every command one short plain-English line saying what it does.
@@ -22,7 +22,7 @@ Read docs/specs/00-GLOBAL-RULES.md and the current stage spec in docs/specs/ bef
 |---|---|
 | **Aziz** | Owns every decision. Runs every `sudo` line and every deploy to the cluster himself, in a plain terminal. Sets up the Droplet, DNS and DigitalOcean resources by hand. Tests each stage. Says when a stage is accepted. |
 | **Claude** (orchestrator) | Writes the stage specs, splits each spec into Parts, keeps `docs/STATUS.md` and the plan in step. Does not write product code. |
-| **Codex** (builder, one window per Part) | Builds exactly what its Part of the spec says, in its own worktree on the Droplet `ooh-01`. Writes code, manifests, scripts, tests and docs. Runs only checks that need no `sudo` and change nothing in the cluster. Reports back in the format in section 7. |
+| **Codex** (builder, one window per Part) | Builds exactly what its Part of the spec says, in its own worktree on the Droplet `harness`. Writes code, manifests, scripts, tests and docs. Runs only checks that need no `sudo` and change nothing in the cluster. Reports back in the format in section 7. |
 | **Opus** (reviewer) | Reviews each finished Part against its spec and this file, with the checklist in section 8, before Aziz tests. |
 
 Codex **never**:

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# One-time setup of the Droplet ooh-01. Aziz runs it:  sudo install/01-server-setup.sh
+# One-time setup of the Droplet harness. Aziz runs it:  sudo install/01-server-setup.sh
 # Re-runnable: every step checks first and skips what is already done.
 # Written by the spec author for Stage 0. Codex does not change this file.
 set -euo pipefail
@@ -24,7 +24,14 @@ TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 
 say "1/7 Base packages"
 apt-get update -y
-DEBIAN_FRONTEND=noninteractive apt-get install -y git curl jq ca-certificates gnupg unzip shellcheck
+DEBIAN_FRONTEND=noninteractive apt-get install -y git curl jq ca-certificates gnupg unzip shellcheck tmux fail2ban
+
+# Password login is used for SSH, so ban addresses that keep guessing.
+if [[ ! -f /etc/fail2ban/jail.d/ooh-sshd.local ]]; then
+  printf '[sshd]\nenabled = true\nmaxretry = 5\nfindtime = 10m\nbantime = 1h\n' > /etc/fail2ban/jail.d/ooh-sshd.local
+fi
+systemctl enable --now fail2ban >/dev/null
+systemctl restart fail2ban
 
 say "2/7 GitHub CLI (gh) from GitHub's apt repository"
 if [[ ! -f /etc/apt/sources.list.d/github-cli.list ]]; then
@@ -96,5 +103,7 @@ echo "node:        $(node --version)"
 echo "gh:          $(gh --version | sed -n 1p)"
 echo "kubeconform: $(/usr/local/bin/kubeconform -v)"
 echo "uv:          $(/usr/local/bin/uv --version)"
+echo "tmux:        $(tmux -V)"
+echo "fail2ban:    $(systemctl is-active fail2ban)"
 k3s kubectl get nodes
 echo "DONE"
