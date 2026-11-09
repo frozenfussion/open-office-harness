@@ -10,7 +10,10 @@ Written 2026-11-08 by Claude (orchestrator). Read `00-GLOBAL-RULES.md` first; it
 - 07 Nov 16:50 — No clicking in consoles for AWS: Terraform only. The base sandbox where the harness really runs is a DigitalOcean Droplet.
 - 07 Nov 16:55 — Aziz sets up DigitalOcean by hand; he likes getting his hands dirty and expects participants to be able to do the same.
 - 07 Nov 16:06 — Kafka only where it solves a real engineering problem.
-- 08 Nov 12:50 — Hostnames `app.`, `admin.`, `api.`, `cc.`, `auth.` on `faysalaziz.com`; gateway, Kafka and database internal only.
+- 08 Nov 12:50 — Hostnames on `faysalaziz.com`; gateway, Kafka and database internal only.
+- 09 Nov 14:42 — "I don't like the name app. Let's call it harness."
+- 09 Nov 14:56 — Three public names, all on the Droplet `harness`: `harness.` (Workspace + Harness API under `/api`), `admin.` (Admin Console + Control Centre API under `/api`), `auth.` (Keycloak). Aziz: "you have an exclusive yes to create the A records".
+- 09 Nov 14:39 — Droplet `harness` created by Aziz, password login (no SSH keys).
 - 08 Nov 12:50 — "Rehearse everything end to end, no surprises."
 - 08 Nov 16:35 — "The entire work that we are going to do is the rehearsal." What goes to class is chosen afterwards.
 - 08 Nov 18:03 — Claude has full authority for research; Aziz keeps the decisions.
@@ -18,13 +21,13 @@ Written 2026-11-08 by Claude (orchestrator). Read `00-GLOBAL-RULES.md` first; it
 ## 1. Purpose
 
 Turn an empty Droplet and an empty repo into a running, secure, **empty** platform that every later stage builds on without changing it:
-k3s with HTTPS on all five hostnames, Kafka (KRaft) with the agreed topics, PostgreSQL, Keycloak with the `ooh` realm, object storage reachable — plus the repo skeleton and every contract between modules written down as files that a machine can check. No product code yet.
+k3s with HTTPS on all three hostnames, Kafka (KRaft) with the agreed topics, PostgreSQL, Keycloak with the `ooh` realm, object storage reachable — plus the repo skeleton and every contract between modules written down as files that a machine can check. No product code yet.
 
-## 2. Done when (all of these, checked by Aziz on ooh-01)
+## 2. Done when (all of these, checked by Aziz on harness)
 
 1. `install/40-check-platform.sh` prints `PASS` for every line and ends with `DONE`. It checks:
    a. all pods in `ooh-platform` and `cert-manager` are Ready;
-   b. a valid Let's Encrypt (production) certificate on each of the five hostnames, and `https://<host>/` answers 200 for `app`, `admin`, `api`, `cc` (placeholder pages) and `https://auth.faysalaziz.com/realms/ooh/.well-known/openid-configuration` answers 200 with `"issuer":"https://auth.faysalaziz.com/realms/ooh"`;
+   b. a valid Let's Encrypt (production) certificate on each of the three hostnames, `https://harness.faysalaziz.com/` and `https://admin.faysalaziz.com/` answer 200 (placeholder pages), `https://harness.faysalaziz.com/api/` and `https://admin.faysalaziz.com/api/` answer 200 (API placeholders), and `https://auth.faysalaziz.com/realms/ooh/.well-known/openid-configuration` answers 200 with `"issuer":"https://auth.faysalaziz.com/realms/ooh"`;
    c. a message produced to topic `ooh.smoke` by user `ooh-smoke` is read back by the same user, and the same user is **refused** when it tries to write to `skill.results`;
    d. every topic in section 6 exists with the partitions and retention given there;
    e. `SELECT 1` works against PostgreSQL as the `keycloak` role;
@@ -38,11 +41,11 @@ k3s with HTTPS on all five hostnames, Kafka (KRaft) with the agreed topics, Post
 ## 3. Prerequisites — Aziz by hand, before Part B is tested (Part A does not need them)
 
 Claude gives these to Aziz one step at a time; they go into the instructor runbook.
-1. **Droplet** `ooh-01`: Ubuntu 24.04 LTS, region Singapore (SGP1), 8 vCPU / 16 GB, SSH key, monitoring on. A user `aziz` with sudo.
-2. **Cloud firewall** on `ooh-01`: inbound TCP 22, 80, 443 only. Everything else denied (the Kubernetes API on 6443 is not public).
-3. **DNS**: A records `app`, `admin`, `api`, `cc`, `auth` on `faysalaziz.com` → the Droplet's public IPv4.
+1. **Droplet** `harness` (done 09 Nov): Ubuntu 24.04.5 LTS, 143.198.221.2, user `aziz` with sudo, password login.
+2. **Cloud firewall** on `harness`: inbound TCP 22, 80, 443 only. Everything else denied (the Kubernetes API on 6443 is not public).
+3. **DNS** (done 09 Nov): A records `harness`, `admin`, `auth` on `faysalaziz.com` → 143.198.221.2.
 4. **Spaces**: bucket `ooh-files` in SGP1 (private, no CDN) and an access key limited to that bucket. Key values are typed into `install/20-platform-secrets.sh` only.
-5. **Server setup**: clone the repo to `~/projects/open-office-harness`, run `sudo install/01-server-setup.sh` (installs git, gh, Node 26, k3s, kubectl access for `aziz`, kubeconform, uv). Then `gh auth login`, and install the Codex CLI and Claude Code as user `aziz`.
+5. **Server setup**: tmux session `harness`; clone the repo to `~/projects/open-office-harness`; run `sudo install/01-server-setup.sh` (installs git, gh, tmux, fail2ban, Node 26, k3s, kubectl access for `aziz`, kubeconform, uv); `gh auth login` + `gh auth setup-git` + git name/email; Claude Code and the Codex CLI as user `aziz`, each signed in.
 6. **Local settings file** (never in the repo): `~/.config/ooh/do.env`, made from `install/ooh.env.example` (Part B writes the example). Holds non-secret values that are personal or deployment-specific (the Let's Encrypt contact email, the Spaces region and bucket).
 
 ## 4. Decisions for this stage (fixed; versions verified 08 Nov 2026)
@@ -57,7 +60,7 @@ Claude gives these to Aziz one step at a time; they go into the instructor runbo
 | PostgreSQL | CloudNativePG operator **1.30.0**, PostgreSQL **18** (operator default image for 1.30, pinned by tag in the manifest), cluster `ooh-pg`, 1 instance, 20 Gi | One database per service, made by `Database` resources as services arrive; Stage 0 makes only `keycloak` |
 | Keycloak | Keycloak operator **26.8.2** (CRDs + operator from `keycloak/keycloak-k8s-resources` tag `26.8.2`), one instance, database `keycloak` on `ooh-pg` | Official operator; realm as a `KeycloakRealmImport` so it is in git |
 | Object storage | DigitalOcean Spaces bucket `ooh-files` (S3 API) | Same code works with Amazon S3 in Stage 6 |
-| Placeholder pages | `nginxinc/nginx-unprivileged` pinned by exact tag, one Deployment per host for `app`, `admin`, `api`, `cc`, page from a ConfigMap | Proves DNS + TLS for every name now; replaced by the real service in its stage |
+| Placeholder pages | `nginxinc/nginx-unprivileged` pinned by exact tag: four small Deployments — Workspace (`harness.` `/`), Harness API (`harness.` `/api`), Admin Console (`admin.` `/`), Control Centre API (`admin.` `/api`) — each page from a ConfigMap | Proves DNS, TLS and path routing now; replaced by the real service in its stage |
 | Contracts | OpenAPI 3.1 (YAML) for HTTP, JSON Schema draft 2020-12 for events and skills | Readable by people and machines; a schema registry is a later lesson |
 | Contract checks | Python 3.14 project in `contracts/check/` with `uv`; `jsonschema`, `openapi-spec-validator`, `pyyaml`, `pytest`, `ruff` at exact current versions | Proves every example matches its schema |
 
@@ -124,7 +127,7 @@ deploy/platform/postgres/db-keycloak.yaml    (Database resource + managed role)
 deploy/platform/keycloak/keycloak.yaml
 deploy/platform/keycloak/ingress.yaml
 deploy/platform/keycloak/realm-ooh.yaml      (KeycloakRealmImport)
-deploy/platform/placeholders/*.yaml          (ConfigMap + Deployment + Service + Ingress for app, admin, api, cc)
+deploy/platform/placeholders/*.yaml          (ConfigMap + Deployment + Service per placeholder; Ingress for harness. and admin. with `/` and `/api` paths)
 deploy/values/do.env                         (non-secret, non-personal values: domain, namespaces, sizes)
 install/ooh.env.example
 install/00-check-server.sh
@@ -135,7 +138,7 @@ install/40-check-platform.sh
 install/50-first-admin.sh
 ```
 What each does:
-- `00-check-server.sh` (no sudo): k3s node Ready, `kubectl` works for `aziz`, `~/.config/ooh/do.env` present and complete, the five names resolve to this Droplet's public IP, ports 80/443 reachable from outside (via the public IP, not localhost).
+- `00-check-server.sh` (no sudo): k3s node Ready, `kubectl` works for `aziz`, `~/.config/ooh/do.env` present and complete, the three names resolve to this Droplet's public IP, ports 80/443 reachable from outside (via the public IP, not localhost).
 - `10-platform-operators.sh` (no sudo): installs cert-manager, Strimzi (watching `ooh-platform`), CloudNativePG and the Keycloak operator (in `ooh-platform`) from pinned URLs; waits until each is Ready; re-runnable.
 - `20-platform-secrets.sh` (no sudo): creates, only if missing, the Kubernetes Secrets: the `keycloak` database role password and the Keycloak bootstrap admin (both generated, never printed), and the Spaces access key and secret (typed by Aziz, hidden input). Never overwrites an existing secret; prints which it created and which already existed.
 - `30-platform-apply.sh` (no sudo): renders `*.template.yaml` with values from `deploy/values/do.env` and `~/.config/ooh/do.env`, applies everything in `deploy/platform/` in order, waits for each to be Ready. Starts with `letsencrypt-staging`; switches the ingresses to `letsencrypt-prod` only after staging certificates are issued (protects against Let's Encrypt rate limits).
@@ -146,7 +149,7 @@ What each does:
 - Placeholder pages say: "open-office-harness · <Workspace | Admin Console | Harness API | Control Centre API> · arrives in Stage <N>". Plain HTML, no external fonts or scripts.
 - `README.md`: the Quick Guide in section 9, then "What is where" and "Versions" tables.
 
-Part B done when: every script passes `bash -n` and `shellcheck`; `kubeconform -strict` passes on all manifests (CRD kinds listed as skipped); Aziz has run scripts 00 → 50 on ooh-01 and `40-check-platform.sh` passes.
+Part B done when: every script passes `bash -n` and `shellcheck`; `kubeconform -strict` passes on all manifests (CRD kinds listed as skipped); Aziz has run scripts 00 → 50 on harness and `40-check-platform.sh` passes.
 
 ### Merge (after both Parts pass review)
 
@@ -174,7 +177,7 @@ Topics are created only by `KafkaTopic` resources (auto-create off). A new skill
 
 ## 7. Order of work
 
-**Part A** needs no server: it can run on ooh-01 or any machine with `uv`. Write, check, commit, report, stop.
+**Part A** needs no server: it can run on harness or any machine with `uv`. Write, check, commit, report, stop.
 
 **Part B:**
 1. Write the manifests and scripts; run `bash -n`, `shellcheck`, `kubeconform`. Commit.
@@ -209,7 +212,7 @@ If Codex believes one of these must change, it stops and asks Aziz with the reas
 
 | Step | Failure | How it shows | Action |
 |---|---|---|---|
-| DNS | A record missing or not yet spread | `00-check-server.sh`: `FAIL app.faysalaziz.com resolves to …` | Wait, re-check; certificates must not be requested before DNS is right |
+| DNS | A record missing or not yet spread | `00-check-server.sh`: `FAIL harness.faysalaziz.com resolves to …` | Wait, re-check; certificates must not be requested before DNS is right |
 | Firewall | 80 closed | certificates stay "pending"; HTTP-01 challenge fails | Cloud firewall must allow 80 and 443 from anywhere |
 | Let's Encrypt | rate limit from repeated prod requests | cert-manager events say `rateLimited` | This is why staging comes first; wait for the limit window, do not loop |
 | Operators | a pinned URL moved | `STOP: <url> not found` | Codex finds the correct URL for the same version on the vendor's release page and asks Aziz before changing the version |

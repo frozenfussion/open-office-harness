@@ -10,7 +10,7 @@ Written 2026-11-08, adapted from the HOORA AI method.
 |---|---|
 | **Aziz** | Owns every decision. Runs every `sudo` line and every deploy to the cluster himself, in a plain terminal. Sets up the Droplet, DNS and DigitalOcean resources by hand. Tests each stage. Says when a stage is accepted. |
 | **Claude** (orchestrator) | Writes the stage specs, splits each spec into Parts, keeps `docs/STATUS.md` and the plan in step. Does not write product code. |
-| **Codex** (builder, one window per Part) | Builds exactly what its Part of the spec says, in its own worktree on the Droplet `ooh-01`. Writes code, manifests, scripts, tests and docs. Runs only checks that need no `sudo` and change nothing in the cluster. Reports back in the format in section 7. |
+| **Codex** (builder, one window per Part) | Builds exactly what its Part of the spec says, in its own worktree on the Droplet `harness`. Writes code, manifests, scripts, tests and docs. Runs only checks that need no `sudo` and change nothing in the cluster. Reports back in the format in section 7. |
 | **Opus** (reviewer) | Reviews each finished Part against its spec and this file, with the checklist in section 8, before Aziz tests. |
 
 Codex **never**:
@@ -48,8 +48,8 @@ When Codex needs something only Aziz may do, it writes the exact commands into a
 - Exact versions are fixed and dated in each stage spec.
 
 **Places and names**
-- Droplet `ooh-01` (DigitalOcean). Codex works there as user `aziz`, one git worktree per Part under `~/projects/`.
-- Public hostnames (A records to `ooh-01`): `app.faysalaziz.com` Workspace, `admin.faysalaziz.com` Admin Console, `api.faysalaziz.com` Harness API, `cc.faysalaziz.com` Control Centre API, `auth.faysalaziz.com` Keycloak. Model Gateway, Kafka and PostgreSQL have no public name.
+- Droplet `harness` (DigitalOcean, 143.198.221.2), password login for user `aziz`. Main clone `~/projects/open-office-harness`; one git worktree per Part under `~/projects/worktrees/`; local settings in `~/.config/ooh/`. Everyone works inside the tmux session `harness` (windows: `shell`, `claude`, `codex-a`, `codex-b`, more as needed).
+- Public hostnames (A records to `harness`): `harness.faysalaziz.com` = Workspace app, with the Harness API under `/api`; `admin.faysalaziz.com` = Admin Console, with the Control Centre API under `/api`; `auth.faysalaziz.com` = Keycloak. Each app talks only to its own host (no cross-site calls). Model Gateway, Kafka and PostgreSQL have no public name.
 - Kubernetes namespaces: `ooh-platform` (Kafka, PostgreSQL, Keycloak) and `ooh-apps` (our services).
 - Secrets live only in Kubernetes Secrets, created by scripts Aziz runs. The repo holds `.env.example` files and `*.example.yaml` files with names and no values.
 - Times are stored in UTC. The display time zone is a setting (first value `Asia/Kuala_Lumpur`). All user-facing text is English.
@@ -91,7 +91,7 @@ Each service, worker, consumer and app is its own package with its own lock file
 - No code comments that explain the obvious; a short comment where the reason is not obvious.
 - Each source file starts with `// SPDX-License-Identifier: AGPL-3.0-only` (or `#` for Python, YAML and shell).
 
-**C# (.NET 10)**: nullable enabled, warnings as errors, `dotnet format --verify-no-changes` clean, tests with xUnit, `dotnet test` must pass. EF Core migrations only; a migration that has been applied on `ooh-01` is never edited, add a new one.
+**C# (.NET 10)**: nullable enabled, warnings as errors, `dotnet format --verify-no-changes` clean, tests with xUnit, `dotnet test` must pass. EF Core migrations only; a migration that has been applied on `harness` is never edited, add a new one.
 
 **Python 3.14**: `uv` for packages and lock file, `ruff check` and `ruff format --check` clean, tests with `pytest`, all must pass. Type hints on every function.
 
@@ -105,7 +105,7 @@ Each service, worker, consumer and app is its own package with its own lock file
 
 1. Claude commits the stage spec to `main`. That commit is the stage's **base commit**, written in the spec.
 2. Each Part runs in its own Codex window, in its own worktree, on its own branch, made by Codex from the base commit:
-   `git -C ~/projects/open-office-harness worktree add ~/projects/ooh-stage-N-part-x -b stage-N-part-x <base commit>`
+   `git -C ~/projects/open-office-harness worktree add ~/projects/worktrees/stage-N-part-x -b stage-N-part-x <base commit>`
 3. **Part rule:** a Part changes only the files its spec lists. Part A changes no file Part B lists, and the reverse. If a Part needs to change another Part's file, it stops and asks.
 4. When its Part is complete and all checks pass, Codex commits on its branch and writes its report (section 7).
 5. Opus reviews each Part. Codex fixes findings on the same branch. Opus re-reviews.
@@ -156,8 +156,8 @@ Report findings as a numbered list: file, line, what is wrong, what the spec say
 ## 9. How to talk to Aziz (MANDATORY — identical copy in AGENTS.md and CLAUDE.md)
 
 - Anything Aziz must act on or decide goes at the TOP of the message.
-- Every command you give Aziz starts with one line saying exactly where to type it: "Type this in your ooh-01 terminal", "Type this in PowerShell on your PC", or "Do this in the DigitalOcean control panel". A command that reaches another machine through ssh is typed in the terminal you start from.
-- If a command asks for a password, say which one: "It will ask for ooh-01's sudo password".
+- Every command you give Aziz starts with one line saying exactly where to type it: "Type this in your harness terminal", "Type this in PowerShell on your PC", or "Do this in the DigitalOcean control panel". A command that reaches another machine through ssh is typed in the terminal you start from.
+- If a command asks for a password, say which one: "It will ask for harness's sudo password".
 - Say which folder to be in, with the exact `cd` command, or "the folder doesn't matter for this command".
 - Say where it goes: plain shell, or the Codex session.
 - Give every command one short plain-English line saying what it does.
