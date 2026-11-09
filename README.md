@@ -295,9 +295,11 @@ audiences. Verification reads both included client and custom audiences and
 ignores harmless extra config defaults. Admin Console expects only
 `ooh-control-centre`. Other mapper types, users and existing client credentials
 are preserved. It uses Keycloak's own admin CLI inside
-the pod with the bootstrap password passed through stdin and an explicit mode
-600 config file under a writable `/tmp` emptyDir. Temporary CLI settings are
-removed on exit; the password is never passed in a command-line argument. CLI errors are shown with credentials and tokens
+the pod using its operator-provided bootstrap environment variables. Credentials
+expand only inside the pod; the realm-sync script never reads the Secret on the
+Droplet or includes credential values in kubectl arguments. It uses a mode 600
+config file under a writable `/tmp` emptyDir, removed on exit. Login errors have
+exact credentials redacted inside the pod before output leaves it. CLI errors are shown with credentials and tokens
 redacted; successful login output is suppressed.
 Keycloak runs as a non-root user; its root filesystem remains writable because
 the stock image builds its configuration at startup.

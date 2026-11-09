@@ -12,8 +12,6 @@ for tool in kubectl jq awk sed; do command -v "$tool" >/dev/null || stop "missin
 redact_errors() {
   local line
   while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ -n "${password:-}" ]]; then line="${line//"$password"/[REDACTED]}"; fi
-    if [[ -n "${username:-}" ]]; then line="${line//"$username"/[REDACTED]}"; fi
     printf '%s\n' "$line"
   done | sed -E \
     -e 's/[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+/[REDACTED TOKEN]/g' \
@@ -71,22 +69,38 @@ trap cleanup EXIT
 config_dir="$(kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- /bin/bash -c 'umask 077; mktemp -d /tmp/ooh-realm-sync.XXXXXXXX')"
 [[ "$config_dir" =~ ^/tmp/ooh-realm-sync\.[a-zA-Z0-9]+$ ]] || stop "could not create private Keycloak CLI settings directory"
 config="$config_dir/kcadm.config"
-bootstrap="$(kubectl -n "$PLATFORM_NAMESPACE" get secret keycloak-bootstrap -o json)"
-username="$(jq -er '.data.username | @base64d' <<< "$bootstrap")"
-password="$(jq -er '.data.password | @base64d' <<< "$bootstrap")"
-# Credentials enter the pod over stdin and are never written to repository files or logs.
-# shellcheck disable=SC2016 # Expanded by bash inside the Keycloak pod.
-printf '%s\n%s\n' "$username" "$password" |
-  kubectl -n "$PLATFORM_NAMESPACE" exec -i ooh-keycloak-0 -c keycloak -- /bin/bash -c '
-    set -euo pipefail
-    set +x
-    umask 077
-    read -r username
-    read -r password
-    printf "%s\n" "$password" | /opt/keycloak/bin/kcadm.sh config credentials --config "$1" --server http://localhost:8080 --realm master --user "$username" >/dev/null
+# The quoted shell command expands credentials only inside the pod.
+# shellcheck disable=SC2016 # Expansion is intentionally performed by the pod shell.
+kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- sh -c '
+  set -eu
+  set +x
+  umask 077
+  if [ -z "${KC_BOOTSTRAP_ADMIN_USERNAME:-}" ] || [ -z "${KC_BOOTSTRAP_ADMIN_PASSWORD:-}" ]; then
+    printf "%s\n" "Bootstrap admin environment is missing inside the Keycloak pod" >&2
+    exit 1
+  fi
+  if error_text="$(/opt/keycloak/bin/kcadm.sh config credentials --config "$1" --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" 2>&1 >/dev/null)"; then
     chmod 600 "$1"
-  ' -- "$config" 2> >(redact_errors) || stop "Keycloak CLI login failed; see the redacted error above, then re-run step 6"
-unset bootstrap
+  else
+    status=$?
+    # Redact exact credentials before any diagnostic can leave the pod.
+    for value in "$KC_BOOTSTRAP_ADMIN_PASSWORD" "$KC_BOOTSTRAP_ADMIN_USERNAME"; do
+      remaining="$error_text"
+      error_text=""
+      while :; do
+        case "$remaining" in
+          *"$value"*)
+            error_text="$error_text${remaining%%"$value"*}[REDACTED]"
+            remaining="${remaining#*"$value"}"
+            ;;
+          *) error_text="$error_text$remaining"; break ;;
+        esac
+      done
+    done
+    printf "%s\n" "$error_text" >&2
+    exit "$status"
+  fi
+' -- "$config" 2> >(redact_errors) || stop "Keycloak CLI login failed; see the redacted error above, then re-run step 6"
 kcadm() {
   local options=()
   case "$1" in create|update) options+=(-i) ;; esac
@@ -159,5 +173,4 @@ while IFS= read -r client; do
   fi
   printf 'Synced audience mappers: %s\n' "$client"
 done < <(jq -r 'keys[]' <<< "$desired")
-unset username password
 printf 'DONE\n'
