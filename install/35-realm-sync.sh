@@ -9,6 +9,39 @@ cd "$ROOT"
 # shellcheck source=/dev/null
 source "$ROOT/deploy/values/do.env"
 for tool in kubectl jq awk; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
+wait_keycloak() {
+  local deadline=$((SECONDS + 600)) resources
+  printf 'Waiting for Keycloak and its current pod revision to be Ready\n'
+  while ((SECONDS < deadline)); do
+    # Read fresh objects each time: a replaced pod can be Failed, terminating or temporarily absent.
+    if resources="$(kubectl -n "$PLATFORM_NAMESPACE" --request-timeout=10s get keycloak/ooh-keycloak statefulset/ooh-keycloak pod/ooh-keycloak-0 --ignore-not-found -o json 2>/dev/null)" &&
+      jq -e '
+        ([.items[]? | select(.kind == "Keycloak")][0] // {}) as $cr |
+        ([.items[]? | select(.kind == "StatefulSet")][0] // {}) as $sts |
+        ([.items[]? | select(.kind == "Pod")][0] // {}) as $pod |
+        ($cr.metadata.deletionTimestamp == null) and
+        ($cr.metadata.generation != null) and
+        ($cr.status.observedGeneration == $cr.metadata.generation) and
+        any($cr.status.conditions[]?; .type == "Ready" and .status == "True" and .observedGeneration == $cr.metadata.generation) and
+        ($sts.metadata.deletionTimestamp == null) and
+        ($sts.metadata.generation != null) and
+        (($sts.status.observedGeneration // 0) >= $sts.metadata.generation) and
+        (($sts.status.updateRevision // "") != "") and
+        ($sts.status.currentRevision == $sts.status.updateRevision) and
+        ($sts.status.readyReplicas == $sts.spec.replicas) and
+        ($sts.status.updatedReplicas == $sts.spec.replicas) and
+        ($pod.metadata.deletionTimestamp == null) and
+        ($pod.status.phase == "Running") and
+        ($pod.metadata.labels["controller-revision-hash"] == $sts.status.updateRevision) and
+        any($pod.status.conditions[]?; .type == "Ready" and .status == "True")
+      ' <<< "$resources" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  stop "Keycloak rollout is not Ready on the current revision after 10 minutes; inspect the Keycloak CR, StatefulSet and pod, then re-run step 6"
+}
+wait_keycloak
 # Read only the client IDs and included audiences from the controlled realm YAML format.
 awk '/(^|[[:space:]])[&*][a-zA-Z0-9]/ {exit 1}' deploy/platform/keycloak/realm-ooh.yaml || stop "realm client format changed; expand YAML aliases before syncing"
 rows="$(awk '

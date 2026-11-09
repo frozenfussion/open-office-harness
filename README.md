@@ -202,6 +202,7 @@
 | `platform namespace missing` | Run step 4 (operators) first, then repeat step 5. |
 | `invalid deployment value`, `usage: install/30-platform-apply.sh` | Check deploy/values/do.env and use step 6, or `--check` for local validation. |
 | `existing file PVC has an unsupported storage class` | Inspect the file claim before retrying; do not replace or delete it. |
+| `Keycloak rollout is not Ready on the current revision` | Inspect the Keycloak CR, StatefulSet and pod. Allow rollout to finish, then repeat step 6. Both apply and realm sync wait for a non-terminating Ready pod on the target revision. |
 | `realm audience sync failed`, `realm client format changed`, `could not create private Keycloak CLI settings directory`, `audience verification failed` | Check Keycloak readiness, the bootstrap secret reference and realm manifest format, then repeat step 6. |
 | `required secret missing` | Run step 5 first. |
 | `certificate pending for` | Check DNS and DigitalOcean inbound TCP 80/443; inspect cert-manager events and logs. Staging issuance is the real outside check. |
@@ -276,6 +277,8 @@ No application or database data is removed by these scripts. All persistent
 volumes use the k3s local-path provisioner. The retaining StorageClass protects
 new volumes; the apply script patches the reclaim policy of bound Kafka,
 PostgreSQL and file PVs to Retain without replacing their claims.
+Apply and realm sync wait up to ten minutes for the current Keycloak CR and
+StatefulSet rollout, including a Ready pod matching the target revision.
 Keycloak realm import creates the initial realm. The realm-sync script then
 updates only client audience mappers to match the manifest, preserving other
 mapper types, users and credentials. It uses Keycloak's own admin CLI inside

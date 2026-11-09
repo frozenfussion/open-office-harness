@@ -68,6 +68,38 @@ retain_existing() {
     sed -i "s/storageClassName: local-path-retain/storageClassName: $existing_class/" "$tmp/deploy/platform/storage/files-pvc.yaml"
   fi
 }
+wait_keycloak() {
+  local deadline=$((SECONDS + 600)) resources
+  printf 'Waiting for Keycloak and its current pod revision to be Ready\n'
+  while ((SECONDS < deadline)); do
+    # Read fresh objects each time: a replaced pod can be Failed, terminating or temporarily absent.
+    if resources="$(kubectl -n "$PLATFORM_NAMESPACE" --request-timeout=10s get keycloak/ooh-keycloak statefulset/ooh-keycloak pod/ooh-keycloak-0 --ignore-not-found -o json 2>/dev/null)" &&
+      jq -e '
+        ([.items[]? | select(.kind == "Keycloak")][0] // {}) as $cr |
+        ([.items[]? | select(.kind == "StatefulSet")][0] // {}) as $sts |
+        ([.items[]? | select(.kind == "Pod")][0] // {}) as $pod |
+        ($cr.metadata.deletionTimestamp == null) and
+        ($cr.metadata.generation != null) and
+        ($cr.status.observedGeneration == $cr.metadata.generation) and
+        any($cr.status.conditions[]?; .type == "Ready" and .status == "True" and .observedGeneration == $cr.metadata.generation) and
+        ($sts.metadata.deletionTimestamp == null) and
+        ($sts.metadata.generation != null) and
+        (($sts.status.observedGeneration // 0) >= $sts.metadata.generation) and
+        (($sts.status.updateRevision // "") != "") and
+        ($sts.status.currentRevision == $sts.status.updateRevision) and
+        ($sts.status.readyReplicas == $sts.spec.replicas) and
+        ($sts.status.updatedReplicas == $sts.spec.replicas) and
+        ($pod.metadata.deletionTimestamp == null) and
+        ($pod.status.phase == "Running") and
+        ($pod.metadata.labels["controller-revision-hash"] == $sts.status.updateRevision) and
+        any($pod.status.conditions[]?; .type == "Ready" and .status == "True")
+      ' <<< "$resources" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  stop "Keycloak rollout is not Ready on the current revision after 10 minutes; inspect the Keycloak CR, StatefulSet and pod, then re-run step 6"
+}
 kubectl apply -f "$tmp/deploy/platform/namespaces.yaml"
 retain_existing
 # local-path binds on first use; the storage check pod triggers provisioning.
@@ -86,9 +118,10 @@ kubectl -n "$PLATFORM_NAMESPACE" wait --for=condition=Ready cluster.postgresql.c
 kubectl apply -f "$tmp/deploy/platform/postgres/db-keycloak.yaml"
 kubectl -n "$PLATFORM_NAMESPACE" wait --for=jsonpath='{.status.applied}'=true databaserole/keycloak database/keycloak --timeout=300s
 kubectl apply -f "$tmp/deploy/platform/keycloak/keycloak.yaml"
-kubectl -n "$PLATFORM_NAMESPACE" wait --for=condition=Ready keycloak/ooh-keycloak --timeout=600s
+wait_keycloak
 kubectl apply -f "$tmp/deploy/platform/keycloak/realm-ooh.yaml"
 kubectl -n "$PLATFORM_NAMESPACE" wait --for=condition=Done keycloakrealmimport/ooh --timeout=300s
+wait_keycloak
 install/35-realm-sync.sh
 retain_existing
 for file in "$tmp"/deploy/platform/placeholders/*.yaml "$tmp"/deploy/platform/keycloak/ingress.yaml; do
