@@ -236,3 +236,24 @@ Things that look wrong but are normal: the first certificate takes a minute or t
 ## 12. Out of scope for Stage 0
 
 Any product service, any database other than `keycloak`, Kafka users for future services, Helm charts, the Angular apps, the design fonts, monitoring and tracing, backups, AWS. Codex does not pre-build any of it.
+
+## 13. Changes agreed during the build (09 Nov 2026) — these override the sections above
+
+| # | Change | Who / when |
+|---|---|---|
+| 1 | Droplet is `harness` (143.198.221.2), password login; three public names `harness.`, `admin.`, `auth.` with each API under `/api` of its app's host | Aziz, 14:42–14:56 (already in sections 0–4) |
+| 2 | Files are stored on the Droplet disk in a Kubernetes volume `ooh-files` (20Gi). **No DigitalOcean Spaces, no S3 server.** Prerequisite 4 (Spaces) is removed; the storage check writes and reads a file on that volume | Aziz, 16:18 |
+| 3 | `00-check-server.sh` checks DNS, Traefik Ready and local HTTP/HTTPS answers only; reaching the server from outside is proven by the Let's Encrypt staging certificate in `30-platform-apply.sh` | Spec author, 15:55 |
+| 4 | Generic skill events: `skill.requested` = `{skill, skill_version, input}`; `skill.result` = `{skill, status, output{file_key, mime, summary} or null, error{code, message} or null}` with status tied to output/error; each skill's own schemas live only under `contracts/skills/<skill>/` | Spec author (Part A review), 16:00 |
+| 5 | `GET /api/models`: `tier` required only when `purpose=chat`. Registry answer: `model_entry_id, purpose, tier, role, location, api_type, endpoint_url, model_id, secret_ref` (Secret **name** only), `rate_limit_per_minute, daily_budget, health` | Spec author, 16:00 |
+| 6 | Token audience = the client id of the API being called. Service accounts may pass a `user_id`; user tokens may not. Fifth client `ooh-model-gateway` (confidential, service account), whose tokens carry audience `ooh-control-centre`. The Control Centre client gets no Model Gateway audience | Spec author, 16:00 and 17:06 |
+| 7 | `ooh.smoke` carries free-form test messages: no schema, no envelope | Spec author, 16:00 |
+| 8 | Keycloak runs with `startOptimized: false` (stock image). If the Keycloak pod crash-loops on an old revision after a fix, delete that pod once | Build finding, 16:37–16:45 |
+| 9 | Downloads in the scripts retry 5 times; only HTTP 404 is reported as "not found" | Build finding, 16:16 |
+| 10 | Live realm changes go through `install/35-realm-sync.sh` (Keycloak's own admin CLI), because a realm import only creates a realm | Spec author, 17:06 |
+| 11 | All volumes (Kafka, PostgreSQL, `ooh-files`) keep k3s's `local-path` storage class; `30-platform-apply.sh` patches each bound volume to reclaim policy **Retain** and `40-check-platform.sh` checks it — nothing is ever deleted. No extra StorageClass (Strimzi cannot change a node pool's storage class) | Spec author, 17:06, revised 17:55 |
+| 12 | Codex permissions on the Droplet: "Approve for me" (sandbox on). Ubuntu 24.04 needs an AppArmor profile for `/usr/bin/bwrap` for the Codex sandbox to work | Aziz + Claude, 15:44–15:50 |
+| 14 | PostgreSQL's first start creates the `keycloak` database and owner (the proven setting); `db-keycloak.yaml` also manages them declaratively | Spec author, 17:55 |
+| 15 | `35-realm-sync.sh` only updates audience mappers of existing clients; it never creates a client (a missing client = STOP with the reason) | Spec author, 17:55 |
+| 16 | The realm sync logs in **inside** the Keycloak pod with the pod's own `KC_BOOTSTRAP_ADMIN_*` settings; the password is never read on the Droplet. It does reach `kcadm.sh`'s command line inside that pod — accepted, because kcadm cannot read a password from stdin and the pod already holds it | Spec author, 18:10 |
+| 13 | Cosmetics deferred to the apps stage: realm display name "Open Office Harness", branded sign-in page, no forced password change for an admin who set his own password | Aziz, 16:56 |
