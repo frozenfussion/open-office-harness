@@ -104,6 +104,7 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
    terminal. When the script prints a browser link and code, open that link,
    enter the code and sign in as an administrator in your browser. Tokens are
    held only in shell variables and refreshed before each admin call.
+   Device sign-in uses PKCE S256; its random verifier stays in a shell variable.
    Good result: every check prints `PASS`, then `DONE`.
 
    ```bash
@@ -243,6 +244,7 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
     | Service token for a client: Keycloak refused the client credentials | Inspect that client's Keycloak credentials and service-account settings privately; fix them and repeat 62. No API check ran for that failed token request. |
     | Service token endpoint unreachable or no valid access token returned | Check Keycloak availability and its token endpoint; fix the token failure before repeating 62. |
     | Device sign-in unavailable | Run `install/35-realm-sync.sh`, then repeat 62. This updates existing clients only. |
+    | Device sign-in FAIL with Keycloak error and error_description | Follow the named Keycloak error; inspect device sign-in and PKCE S256 settings on the existing admin-console client. Codes and tokens are omitted from the diagnostic. |
     | Device sign-in refused, expired, invalid timing or missing refresh token | Retry and sign in promptly as an administrator; inspect Keycloak client settings if it repeats. |
     | Account is not an administrator | Repeat the check and sign in with the ooh-admin account. |
     | KafkaTopic partition count could not be read or is invalid | Inspect the named KafkaTopic and its spec.partitions, then retry. |
