@@ -1,7 +1,7 @@
 # Stage 0 — Foundation
 
-Updated 2026-11-09. Implementation and merged checks passed. Stage 0 is awaiting
-reboot verification and Aziz's acceptance; it is not yet accepted or tagged.
+Stage 0 accepted by Aziz on 09 Nov 2026 18:57 MYT. Implementation, merged
+checks and reboot verification passed.
 
 ## Merged sources
 
@@ -61,14 +61,16 @@ resources; their live apply and readiness results are recorded below.
   volume write/read, and Retain policy for Kafka, PostgreSQL and file PVs.
 - Aziz created the first administrator and signed in successfully; forced
   password change and the profile form worked. No account details are recorded.
+- Reboot test passed: after `sudo reboot`, every pod came back by itself and
+  `install/40-check-platform.sh` printed **27 PASS, 0 FAIL, DONE**.
 - The merge checks made no cluster changes. The live results above were reported
   from the shell-tile deployment runs, not rerun by Codex during merge.
 
 ## Spec changes
 
-The agreed build changes are recorded in
+The agreed build changes are recorded in `docs/specs/stage-0-foundation.md`
+section 13, merged as
 [pull request #3: Stage 0 spec changes agreed during the build](https://github.com/frozenfussion/open-office-harness/pull/3).
-That PR was open when checked; its branch was not merged as part of this task.
 It records the Droplet/hostnames, disk storage instead of Spaces, outside access
 proved by staging certificates, generic skill events, model-registry contract
 changes, token audiences and the fifth client, free-form smoke messages,
@@ -83,7 +85,4 @@ semantic audience verification and pod-local bootstrap authentication.
 
 ## Open items
 
-1. Reboot test: Aziz reboots harness, allows up to five minutes, and confirms the
-   platform check again prints all 27 PASS lines and DONE.
-2. Aziz explicitly accepts Stage 0. Only after that may the accepted-stage merge
-   into `main` and tag `spine-v0.0` proceed.
+Open items moved to the next stages: branded sign-in page (Jira HEA-71).
