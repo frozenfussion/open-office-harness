@@ -33,7 +33,7 @@ public sealed class KafkaClient : IKafka, IDisposable
       SaslUsername = Required("CC_KAFKA_USERNAME"),
       SaslPassword = Required("CC_KAFKA_PASSWORD")
     };
-    producer = new ProducerBuilder<string, string>(new ProducerConfig(config) { EnableIdempotence = true, Acks = Acks.All }).SetLogHandler((_, _) => { }).SetErrorHandler((_, _) => { }).Build();
+    producer = new ProducerBuilder<string, string>(new ProducerConfig(config) { EnableIdempotence = true, Acks = Acks.All, MessageTimeoutMs = 10000 }).SetLogHandler((_, _) => { }).SetErrorHandler((_, _) => { }).Build();
     consumer = new ConsumerBuilder<string, string>(new ConsumerConfig(config)
     {
       GroupId = "control-centre",
@@ -84,10 +84,9 @@ public sealed class ApprovalConsumer(CentreDb db, SchemaChecks schemas, IRetryDe
     }
     catch (System.Text.Json.JsonException) { }
     node = node as JsonObject;
-    if (Guid.TryParse(node?["event_id"]?.ToString(), out var handledId) &&
-        await db.ProcessedEvents.AnyAsync(x => x.EventId == handledId, ct)) return;
+    var valid = schemas.Envelope(node);
     var waits = new[] { 1, 5, 15 };
-    for (var attempt = 0; attempt < waits.Length; attempt++)
+    for (var attempt = 0; valid && attempt < waits.Length; attempt++)
     {
       try { await Process(record, node, ct); return; }
       catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
@@ -102,7 +101,7 @@ public sealed class ApprovalConsumer(CentreDb db, SchemaChecks schemas, IRetryDe
     var user = node?["user_id"] is JsonValue userValue && userValue.TryGetValue<string>(out var parsedUser) && !string.IsNullOrWhiteSpace(parsedUser) ? parsedUser : "system";
     if (eventId is not null && await db.ProcessedEvents.AnyAsync(x => x.EventId == eventId, ct)) return;
     if (eventId is not null) db.ProcessedEvents.Add(new ProcessedEvent { EventId = eventId.Value, Topic = record.Topic });
-    Api.Event(db, "dlq.approvals.requested", "dlq.entry", correlation, user, new { original_message = string.IsNullOrEmpty(record.Value) ? "<empty>" : record.Value, error = new { code = "processing_failed", message = "Approval request failed after three attempts" } });
+    Api.Event(db, "dlq.approvals.requested", "dlq.entry", correlation, user, new { original_message = string.IsNullOrEmpty(record.Value) ? "<empty>" : record.Value, error = new { code = valid ? "processing_failed" : "invalid_event", message = valid ? "Approval request failed after three attempts" : "Invalid approval request" } });
     Api.Change(db, "system", "approval.failed", eventId?.ToString() ?? "unreadable", correlation, new { outcome = "dlq" }, user);
     await db.SaveChangesAsync(ct);
   }
@@ -165,9 +164,9 @@ public sealed class KafkaWorker(IServiceScopeFactory scopes, IKafka kafka, ILogg
         }
       }
       catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-      catch (Exception)
+      catch (Exception error)
       {
-        logger.LogWarning("Kafka work deferred; will retry");
+        Diagnostics.Failure(logger, "Kafka work deferred; will retry", error);
         await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
       }
     }

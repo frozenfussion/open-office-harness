@@ -17,6 +17,7 @@ builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole();
 // Framework request logging includes paths, which can contain a person's identifier.
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.AspNetCore.Authentication", LogLevel.Information);
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.None);
 string Required(string name) => Environment.GetEnvironmentVariable(name) is { Length: > 0 } value ? value : throw new InvalidOperationException($"Missing environment variable {name}");
 var migrate = args.Contains("migrate");
@@ -69,9 +70,9 @@ app.Use(async (c, next) =>
   catch (DbUpdateConcurrencyException) { await Api.Error(409, "conflict", "Entry changed; read it again").ExecuteAsync(c); }
   catch (DbUpdateException e) when (e.InnerException is PostgresException { SqlState: "23505" })
   { await Api.Error(409, "conflict", "An active entry already exists").ExecuteAsync(c); }
-  catch (Exception)
+  catch (Exception error)
   {
-    app.Logger.LogWarning("Request could not be completed");
+    Diagnostics.Failure(app.Logger, "Request could not be completed", error, c.User.Claims.Select(x => x.Value).Append(c.Request.Headers.Authorization.ToString()).Append(c.Request.Headers.Authorization.ToString().Replace("Bearer ", "", StringComparison.OrdinalIgnoreCase)));
     await Api.Error(503, "unavailable", "Control Centre unavailable").ExecuteAsync(c);
   }
 });
@@ -82,15 +83,7 @@ app.Use(async (c, next) =>
   if (c.User.Identity?.IsAuthenticated == true && !Api.IsService(c.User))
   {
     var db = c.RequestServices.GetRequiredService<CentreDb>();
-    var actor = Api.Actor(c);
-    var person = await Api.Person(db, actor, actor);
-    var before = Api.Encode(person);
-    person.Email = c.User.FindFirst("email")?.Value;
-    person.Name = c.User.FindFirst("name")?.Value;
-    person.LastSeenAt = DateTimeOffset.UtcNow;
-    Api.Stamp(person, actor);
-    Api.Change(db, actor, "person.seen", actor, Api.Correlation(c), new { before = JsonSerializer.Deserialize<JsonElement>(before), after = person });
-    await db.SaveChangesAsync();
+    await People.Observe(c, db);
   }
   await next(c);
 });

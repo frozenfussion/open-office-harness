@@ -77,14 +77,26 @@ public static class RightsRoutes
     }).RequireAuthorization();
     app.MapGet("/api/admin/rights", async (HttpContext c, CentreDb db) =>
     {
-      Api.Authorize(c); Api.Query(c, "limit");
-      return Results.Ok(await db.Rights.OrderBy(x => x.Key).Take(Api.Limit(c)).ToListAsync());
+      Api.Authorize(c); Api.Query(c, "limit", "after");
+      var query = db.Rights.AsQueryable();
+      if (c.Request.Query.ContainsKey("after"))
+      {
+        var after = Api.Q(c, "after");
+        query = query.Where(x => x.Key.CompareTo(after) > 0);
+      }
+      return Results.Ok(await query.OrderBy(x => x.Key).Take(Api.Limit(c)).ToListAsync());
     }).RequireAuthorization();
     app.MapGet("/api/admin/people", async (HttpContext c, CentreDb db) =>
     {
-      Api.Authorize(c); Api.Query(c, "limit");
+      Api.Authorize(c); Api.Query(c, "limit", "after");
+      var query = db.People.Where(x => x.DeletedAt == null);
+      if (c.Request.Query.ContainsKey("after"))
+      {
+        var after = Api.Q(c, "after");
+        query = query.Where(x => x.UserId.CompareTo(after) > 0);
+      }
       var result = new List<object>();
-      foreach (var person in await db.People.Where(x => x.DeletedAt == null).OrderBy(x => x.UserId).Take(Api.Limit(c)).ToListAsync())
+      foreach (var person in await query.OrderBy(x => x.UserId).Take(Api.Limit(c)).ToListAsync())
         result.Add(await PersonView(db, person));
       return Results.Ok(result);
     }).RequireAuthorization();
@@ -105,17 +117,14 @@ public static class RightsRoutes
       var subject = type == "user" ? Api.String(b, "subject_id") : null;
       Api.Require(type != "everyone" || b["subject_id"] is null);
       Api.Require(await db.Rights.AnyAsync(x => x.Key == key && x.DeletedAt == null), "Unknown right");
-      if (subject is not null)
-      {
-        var person = await Api.Person(db, subject, Api.Actor(c));
-        if (db.Entry(person).State == EntityState.Added)
-          Api.Change(db, Api.Actor(c), "person.created", subject, Api.Correlation(c), new { after = person });
-      }
+      await using var transaction = await db.Database.BeginTransactionAsync();
+      if (subject is not null) await People.Ensure(db, subject, Api.Actor(c), Api.Correlation(c));
       var row = new Grant { RightKey = key, SubjectType = type, SubjectId = subject };
       Api.Stamp(row, Api.Actor(c), true);
       db.Grants.Add(row);
       Api.Change(db, Api.Actor(c), "grant.created", key, Api.Correlation(c), new { after = row });
       await db.SaveChangesAsync();
+      await transaction.CommitAsync();
       return Results.Json(row, statusCode: 201);
     }).RequireAuthorization();
     app.MapDelete("/api/admin/grants/{id}", async (string id, HttpContext c, CentreDb db) =>

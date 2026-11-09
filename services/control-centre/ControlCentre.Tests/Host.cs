@@ -93,16 +93,16 @@ public sealed class Host : WebApplicationFactory<Program>
           });
     });
   }
-  public HttpClient Client(string role = "admin", string? subject = null, string audience = "ooh-control-centre", bool expired = false, bool wrongSignature = false)
+  public HttpClient Client(string role = "admin", string? subject = null, string audience = "ooh-control-centre", bool expired = false, bool wrongSignature = false, string email = "synthetic-user@test.invalid", string name = "Synthetic User")
   {
     var client = CreateClient();
     var claims = new List<Claim> { new("sub", subject ?? "test-" + Guid.NewGuid()), new("azp", role switch { "harness" => "ooh-harness-api", "gateway" => "ooh-model-gateway", "self" => "ooh-admin-console", _ => "ooh-control-centre" }) };
     if (role == "self")
     {
-      claims.Add(new Claim("email", "synthetic-user@test.invalid"));
-      claims.Add(new Claim("name", "Synthetic User"));
+      claims.Add(new Claim("email", email));
+      claims.Add(new Claim("name", name));
     }
-    if (role == "admin") claims.Add(new Claim("realm_access", "{\"roles\":[\"ooh-admin\"]}"));
+    if (role == "admin") claims.Add(new Claim("realm_access", "{\"roles\":[\"ooh-admin\"]}", JsonClaimValueTypes.Json));
     var token = new JwtSecurityToken("https://issuer.invalid", audience, claims,
         DateTime.UtcNow.AddMinutes(-10), expired ? DateTime.UtcNow.AddMinutes(-5) : DateTime.UtcNow.AddMinutes(5), new SigningCredentials(wrongSignature ? new SymmetricSecurityKey(RandomNumberGenerator.GetBytes(64)) : key, SecurityAlgorithms.HmacSha256));
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", new JwtSecurityTokenHandler().WriteToken(token));

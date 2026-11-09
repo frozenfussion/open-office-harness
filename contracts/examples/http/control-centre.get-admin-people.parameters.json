@@ -1,3 +1,4 @@
 {
-  "limit": 50
+  "limit": 50,
+  "after": "synthetic-user"
 }

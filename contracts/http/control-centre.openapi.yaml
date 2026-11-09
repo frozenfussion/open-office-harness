@@ -387,7 +387,8 @@ paths:
       operationId: get_api_admin_people
       security:
       - bearerAuth: []
-      description: Administrator only. Unknown input fields are refused.
+      description: Administrator only. Unknown input fields are refused. Ordered by
+        user_id. Use after with the last user_id to read the next page.
       responses:
         '200':
           description: Success
@@ -431,6 +432,14 @@ paths:
           minimum: 1
           maximum: 200
           default: 50
+      - name: after
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+        description: Return entries after this user_id in ascending order; use the
+          last user_id from the previous page.
   /api/admin/people/{user_id}:
     get:
       operationId: get_api_admin_people_user_id
@@ -486,7 +495,8 @@ paths:
       operationId: get_api_admin_rights
       security:
       - bearerAuth: []
-      description: Administrator only. Unknown input fields are refused.
+      description: Administrator only. Unknown input fields are refused. Ordered by
+        key. Use after with the last key to read the next page.
       responses:
         '200':
           description: Success
@@ -522,6 +532,14 @@ paths:
                 $ref: '#/components/schemas/Error'
       parameters:
       - *id001
+      - name: after
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+        description: Return entries after this key in ascending order; use the last
+          key from the previous page.
   /api/admin/grants:
     post:
       operationId: post_api_admin_grants
@@ -626,7 +644,9 @@ paths:
       operationId: get_api_admin_models
       security:
       - bearerAuth: []
-      description: Administrator only. Unknown input fields are refused.
+      description: "Administrator only. Unknown input fields are refused. Ordered\
+        \ by (purpose, tier, role, model_entry_id). No paging cursor; limit is 1\u2013\
+        200 (default 50)."
       responses:
         '200':
           description: Success

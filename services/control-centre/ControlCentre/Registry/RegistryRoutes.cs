@@ -29,7 +29,7 @@ public static class RegistryRoutes
     app.MapGet("/api/admin/models", async (HttpContext c, CentreDb db) =>
     {
       Api.Authorize(c); Api.Query(c, "limit");
-      return Results.Ok((await db.Models.Where(x => x.DeletedAt == null).OrderBy(x => x.Id).Take(Api.Limit(c)).ToListAsync()).Select(View));
+      return Results.Ok((await db.Models.Where(x => x.DeletedAt == null).OrderBy(x => x.Purpose).ThenBy(x => x.Tier).ThenBy(x => x.Role).ThenBy(x => x.Id).Take(Api.Limit(c)).ToListAsync()).Select(View));
     }).RequireAuthorization();
     app.MapGet("/api/admin/models/{id}", async (string id, HttpContext c, CentreDb db) =>
     {

@@ -11,5 +11,6 @@ WORKDIR /app
 COPY --from=build /app .
 USER $APP_UID
 ENV ASPNETCORE_HTTP_PORTS=8080
+ENV DOTNET_EnableDiagnostics=0
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "ControlCentre.dll"]

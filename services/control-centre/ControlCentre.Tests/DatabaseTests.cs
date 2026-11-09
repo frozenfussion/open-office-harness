@@ -170,14 +170,14 @@ public sealed class DatabaseTests
     Assert.Equal(first[0]!["created_at"]!.ToString(), second[0]!["created_at"]!.ToString());
   }
   [DatabaseFact]
-  public async Task InvalidKafkaMessageRetriesThenSavesDlqAndAuditTogether()
+  public async Task InvalidKafkaMessageSavesDlqAndAuditWithoutRetries()
   {
     await Migrate(); await using var db = Database();
     var delay = new FakeDelay(); var consumer = new ApprovalConsumer(db, new SchemaChecks(), delay);
     var node = Envelope(); node["payload"]!.AsObject().Remove("risk");
     var record = new KafkaRecord("approvals.requested", node.ToJsonString(), new object());
     await consumer.Handle(record, default); await consumer.Handle(record, default);
-    Assert.Equal(new[] { 1d, 5d, 15d }, delay.Waits.Select(x => x.TotalSeconds));
+    Assert.Empty(delay.Waits);
     var correlation = node["correlation_id"]!.GetValue<string>();
     var dlq = Assert.Single(await db.Outbox.Where(x => x.Key == correlation && x.Topic == "dlq.approvals.requested").ToListAsync());
     Assert.Equal(node["user_id"]!.ToString(), JsonNode.Parse(dlq.Envelope)!["user_id"]!.ToString());
@@ -188,6 +188,7 @@ public sealed class DatabaseTests
     var parsed = JsonNode.Parse(unreadable.Envelope)!;
     Assert.Equal("system", parsed["user_id"]!.GetValue<string>());
     Assert.Equal(parsed["correlation_id"]!.ToString(), unreadable.Key);
+    Assert.Empty(delay.Waits);
   }
   [DatabaseFact]
   public async Task OutboxSavedAtomicallyAndPublishedOnceWithFakeKafka()

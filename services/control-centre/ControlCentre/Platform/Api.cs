@@ -120,13 +120,4 @@ public static class Api
       Envelope = Encode(new { event_id = Guid.NewGuid(), type, version = 1, occurred_at = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture), correlation_id = correlation, user_id = userId, producer = "control-centre", payload })
     });
   }
-  public static async Task<Person> Person(CentreDb db, string userId, string actor)
-  {
-    var person = await db.People.SingleOrDefaultAsync(x => x.UserId == userId);
-    if (person is not null) return person;
-    person = new Person { UserId = userId };
-    Stamp(person, actor, true);
-    db.People.Add(person);
-    return person;
-  }
 }

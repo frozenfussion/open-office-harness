@@ -93,6 +93,16 @@ public sealed class RoutesWithoutDatabaseTests
     Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
   }
   [Fact]
+  public void AdminTokenUsesKeycloakObjectClaim()
+  {
+    using var host = new Host(); using var client = host.Client();
+    var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().ReadJwtToken(client.DefaultRequestHeaders.Authorization!.Parameter);
+    using var payload = System.Text.Json.JsonDocument.Parse(token.Payload.SerializeToJson());
+    var realm = payload.RootElement.GetProperty("realm_access");
+    Assert.Equal(System.Text.Json.JsonValueKind.Object, realm.ValueKind);
+    Assert.Equal("ooh-admin", realm.GetProperty("roles")[0].GetString());
+  }
+  [Fact]
   public void BundledSchemasMatchContracts()
   {
     var folder = new DirectoryInfo(AppContext.BaseDirectory);

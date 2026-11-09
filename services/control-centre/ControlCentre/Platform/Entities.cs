@@ -108,13 +108,31 @@ public sealed class CentreDb(DbContextOptions<CentreDb> options) : DbContext(opt
 
   protected override void OnModelCreating(ModelBuilder b)
   {
-    b.Entity<Person>().ToTable("people").HasIndex(x => x.UserId).IsUnique();
-    b.Entity<Right>().ToTable("rights").HasIndex(x => x.Key).IsUnique();
+    b.Entity<Person>().ToTable("people").HasAlternateKey(x => x.UserId);
+    b.Entity<Right>().ToTable("rights").HasAlternateKey(x => x.Key);
     b.Entity<Grant>().ToTable("grants");
     b.Entity<ModelEntry>().ToTable("model_entries");
-    b.Entity<Skill>().ToTable("skills").HasIndex(x => x.Name).IsUnique();
-    b.Entity<Approval>().ToTable("approvals").HasIndex(x => x.RequestEventId).IsUnique();
+    b.Entity<Skill>().ToTable("skills").HasAlternateKey(x => x.Name);
+    b.Entity<Approval>().ToTable("approvals").HasAlternateKey(x => x.RequestEventId);
     b.Entity<Approval>().Property(x => x.Status).IsConcurrencyToken();
+    b.Entity<Grant>().HasOne<Right>().WithMany().HasForeignKey(x => x.RightKey).HasPrincipalKey(x => x.Key).OnDelete(DeleteBehavior.NoAction);
+    b.Entity<Approval>().HasIndex(x => new { x.CreatedAt, x.Id }).IsDescending().HasDatabaseName("approvals_paging");
+    b.Entity<Outbox>().HasIndex(x => new { x.CreatedAt, x.Id }).HasFilter("sent_at IS NULL").HasDatabaseName("outbox_pending");
+    b.Entity<Right>().ToTable(t => t.HasCheckConstraint("rights_source_check", "source IN ('tier','skill','builtin')"));
+    b.Entity<Grant>().ToTable(t =>
+    {
+      t.HasCheckConstraint("grants_subject_type_check", "subject_type IN ('user','everyone')");
+      t.HasCheckConstraint("grants_check", "(subject_type = 'user' AND subject_id IS NOT NULL AND length(subject_id) > 0) OR (subject_type = 'everyone' AND subject_id IS NULL)");
+    });
+    b.Entity<ModelEntry>().ToTable(t =>
+    {
+      t.HasCheckConstraint("model_entries_role_check", "role IN ('main','backup')");
+      t.HasCheckConstraint("model_entries_location_check", "location IN ('on_prem','cloud')");
+      t.HasCheckConstraint("model_entries_rate_limit_per_minute_check", "rate_limit_per_minute > 0");
+      t.HasCheckConstraint("model_entries_daily_budget_check", "daily_budget >= 0");
+      t.HasCheckConstraint("model_entries_check", "(purpose = 'chat' AND tier IS NOT NULL AND tier > 0) OR (purpose <> 'chat' AND tier IS NULL)");
+    });
+    b.Entity<Approval>().ToTable(t => t.HasCheckConstraint("approvals_status_check", "status IN ('pending','approved','rejected')"));
     b.Entity<ProcessedEvent>().ToTable("processed_events").HasKey(x => x.EventId);
     b.Entity<Outbox>().ToTable("outbox");
     b.Entity<AuditRow>().ToTable("audit_log");
