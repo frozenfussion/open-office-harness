@@ -1,3 +1,81 @@
+# Stage 1 — Control Centre: built and reviewed; live checks pending
+
+Both reviewed Parts are merged without conflicts into branch `stage-1`, in
+`~/projects/worktrees/stage-1`, created from `stage-1-base`. Stage 1 is not yet
+accepted. The main clone remains on `main`; this merge does not push to `main`
+or create an acceptance tag.
+
+## Merged sources
+
+| Source | Commit |
+|---|---|
+| Base tag `stage-1-base` | `c483be8` |
+| Reviewed Part A, `origin/stage-1-part-a` | `2546f74530e58efa793121d27adc9b2d445e8614` |
+| Reviewed Part B, `origin/stage-1-part-b` | `0974c4e3b3018511aff540a3a4b9bc1601dd8ba0` |
+| Combined code, before this status update | `d95c239988782b42165925c7079bbcfb3132f081` |
+
+Aziz reported that Part A's re-review cleared all 11 findings with no new
+findings, and Part B's final review cleared all findings with no new findings.
+The checks below were rerun in the clean merged worktree before writing this
+file. This status update is the only file authored during the merge step.
+
+## What was built
+
+- One ASP.NET Core Control Centre with deterministic rights, model and skill
+  registries, approval handling and its own append-only audit trail.
+- PostgreSQL migrations, separate owner/application roles, no-delete and audit
+  protection triggers, transactional outbox, idempotent Kafka consumer and DLQ
+  handling; signed test tokens and fake Kafka for automated tests.
+- Expanded HTTP contract and examples, pinned dependencies and Docker image.
+- GitHub image-build workflow, application manifests, Kafka principals,
+  database/secret/deployment/check scripts, device sign-in and README Quick Guide.
+- Reviewed deployment values, certificate reuse, current-revision migration
+  checks, readiness at HTTP /health and liveness at TCP 8080. Check scripts keep
+  credentials off command lines, handle stale check approvals, detect Kafka
+  password changes, and read only this run's Kafka window with dynamic partition
+  counts. The Control Centre owns its own audit; the full cross-service trail
+  remains with the later Audit writer.
+
+## Checks passed in the clean merged worktree
+
+| Check | Result |
+|---|---|
+| `dotnet format --verify-no-changes` | Passed |
+| `dotnet build -warnaserror` | Passed; zero warnings, zero errors |
+| `dotnet test` | 100 passed, zero failed, zero skipped; database tests included |
+| `uv run --project contracts/check pytest` | 17 passed; Python 3.14.10 |
+| `bash -n` on every `install/*.sh` | Passed; 12 scripts |
+| `shellcheck install/*.sh` | Passed; 12 scripts |
+| actionlint 1.7.7 on the image workflow | Passed |
+| `kubeconform -strict` on locally rendered `deploy/` | 51 resources in 34 files; 33 valid, zero invalid/errors, 18 explicitly skipped |
+
+PostgreSQL Database/DatabaseRole and Strimzi KafkaUser resources were validated
+against schemas previously read from the installed operators. The skipped kinds
+are ClusterIssuer, Kafka, KafkaNodePool, KafkaTopic, Cluster, Keycloak and
+KeycloakRealmImport. These skips do not claim schema validation or live readiness
+of those custom resources. Rendering used deployment values and a synthetic
+image tag; it did not apply manifests or change the cluster.
+
+## Live results and pending work
+
+Aziz already ran `install/59-control-centre-databases.sh`: all four roles and
+both databases met their conditions; the test settings file was saved with mode
+600 and the script printed DONE. The merged tests used that test database;
+they do not establish live service readiness.
+
+The merged image build, anonymous image pull, application secrets, migration
+init container, application readiness, device sign-in, HTTP/Kafka/audit live
+checks and reboot verification remain pending. Aziz runs 60, 61 and 62 after the
+merged image is ready, using the first 12 characters of the pushed `stage-1`
+HEAD as the image tag. Those scripts were not run during this merge. Stage
+acceptance, merging into `main` and tag `spine-v0.1` remain pending as well.
+
+The image workflow is inspected after pushing this status commit so its run can
+be matched to the final pushed HEAD. Its start/status is reported in the merge
+handoff; this document does not claim the image has been built or deployed.
+
+---
+
 # Stage 0 — Foundation
 
 Stage 0 accepted by Aziz on 09 Nov 2026 18:57 MYT. Implementation, merged
