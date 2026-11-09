@@ -1,0 +1,8 @@
+{
+  "action": "skill.use",
+  "details": {
+    "skill": "slides"
+  },
+  "risk": "Approval required",
+  "requested_by": "u-123"
+}

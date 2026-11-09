@@ -1,0 +1,14 @@
+[
+  {
+    "name": "slides",
+    "title": "Presentation (.pptx)",
+    "kind": "service",
+    "description": "Creates a presentation from a topic and notes",
+    "input_schema": "contracts/skills/slides/input.schema.json",
+    "output_schema": "contracts/skills/slides/output.schema.json",
+    "right": "skill.slides",
+    "needs_approval": false,
+    "topic": "skill.requests.slides",
+    "version": "1.0.0"
+  }
+]

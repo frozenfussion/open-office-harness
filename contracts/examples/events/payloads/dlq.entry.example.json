@@ -1,0 +1,7 @@
+{
+  "original_message": "malformed record",
+  "error": {
+    "code": "invalid_message",
+    "message": "Schema validation failed"
+  }
+}

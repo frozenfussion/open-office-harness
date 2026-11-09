@@ -1,0 +1,11 @@
+{
+  "actor": "u-123",
+  "action": "classification",
+  "target": "request",
+  "outcome": "suggested",
+  "model": "fake-model",
+  "tokens": 0,
+  "scores": {
+    "needs_tier2": 0.81
+  }
+}

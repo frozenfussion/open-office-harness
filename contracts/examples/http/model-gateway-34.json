@@ -1,0 +1,7 @@
+{
+  "text": "Example",
+  "questions": {
+    "needs_tier2": "Does this need deep reasoning?",
+    "wants_slides": "Is a presentation requested?"
+  }
+}
