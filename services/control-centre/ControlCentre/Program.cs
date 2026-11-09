@@ -12,6 +12,8 @@ using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.Sources.Clear();
+// Kestrel reads HTTP_PORTS/URLS after the ASPNETCORE_ prefix is removed.
+builder.Configuration.AddEnvironmentVariables("ASPNETCORE_");
 builder.Configuration.AddEnvironmentVariables();
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole();
@@ -21,7 +23,7 @@ builder.Logging.AddFilter("Microsoft.AspNetCore.Authentication", LogLevel.Inform
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.None);
 string Required(string name) => Environment.GetEnvironmentVariable(name) is { Length: > 0 } value ? value : throw new InvalidOperationException($"Missing environment variable {name}");
 var migrate = args.Contains("migrate");
-builder.Services.AddDbContext<CentreDb>(o => o.UseNpgsql(Required(migrate ? "CC_DB_MIGRATE_CONNECTION" : "CC_DB_CONNECTION")));
+builder.Services.AddDbContext<CentreDb>(o => o.UseNpgsql(DatabaseConnections.Configure(Required(migrate ? "CC_DB_MIGRATE_CONNECTION" : "CC_DB_CONNECTION"))));
 if (migrate)
 {
   using var migrationApp = builder.Build();
