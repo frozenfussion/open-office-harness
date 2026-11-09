@@ -3,17 +3,17 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: harness
-  namespace: ooh-apps
+  namespace: ${APPS_NAMESPACE}
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-staging
 spec:
   ingressClassName: traefik
   tls:
   - hosts:
-    - harness.faysalaziz.com
+    - harness.${DOMAIN}
     secretName: harness-tls
   rules:
-  - host: harness.faysalaziz.com
+  - host: harness.${DOMAIN}
     http:
       paths:
       - path: /api

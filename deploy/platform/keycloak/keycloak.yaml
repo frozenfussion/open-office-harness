@@ -3,11 +3,11 @@ apiVersion: k8s.keycloak.org/v2beta1
 kind: Keycloak
 metadata:
   name: ooh-keycloak
-  namespace: ooh-platform
+  namespace: ${PLATFORM_NAMESPACE}
 spec:
   instances: 1
   image: quay.io/keycloak/keycloak:26.8.2
-  # The stock image needs its build step on startup.
+  # The stock image must build its configuration on the writable root filesystem.
   startOptimized: false
   db:
     vendor: postgres
@@ -25,7 +25,7 @@ spec:
   http:
     httpEnabled: true
   hostname:
-    hostname: https://auth.faysalaziz.com
+    hostname: https://auth.${DOMAIN}
   proxy:
     headers: xforwarded
   ingress:
@@ -37,3 +37,22 @@ spec:
     limits:
       cpu: '2'
       memory: 2Gi
+  unsupported:
+    podTemplate:
+      spec:
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+        containers:
+        - name: keycloak
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+              - ALL

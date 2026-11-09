@@ -10,7 +10,9 @@
    No password is requested for this public clone.
 
    ```bash
-   git clone https://github.com/frozenfussion/open-office-harness.git ~/projects/open-office-harness
+   mkdir -p ~/projects/open-office-harness
+   cd ~/projects/open-office-harness
+   git clone https://github.com/frozenfussion/open-office-harness.git .
    ```
 
    Type this in your harness terminal, `shell` tile, plain shell. This enters the
@@ -22,31 +24,28 @@
    sudo install/01-server-setup.sh
    ```
 
-   Type this in your harness terminal, `shell` tile, plain shell. The folder
-   doesn't matter. This loads kubectl access in this terminal and signs Git into
+   Type this in your harness terminal, `shell` tile, plain shell. Use the repository folder shown below. This loads kubectl access in this terminal and signs Git into
    GitHub. Follow GitHub's browser sign-in instructions; no sudo password.
 
    ```bash
+   cd ~/projects/open-office-harness
    export KUBECONFIG="$HOME/.kube/config"
    gh auth login
    gh auth setup-git
    ```
 
    Type this in your harness terminal, `shell` tile, plain shell. This enters
-   Part B's worktree and creates private local settings **only if missing**.
+   the repository and creates private local settings **only if missing**.
    No password. Good result: the file opens; fill in `LETSENCRYPT_EMAIL`, then save and exit the editor.
    The firewall must allow incoming TCP 22, 80 and 443; Aziz sets it in
    DigitalOcean. Files use a 20Gi volume on the Droplet disk.
 
    ```bash
-   cd ~/projects/worktrees/stage-0-part-b
+   cd ~/projects/open-office-harness
    mkdir -p ~/.config/ooh
    (umask 077; test -e ~/.config/ooh/do.env || cp install/ooh.env.example ~/.config/ooh/do.env)
    nano ~/.config/ooh/do.env
    ```
-
-   The remaining guide commands use this Part B worktree until review and merge.
-   After merge, use `cd ~/projects/open-office-harness` instead.
 
 3. **Check the server.** Type this in your harness terminal, `shell` tile, plain
    shell. This checks the node, local settings, DNS, Traefik pod readiness and
@@ -55,7 +54,7 @@
    No password. Good result: all `PASS` lines, then `DONE`.
 
    ```bash
-   cd ~/projects/worktrees/stage-0-part-b
+   cd ~/projects/open-office-harness
    install/00-check-server.sh
    ```
 
@@ -64,7 +63,7 @@
    No password. Good result: deployments successfully rolled out, then `DONE`.
 
    ```bash
-   cd ~/projects/worktrees/stage-0-part-b
+   cd ~/projects/open-office-harness
    install/10-platform-operators.sh
    ```
 
@@ -75,7 +74,7 @@
    Secrets are never displayed or overwritten. Never paste them into Codex.
 
    ```bash
-   cd ~/projects/worktrees/stage-0-part-b
+   cd ~/projects/open-office-harness
    install/20-platform-secrets.sh
    ```
 
@@ -85,10 +84,12 @@
    messages are normal. Staging certificates prove Let's Encrypt can reach the
    server from outside; only then does the script request production certificates.
    Good result: resources become Ready, then `DONE`. A repeat run preserves
-   production issuers and existing data.
+   production issuers and existing data. It also synchronizes client audience
+   mappers using `install/35-realm-sync.sh` and marks bound data volumes Retain.
+   New volumes use `local-path-retain`; bound claims keep their original class.
 
    ```bash
-   cd ~/projects/worktrees/stage-0-part-b
+   cd ~/projects/open-office-harness
    install/30-platform-apply.sh
    ```
 
@@ -100,7 +101,7 @@
    Good result: every line says `PASS`, then `DONE`.
 
    ```bash
-   cd ~/projects/worktrees/stage-0-part-b
+   cd ~/projects/open-office-harness
    install/40-check-platform.sh
    ```
 
@@ -111,74 +112,76 @@
    password when asked. A repeat run leaves an existing administrator unchanged.
 
    ```bash
-   cd ~/projects/worktrees/stage-0-part-b
+   cd ~/projects/open-office-harness
    install/50-first-admin.sh
    ```
 
 9. **Everyday tasks.** Type this in your harness terminal, `shell` tile, plain
-   shell. The folder doesn't matter. This lists pods; no password.
+   shell. Use the repository folder shown below. This lists pods; no password.
    Good result: running pods show Ready; completed setup jobs may show Completed.
 
    ```bash
+   cd ~/projects/open-office-harness
    kubectl get pods -A
    ```
 
-   Type this in your harness terminal, `shell` tile, plain shell. The folder
-   doesn't matter. This reads Workspace logs; no password.
+   Type this in your harness terminal, `shell` tile, plain shell. Use the repository folder shown below. This reads Workspace logs; no password.
 
    ```bash
+   cd ~/projects/open-office-harness
    kubectl -n ooh-apps logs deployment/workspace --tail=50
    ```
 
-   Type this in your harness terminal, `shell` tile, plain shell. The folder
-   doesn't matter. This restarts Workspace and waits for it; no password.
+   Type this in your harness terminal, `shell` tile, plain shell. Use the repository folder shown below. This restarts Workspace and waits for it; no password.
    Good result: `successfully rolled out`.
 
    ```bash
+   cd ~/projects/open-office-harness
    kubectl -n ooh-apps rollout restart deployment/workspace
    kubectl -n ooh-apps rollout status deployment/workspace --timeout=300s
    ```
 
-   Type this in your harness terminal, `shell` tile, plain shell. The folder
-   doesn't matter. This stops the Workspace placeholder only; no password.
+   Type this in your harness terminal, `shell` tile, plain shell. Use the repository folder shown below. This stops the Workspace placeholder only; no password.
    Kafka, PostgreSQL and Keycloak remain running; do not scale them to stop apps.
 
    ```bash
+   cd ~/projects/open-office-harness
    kubectl -n ooh-apps scale deployment/workspace --replicas=0
    ```
 
-   Type this in your harness terminal, `shell` tile, plain shell. The folder
-   doesn't matter. This starts the Workspace placeholder; no password.
+   Type this in your harness terminal, `shell` tile, plain shell. Use the repository folder shown below. This starts the Workspace placeholder; no password.
    Good result: `successfully rolled out`.
 
    ```bash
+   cd ~/projects/open-office-harness
    kubectl -n ooh-apps scale deployment/workspace --replicas=1
    kubectl -n ooh-apps rollout status deployment/workspace --timeout=300s
    ```
 
    After a reboot, k3s starts the platform automatically. Wait five minutes,
    then repeat step 7. For the stage's reboot test, Aziz alone runs the following.
-   Type this in your harness terminal, `shell` tile, plain shell. The folder
-   doesn't matter. This reboots harness; it will ask for harness's sudo password.
+   Type this in your harness terminal, `shell` tile, plain shell. Use the repository folder shown below. This reboots harness; it will ask for harness's sudo password.
 
    ```bash
+   cd ~/projects/open-office-harness
    sudo reboot
    ```
 
 10. **Builder checks.** Type this in your harness terminal, `shell` tile, plain
     shell. This checks contracts (after Part A is merged), shell files and YAML.
     No password. Good result: tests pass, shell tools print no errors, YAML has
-    zero errors. Custom resource kinds are explicitly skipped by kubeconform;
+    zero errors. The apply script with `--check` only renders and validates YAML;
+    it makes no cluster changes. Custom resource kinds are explicitly skipped;
     their actual admission and readiness checks happen during Aziz's deployment.
 
     ```bash
-    cd ~/projects/worktrees/stage-0-part-b
+    cd ~/projects/open-office-harness
     uv run --project contracts/check pytest
     uv run --project contracts/check ruff check contracts/check
     uv run --project contracts/check ruff format --check contracts/check
     for script in install/*.sh; do bash -n "$script"; done
     shellcheck install/*.sh
-    kubeconform -strict -summary -skip ClusterIssuer,Kafka,KafkaNodePool,KafkaTopic,KafkaUser,Cluster,DatabaseRole,Database,Keycloak,KeycloakRealmImport deploy/platform
+    install/30-platform-apply.sh --check
     ```
 
 11. **If a script stops.** Read the table below. Stop at the first failed step;
@@ -196,6 +199,10 @@
 | `local Traefik request failed`, `no HTTP status from` | Inspect Traefik and ServiceLB. Local HTTP and HTTPS must return a status; 404 is normal before ingress routes exist. |
 | `<url> not found` | The server returned HTTP 404 after retries. Send the URL to Codex; verify the same version on the vendor's release page. Do not substitute a new version. |
 | `<url> download failed (HTTP ...; curl exit ...)` | Retries were exhausted. HTTP 504 or another server error can be temporary; wait and rerun the same script. HTTP 000 means no HTTP response; check connectivity and the curl error. |
+| `platform namespace missing` | Run step 4 (operators) first, then repeat step 5. |
+| `invalid deployment value`, `usage: install/30-platform-apply.sh` | Check deploy/values/do.env and use step 6, or `--check` for local validation. |
+| `existing file PVC has an unsupported storage class` | Inspect the file claim before retrying; do not replace or delete it. |
+| `realm audience sync failed`, `realm client format changed`, `could not create private Keycloak CLI settings directory`, `audience verification failed` | Check Keycloak readiness, the bootstrap secret reference and realm manifest format, then repeat step 6. |
 | `required secret missing` | Run step 5 first. |
 | `certificate pending for` | Check DNS and DigitalOcean inbound TCP 80/443; inspect cert-manager events and logs. Staging issuance is the real outside check. |
 | `production certificate pending` | Inspect certificate events. If rate limited, wait for the stated limit window before retrying. |
@@ -214,10 +221,10 @@
 | `FAIL storage` | Inspect PVC `ooh-files` in `ooh-apps`, the local-path provisioner, disk space and check pod volume permissions. The test file is retained. |
 | `platform checks failed` | Fix every `FAIL` line above it, then repeat step 7. |
 
-Type this in your harness terminal, `shell` tile, plain shell. The folder doesn't
-matter. This shows platform events for troubleshooting; no password.
+Type this in your harness terminal, `shell` tile, plain shell. Use `cd ~/projects/open-office-harness` as shown below. This shows platform events for troubleshooting; no password.
 
 ```bash
+cd ~/projects/open-office-harness
 kubectl -n ooh-platform get events --sort-by=.metadata.creationTimestamp
 kubectl -n cert-manager get events --sort-by=.metadata.creationTimestamp
 ```
@@ -226,22 +233,23 @@ If Keycloak still crash-loops after a manifest fix, its StatefulSet can be waiti
 for the broken old pod instead of replacing it. First stop the waiting apply
 script with Ctrl+C in the shell tile.
 
-Type this in your harness terminal, `shell` tile, plain shell. The folder doesn't
-matter. This shows the StatefulSet's current and target revisions, plus the pod's
+Type this in your harness terminal, `shell` tile, plain shell. Use `cd ~/projects/open-office-harness` as shown below. This shows the StatefulSet's current and target revisions, plus the pod's
 revision and container state. No password is requested.
 
 ```bash
+cd ~/projects/open-office-harness
 kubectl -n ooh-platform get statefulset ooh-keycloak -o 'jsonpath={.status.currentRevision}{" current\n"}{.status.updateRevision}{" target\n"}'
 kubectl -n ooh-platform get pod ooh-keycloak-0 -o 'jsonpath={.metadata.labels.controller-revision-hash}{" pod revision\n"}{.status.containerStatuses[*].state}{"\n"}'
 ```
 
 Only if the pod is crash-looping on an old revision that differs from the target,
 use this one-time recovery. Type this in your harness terminal, `shell` tile,
-plain shell. The folder doesn't matter. This removes the broken pod once; the
+plain shell. Use the repository folder shown below. This removes the broken pod once; the
 StatefulSet creates its replacement using the updated configuration. No password
 is requested. Then repeat step 6 and send the result to Codex.
 
 ```bash
+cd ~/projects/open-office-harness
 kubectl -n ooh-platform delete pod ooh-keycloak-0
 ```
 
@@ -252,25 +260,33 @@ kubectl -n ooh-platform delete pod ooh-keycloak-0
 | `deploy/platform/` | Namespaces, certificates, Kafka, PostgreSQL, Keycloak, file PVC and placeholder manifests |
 | `deploy/values/do.env` | Public deployment values; no credentials or personal contact data |
 | `install/ooh.env.example` | Template for private local settings in `~/.config/ooh/do.env` |
-| `install/00` through `install/50` scripts | Server check, operators, secrets, apply, checks, first admin |
+| `install/00` through `install/50` scripts | Server check, operators, secrets, apply, realm sync, checks, first admin |
 | `docs/specs/` | Stage spec and global rules |
 | `contracts/` | Module agreements and contract checks (Part A) |
 
 Secrets exist in Kubernetes only; interactive inputs are held in process memory.
 Kafka check credentials exist briefly in a temporary pod's in-memory volume.
-Files live on the Droplet disk in the `ooh-files` PVC (`ooh-apps`, `local-path`,
-20Gi). The apply script creates the claim; it may stay Pending until the storage
+Files live on the Droplet disk in the `ooh-files` PVC (`ooh-apps`, 20Gi).
+New volumes use `local-path-retain`. Existing bound claims keep their class.
+The apply script creates the claim; it may stay Pending until the storage
 check pod first mounts it. The short-lived pod writes `checks/stage0-<time>.txt`,
 reads it back and leaves the file in place. It reuses the pinned PostgreSQL image
 for its shell tools, adding no new image or storage server.
 No application or database data is removed by these scripts. All persistent
-volumes use `local-path`; Kafka claims and database resources retain data.
-The Keycloak realm import is for initial creation; it does not update an already
-existing realm. Report any realm changes after first deployment before rerunning.
+volumes use the k3s local-path provisioner. The retaining StorageClass protects
+new volumes; the apply script patches the reclaim policy of bound Kafka,
+PostgreSQL and file PVs to Retain without replacing their claims.
+Keycloak realm import creates the initial realm. The realm-sync script then
+updates only client audience mappers to match the manifest, preserving other
+mapper types, users and credentials. It uses Keycloak's own admin CLI inside
+the pod with the bootstrap secret and temporary private CLI settings.
+Keycloak runs as a non-root user; its root filesystem remains writable because
+the stock image builds its configuration at startup.
 Public clients use PKCE S256. The realm includes confidential service clients
 for Harness API, Control Centre and Model Gateway. Workspace tokens target
-Harness API; Admin Console tokens target Control Centre. Harness API and Control
-Centre service tokens include Control Centre and Model Gateway audiences.
+Harness API; Admin Console tokens target Control Centre. Harness API service
+tokens target Control Centre and Model Gateway; Model Gateway service tokens
+target Control Centre. Control Centre has no explicit audience mapper.
 `ooh.smoke` carries free-form test messages, without an event envelope.
 
 ## Versions
@@ -290,56 +306,9 @@ PostgreSQL's exact image comes from the pinned operator's
 [version source](https://github.com/cloudnative-pg/cloudnative-pg/blob/v1.30.0/pkg/versions/versions.go)
 and [release notes](https://github.com/cloudnative-pg/cloudnative-pg/blob/v1.30.0/docs/src/release_notes/v1.30.md).
 Operator download URLs are pinned in `install/10-platform-operators.sh`; each
-must return HTTP 200 before it is applied. All operator downloads retry up to
-five times with a five-second delay, including connection failures. Only HTTP
-404 is reported as `not found`; other failures include the final HTTP status
-and curl exit code. The first operator-install run created both namespaces,
-then a transient GitHub HTTP 504 was incorrectly reported as a missing
-cert-manager manifest. The retry and status handling corrects that failure.
-Strimzi uses the individual official
-files from tag `1.3.1`, avoiding reliance on an unavailable release-asset gateway.
+must return HTTP 200 before it is applied. Downloads retry up to five times with
+a five-second delay, including connection failures. Only HTTP 404 is reported as
+`not found`; other failures include the final HTTP status and curl exit code.
+Strimzi uses the official installation files from tag `1.3.1`.
 The scripts use existing server tools (bash, curl, jq, OpenSSL, kubectl, getent,
-awk, sed, sort); no new system package installation is added.
-
-Spec clarifications from Claude, 09 Nov 2026: the server check tests Traefik pod
-readiness and local HTTP/HTTPS responses; staging certificate issuance tests
-outside reachability. ServiceLB forwards ports through iptables, so an `ss`
-listener check incorrectly rejected a working Traefik installation. Aziz's first
-run passed node access, settings and DNS but stopped on that listener check;
-local requests returned Traefik's normal 404. The check now accepts any HTTP
-status and allows the initial untrusted certificate only for local HTTPS. The realm
-has a fifth confidential service client, `ooh-model-gateway`, with no redirects,
-and the audience mappers described above. The smoke topic uses free-form test
-messages with no schema or envelope. These are owner-supplied updates to the
-written stage spec, not extra features.
-
-Aziz's storage spec change, 09 Nov 2026 at 16:18: file storage now uses the
-Droplet disk through the `ooh-files` PVC. No object storage service or storage
-credentials are required. `deploy/platform/storage/files-pvc.yaml` is added to
-Part B's permitted file list. The operator installer completed with all four
-operators rolled out and `DONE` before this change was made.
-
-The first platform apply reached Ready Kafka, all eleven topics, the smoke user,
-PostgreSQL and the Keycloak database/role, then Keycloak crashed because its
-stock image had not been built for optimized startup. The Keycloak manifest now
-sets `startOptimized: false` so the stock image builds its configuration on
-startup. Stop the pending wait with Ctrl+C and repeat step 6. Existing secrets,
-databases and volumes stay in place.
-
-On the next apply run, the StatefulSet received that fix but its old crash-looping
-pod remained on the previous revision. One manual removal of `ooh-keycloak-0`
-allowed its replacement to bootstrap with the updated configuration. Realm import
-then completed, staging certificates were issued for all three hosts, and all
-three production certificates became Ready. The apply script ended with `DONE`.
-
-Part B validation on 09 Nov 2026: the server check, operator install, secret
-creation and platform apply all completed with `DONE`. Claude ran the final
-platform check in the shell tile and reported every check `PASS`, then `DONE`:
-pods, three production certificates, four HTTPS routes, OIDC issuer, eleven
-topics, Kafka smoke read/write and forbidden-write refusal, PostgreSQL query,
-and the file PVC write/read. Aziz then ran the first-admin script (`DONE`) and
-successfully signed in at the realm account page, including the required
-password change and profile form. No account details or credentials are stored
-here. Elapsed time was not recorded. The reboot test, review, merged-worktree
-checks and stage acceptance remain separate stage-wide steps; `docs/STATUS.md`
-is written at merge. Keep the deployed realm unchanged after this validation.
+awk, sed, sort, find); no additional system package installation is required.

@@ -2,9 +2,9 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ooh-platform
+  name: ${PLATFORM_NAMESPACE}
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ooh-apps
+  name: ${APPS_NAMESPACE}

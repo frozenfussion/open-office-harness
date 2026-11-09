@@ -3,7 +3,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: DatabaseRole
 metadata:
   name: keycloak
-  namespace: ooh-platform
+  namespace: ${PLATFORM_NAMESPACE}
 spec:
   cluster:
     name: ooh-pg
@@ -17,7 +17,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
   name: keycloak
-  namespace: ooh-platform
+  namespace: ${PLATFORM_NAMESPACE}
 spec:
   cluster:
     name: ooh-pg

@@ -6,6 +6,8 @@ stop() { printf 'STOP: %s\n' "$*" >&2; exit 1; }
 trap 'stop "step failed; see README troubleshooting and re-run this script"' ERR
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=/dev/null
+source "$ROOT/deploy/values/do.env"
 for tool in kubectl curl sed; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 tmp="$(mktemp -d)"
 trap 'rm -rf -- "$tmp"' EXIT
@@ -15,7 +17,10 @@ fetch() {
   [[ "$status" != 404 ]] || stop "$url not found"
   [[ "$curl_status" == 0 && "$status" == 200 ]] || stop "$url download failed (HTTP ${status:-000}; curl exit $curl_status); check connectivity or retry later"
 }
-kubectl apply -f deploy/platform/namespaces.yaml
+while IFS= read -r line; do
+  line="${line//\$\{PLATFORM_NAMESPACE\}/$PLATFORM_NAMESPACE}"
+  printf '%s\n' "${line//\$\{APPS_NAMESPACE\}/$APPS_NAMESPACE}"
+done < deploy/platform/namespaces.yaml | kubectl apply -f -
 fetch https://github.com/cert-manager/cert-manager/releases/download/v1.21.3/cert-manager.yaml "$tmp/cert.yaml"
 kubectl apply --server-side -f "$tmp/cert.yaml"
 for name in cert-manager cert-manager-cainjector cert-manager-webhook; do
@@ -51,10 +56,10 @@ for file in \
   050-ConfigMap-strimzi-cluster-operator.yaml \
   060-Deployment-strimzi-cluster-operator.yaml; do
   fetch "$STRIMZI_BASE/$file" "$tmp/strimzi.yaml"
-  sed 's/namespace: .*/namespace: ooh-platform/' "$tmp/strimzi.yaml" > "$tmp/scoped.yaml"
-  kubectl -n ooh-platform apply --server-side -f "$tmp/scoped.yaml"
+  sed "s/namespace: .*/namespace: $PLATFORM_NAMESPACE/" "$tmp/strimzi.yaml" > "$tmp/scoped.yaml"
+  kubectl -n "$PLATFORM_NAMESPACE" apply --server-side -f "$tmp/scoped.yaml"
 done
-kubectl -n ooh-platform rollout status deployment/strimzi-cluster-operator --timeout=300s
+kubectl -n "$PLATFORM_NAMESPACE" rollout status deployment/strimzi-cluster-operator --timeout=300s
 fetch https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v1.30.0/releases/cnpg-1.30.0.yaml "$tmp/cnpg.yaml"
 kubectl apply --server-side -f "$tmp/cnpg.yaml"
 kubectl -n cnpg-system rollout status deployment/cnpg-controller-manager --timeout=300s
@@ -64,6 +69,6 @@ for file in keycloaks.k8s.keycloak.org-v1.yml keycloakrealmimports.k8s.keycloak.
   kubectl apply --server-side -f "$tmp/crd.yaml"
 done
 fetch "$KEYCLOAK_BASE/kubernetes.yml" "$tmp/operator.yaml"
-kubectl -n ooh-platform apply --server-side -f "$tmp/operator.yaml"
-kubectl -n ooh-platform rollout status deployment/keycloak-operator --timeout=300s
+kubectl -n "$PLATFORM_NAMESPACE" apply --server-side -f "$tmp/operator.yaml"
+kubectl -n "$PLATFORM_NAMESPACE" rollout status deployment/keycloak-operator --timeout=300s
 printf 'DONE\n'

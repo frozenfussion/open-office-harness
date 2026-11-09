@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: control-centre-api
-  namespace: ooh-apps
+  namespace: ${APPS_NAMESPACE}
 data:
   index.html: <!doctype html><html lang="en"><meta charset="utf-8"><title>Control
     Centre API</title><body>open-office-harness · Control Centre API · arrives in
@@ -15,7 +15,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: control-centre-api
-  namespace: ooh-apps
+  namespace: ${APPS_NAMESPACE}
 spec:
   replicas: 1
   selector:
@@ -82,7 +82,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: control-centre-api
-  namespace: ooh-apps
+  namespace: ${APPS_NAMESPACE}
 spec:
   selector:
     app: control-centre-api

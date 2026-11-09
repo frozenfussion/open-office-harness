@@ -3,19 +3,13 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: ooh-pg
-  namespace: ooh-platform
+  namespace: ${PLATFORM_NAMESPACE}
 spec:
   instances: 1
   imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
   storage:
-    size: 20Gi
-    storageClass: local-path
-  bootstrap:
-    initdb:
-      database: keycloak
-      owner: keycloak
-      secret:
-        name: keycloak-db
+    size: ${POSTGRES_STORAGE}
+    storageClass: local-path-retain
   resources:
     requests:
       cpu: 250m
@@ -23,3 +17,6 @@ spec:
     limits:
       cpu: '1'
       memory: 1Gi
+  bootstrap:
+    initdb:
+      database: postgres

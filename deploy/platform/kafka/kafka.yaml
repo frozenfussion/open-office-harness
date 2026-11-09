@@ -3,7 +3,7 @@ apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
   name: dual-role
-  namespace: ooh-platform
+  namespace: ${PLATFORM_NAMESPACE}
   labels:
     strimzi.io/cluster: ooh-kafka
 spec:
@@ -16,8 +16,8 @@ spec:
     volumes:
     - id: 0
       type: persistent-claim
-      size: 20Gi
-      class: local-path
+      size: ${KAFKA_STORAGE}
+      class: local-path-retain
       deleteClaim: false
       kraftMetadata: shared
   resources:
@@ -32,7 +32,7 @@ apiVersion: kafka.strimzi.io/v1
 kind: Kafka
 metadata:
   name: ooh-kafka
-  namespace: ooh-platform
+  namespace: ${PLATFORM_NAMESPACE}
 spec:
   kafka:
     version: 4.3.2
@@ -54,5 +54,19 @@ spec:
       default.replication.factor: 1
       min.insync.replicas: 1
   entityOperator:
-    topicOperator: {}
-    userOperator: {}
+    topicOperator:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+    userOperator:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi

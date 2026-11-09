@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: harness-api
-  namespace: ooh-apps
+  namespace: ${APPS_NAMESPACE}
 data:
   index.html: <!doctype html><html lang="en"><meta charset="utf-8"><title>Harness
     API</title><body>open-office-harness · Harness API · arrives in Stage 1</body></html>
@@ -14,7 +14,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: harness-api
-  namespace: ooh-apps
+  namespace: ${APPS_NAMESPACE}
 spec:
   replicas: 1
   selector:
@@ -81,7 +81,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: harness-api
-  namespace: ooh-apps
+  namespace: ${APPS_NAMESPACE}
 spec:
   selector:
     app: harness-api

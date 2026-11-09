@@ -6,14 +6,16 @@ stop() { printf 'STOP: %s\n' "$*" >&2; exit 1; }
 trap 'stop "step failed; see README troubleshooting and re-run this script"' ERR
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=/dev/null
+source "$ROOT/deploy/values/do.env"
 command -v openssl >/dev/null || stop "missing tool openssl; finish server setup"
-kubectl get namespace ooh-platform >/dev/null
-existing="$(kubectl -n ooh-platform get secrets -o json)"
+kubectl get namespace "$PLATFORM_NAMESPACE" >/dev/null 2>&1 || stop "platform namespace missing; run step 4 (operators) first"
+existing="$(kubectl -n "$PLATFORM_NAMESPACE" get secrets -o json)"
 has_secret() { jq -e --arg name "$1" 'any(.items[]; .metadata.name == $name)' <<< "$existing" >/dev/null; }
 create_secret() {
   local name="$1" userkey="$2" passkey="$3" user="$4" password="$5" type="$6"
-  jq -n --arg name "$name" --arg uk "$userkey" --arg pk "$passkey" --arg u "$user" --arg p "$password" --arg type "$type" \
-    '{apiVersion:"v1",kind:"Secret",metadata:{name:$name,namespace:"ooh-platform"},type:$type,stringData:{($uk):$u,($pk):$p}}' |
+  jq -n --arg name "$name" --arg uk "$userkey" --arg pk "$passkey" --arg u "$user" --arg p "$password" --arg type "$type" --arg namespace "$PLATFORM_NAMESPACE" \
+    '{apiVersion:"v1",kind:"Secret",metadata:{name:$name,namespace:$namespace},type:$type,stringData:{($uk):$u,($pk):$p}}' |
     kubectl create -f - >/dev/null
   printf 'Created %s\n' "$name"
 }

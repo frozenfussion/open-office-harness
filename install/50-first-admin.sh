@@ -6,10 +6,12 @@ stop() { printf 'STOP: %s\n' "$*" >&2; exit 1; }
 trap 'stop "admin request failed; check Keycloak and re-run; existing users are never overwritten"' ERR
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=/dev/null
+source "$ROOT/deploy/values/do.env"
 command -v curl >/dev/null || stop "missing tool curl; finish server setup"
 command -v jq >/dev/null || stop "missing tool jq; finish server setup"
-base=https://auth.faysalaziz.com
-bootstrap="$(kubectl -n ooh-platform get secret keycloak-bootstrap -o json)"
+base="https://auth.$DOMAIN"
+bootstrap="$(kubectl -n "$PLATFORM_NAMESPACE" get secret keycloak-bootstrap -o json)"
 bootstrap_user="$(jq -r '.data.username | @base64d' <<< "$bootstrap")"
 bootstrap_password="$(jq -r '.data.password | @base64d' <<< "$bootstrap")"
 # Generated bootstrap values are URL-safe. Send them through stdin, never command arguments.
@@ -44,4 +46,4 @@ id="$(jq -er 'if length == 1 then .[0].id else error("user lookup failed") end' 
 role="$(api "$base/admin/realms/ooh/roles/ooh-admin" | jq -c '[{id:.id,name:.name}]')"
 curl --config /dev/fd/3 --connect-timeout 10 --max-time 30 -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$base/admin/realms/ooh/users/$id/role-mappings/realm" 3< <(printf 'header = "Authorization: Bearer %s"\n' "$token") <<< "$role" >/dev/null 2>&1
 unset token users username email id role
-printf 'First admin created with ooh-admin; sign in at https://auth.faysalaziz.com/realms/ooh/account and change the password\nDONE\n'
+printf 'First admin created with ooh-admin; sign in at %s/realms/ooh/account and change the password\nDONE\n' "$base"
