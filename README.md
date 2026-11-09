@@ -34,10 +34,9 @@
 
    Type this in your harness terminal, `shell` tile, plain shell. This enters
    Part B's worktree and creates private local settings **only if missing**.
-   No password. Good result: the file opens; fill in `LETSENCRYPT_EMAIL`, leave
-   `SPACES_REGION=sgp1` and `SPACES_BUCKET=ooh-files`, then save and exit the editor.
-   Do not put Spaces keys in this file. The firewall must allow incoming TCP
-   22, 80 and 443; Aziz sets it in DigitalOcean. The bucket must be private.
+   No password. Good result: the file opens; fill in `LETSENCRYPT_EMAIL`, then save and exit the editor.
+   The firewall must allow incoming TCP 22, 80 and 443; Aziz sets it in
+   DigitalOcean. Files use a 20Gi volume on the Droplet disk.
 
    ```bash
    cd ~/projects/worktrees/stage-0-part-b
@@ -70,8 +69,8 @@
    ```
 
 5. **Create secrets.** Type this in your harness terminal, `shell` tile, plain
-   shell. This generates database and bootstrap passwords and asks for your
-   Spaces access key and secret key with hidden input. No sudo password.
+   shell. This generates database and bootstrap passwords. It asks for no keys
+   or passwords.
    Good result: each secret says `Created` or `Already exists`, then `DONE`.
    Secrets are never displayed or overwritten. Never paste them into Codex.
 
@@ -95,8 +94,9 @@
 
 7. **Check the platform.** Type this in your harness terminal, `shell` tile, plain
    shell. This checks pods, trusted HTTPS, issuer, all eleven topics, Kafka rights,
-   database access and Spaces read/write. No password. It creates temporary check
-   pods and removes them. Small objects under `checks/` stay in Spaces.
+   database access and file volume read/write. No password. It creates temporary
+   check pods and removes them. Small test files under `checks/` stay on the
+   `ooh-files` volume in `ooh-apps`.
    Good result: every line says `PASS`, then `DONE`.
 
    ```bash
@@ -189,7 +189,6 @@
 |---|---|
 | `local settings missing` | Create the settings file in step 2. |
 | `local setting ... is empty`, `contact email is invalid`, `unsupported characters` | Open the local settings file and fill in a valid email. |
-| `Spaces settings must name sgp1 and ooh-files` | Correct the region and bucket in local settings. |
 | `missing tool` | Ask Aziz to finish server setup; Codex does not install system tools. |
 | `k3s node is not Ready`, kubectl access error | Check server setup and kubectl access; wait for k3s after reboot. |
 | `DNS lookup failed`, `does not resolve only to` | Correct the named A record to 143.198.221.2 or wait for DNS to spread. |
@@ -197,7 +196,6 @@
 | `local Traefik request failed`, `no HTTP status from` | Inspect Traefik and ServiceLB. Local HTTP and HTTPS must return a status; 404 is normal before ingress routes exist. |
 | `<url> not found` | The server returned HTTP 404 after retries. Send the URL to Codex; verify the same version on the vendor's release page. Do not substitute a new version. |
 | `<url> download failed (HTTP ...; curl exit ...)` | Retries were exhausted. HTTP 504 or another server error can be temporary; wait and rerun the same script. HTTP 000 means no HTTP response; check connectivity and the curl error. |
-| `Spaces keys are empty` | Repeat step 5 with both keys. Hidden input is normal. |
 | `required secret missing` | Run step 5 first. |
 | `certificate pending for` | Check DNS and DigitalOcean inbound TCP 80/443; inspect cert-manager events and logs. Staging issuance is the real outside check. |
 | `production certificate pending` | Inspect certificate events. If rate limited, wait for the stated limit window before retrying. |
@@ -205,14 +203,13 @@
 | `admin request failed` | Check Keycloak readiness and bootstrap secret; re-run step 8. A partly created marked first-admin account gets its role completed without changing its password. |
 | `username/email/password missing or passwords differ` | Repeat step 8 with nonempty username, valid email and matching passwords. |
 | `username already exists` | Ask Aziz to inspect that account; the script will not overwrite an unrelated account. |
-| `Spaces keys are missing or invalid` | Ask Aziz to inspect the Spaces Secret without printing its values. Step 5 never overwrites it. |
 | `FAIL pods` | Check pending/crashing pods, memory, storage and operator logs. Completed jobs are excluded. |
 | `FAIL production certificate`, `FAIL HTTPS` | Check ingress, deployment, DNS and certificate events; HTTPS must validate without bypassing TLS checks. |
 | `FAIL OIDC issuer` | Check realm import, Keycloak hostname and `proxy.headers: xforwarded`. |
 | `FAIL topic` | Re-run step 6; inspect the named KafkaTopic and Kafka readiness. |
 | `FAIL Kafka smoke` | Inspect KafkaUser `ooh-smoke` and its ACLs. Only `ooh.smoke` is permitted; denial must specifically be a topic authorization error. |
 | `FAIL PostgreSQL` | Inspect database/role status and the `keycloak-db` secret reference. Passwords must match; do not replace existing secrets blindly. |
-| `FAIL storage` | Check the private bucket and its key's read/write permission, plus network access. The test object is retained. |
+| `FAIL storage` | Inspect PVC `ooh-files` in `ooh-apps`, the local-path provisioner, disk space and check pod volume permissions. The test file is retained. |
 | `platform checks failed` | Fix every `FAIL` line above it, then repeat step 7. |
 
 Type this in your harness terminal, `shell` tile, plain shell. The folder doesn't
@@ -227,7 +224,7 @@ kubectl -n cert-manager get events --sort-by=.metadata.creationTimestamp
 
 | Path | Contents |
 |---|---|
-| `deploy/platform/` | Namespaces, certificates, Kafka, PostgreSQL, Keycloak and placeholder manifests |
+| `deploy/platform/` | Namespaces, certificates, Kafka, PostgreSQL, Keycloak, file PVC and placeholder manifests |
 | `deploy/values/do.env` | Public deployment values; no credentials or personal contact data |
 | `install/ooh.env.example` | Template for private local settings in `~/.config/ooh/do.env` |
 | `install/00` through `install/50` scripts | Server check, operators, secrets, apply, checks, first admin |
@@ -236,6 +233,11 @@ kubectl -n cert-manager get events --sort-by=.metadata.creationTimestamp
 
 Secrets exist in Kubernetes only; interactive inputs are held in process memory.
 Kafka check credentials exist briefly in a temporary pod's in-memory volume.
+Files live on the Droplet disk in the `ooh-files` PVC (`ooh-apps`, `local-path`,
+20Gi). The apply script creates the claim; it may stay Pending until the storage
+check pod first mounts it. The short-lived pod writes `checks/stage0-<time>.txt`,
+reads it back and leaves the file in place. It reuses the pinned PostgreSQL image
+for its shell tools, adding no new image or storage server.
 No application or database data is removed by these scripts. All persistent
 volumes use `local-path`; Kafka claims and database resources retain data.
 The Keycloak realm import is for initial creation; it does not update an already
@@ -285,3 +287,9 @@ has a fifth confidential service client, `ooh-model-gateway`, with no redirects,
 and the audience mappers described above. The smoke topic uses free-form test
 messages with no schema or envelope. These are owner-supplied updates to the
 written stage spec, not extra features.
+
+Aziz's storage spec change, 09 Nov 2026 at 16:18: file storage now uses the
+Droplet disk through the `ooh-files` PVC. No object storage service or storage
+credentials are required. `deploy/platform/storage/files-pvc.yaml` is added to
+Part B's permitted file list. The operator installer completed with all four
+operators rolled out and `DONE` before this change was made.

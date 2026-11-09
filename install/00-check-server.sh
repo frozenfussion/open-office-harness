@@ -11,11 +11,8 @@ source "$ROOT/deploy/values/do.env"
 [[ -f "$HOME/.config/ooh/do.env" ]] || stop "local settings missing; copy install/ooh.env.example as described in README"
 # shellcheck source=/dev/null
 source "$HOME/.config/ooh/do.env"
-for setting in LETSENCRYPT_EMAIL SPACES_REGION SPACES_BUCKET; do
-  [[ -n "${!setting:-}" ]] || stop "local setting $setting is empty; fill it in as described in README"
-done
+[[ -n "${LETSENCRYPT_EMAIL:-}" ]] || stop "local setting LETSENCRYPT_EMAIL is empty; fill it in as described in README"
 [[ "$LETSENCRYPT_EMAIL" == *@*.* && "$LETSENCRYPT_EMAIL" != *[[:space:]]* ]] || stop "contact email is invalid; correct local settings"
-[[ "$SPACES_REGION" == sgp1 && "$SPACES_BUCKET" == ooh-files ]] || stop "Spaces settings must name sgp1 and ooh-files"
 
 for tool in kubectl getent curl jq; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 kubectl get nodes -o json | jq -e '.items | length == 1 and all(.[]; any(.status.conditions[]; .type == "Ready" and .status == "True"))' >/dev/null || stop "k3s node is not Ready; check server setup"

@@ -11,9 +11,7 @@ source deploy/values/do.env
 [[ -f "$HOME/.config/ooh/do.env" ]] || stop "local settings missing; copy install/ooh.env.example as described in README"
 # shellcheck source=/dev/null
 source "$HOME/.config/ooh/do.env"
-for setting in LETSENCRYPT_EMAIL SPACES_REGION SPACES_BUCKET; do
-  [[ -n "${!setting:-}" ]] || stop "local setting $setting is empty; fill it in as described in README"
-done
+[[ -n "${LETSENCRYPT_EMAIL:-}" ]] || stop "local setting LETSENCRYPT_EMAIL is empty; fill it in as described in README"
 failed=0
 result() {
   if [[ "$1" == 0 ]]; then printf 'PASS %s\n' "$2"; else printf 'FAIL %s: %s\n' "$2" "$3"; failed=1; fi
@@ -57,16 +55,18 @@ for file in deploy/platform/kafka/topics/*.yaml; do
   result "$rc" "topic $name" 'topic configuration or reconciliation differs; re-run platform apply and inspect KafkaTopic'
 done
 check_pod=''
+check_namespace=ooh-platform
 cleanup() {
-  if [[ -n "$check_pod" ]]; then kubectl -n ooh-platform delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true; fi
+  if [[ -n "$check_pod" ]]; then kubectl -n "$check_namespace" delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true; fi
 }
 trap cleanup EXIT
 run_pod() {
-  local image="$1" script="$2" env="$3" rc=0
+  local image="$1" script="$2" env="$3" namespace="${4:-ooh-platform}" pvc="${5:-}" rc=0
+  check_namespace="$namespace"
   check_pod="ooh-check-$(date +%s)-$RANDOM"
-  jq -n --arg name "$check_pod" --arg image "$image" --arg script "$script" --argjson env "$env" '{apiVersion:"v1",kind:"Pod",metadata:{name:$name,namespace:"ooh-platform"},spec:{restartPolicy:"Never",activeDeadlineSeconds:150,automountServiceAccountToken:false,securityContext:{runAsNonRoot:true,runAsUser:1001,runAsGroup:1001,fsGroup:1001,seccompProfile:{type:"RuntimeDefault"}},containers:[{name:"check",image:$image,command:["/bin/bash","-ec",$script],env:$env,resources:{requests:{cpu:"100m",memory:"128Mi"},limits:{cpu:"500m",memory:"512Mi"}},securityContext:{readOnlyRootFilesystem:true,allowPrivilegeEscalation:false,capabilities:{drop:["ALL"]}},volumeMounts:[{name:"tmp",mountPath:"/tmp"}]}],volumes:[{name:"tmp",emptyDir:{medium:"Memory",sizeLimit:"64Mi"}}]}}' | kubectl create -f - >/dev/null
+  jq -n --arg name "$check_pod" --arg image "$image" --arg script "$script" --argjson env "$env" --arg namespace "$namespace" --arg pvc "$pvc" '{apiVersion:"v1",kind:"Pod",metadata:{name:$name,namespace:$namespace},spec:{restartPolicy:"Never",activeDeadlineSeconds:150,automountServiceAccountToken:false,securityContext:{runAsNonRoot:true,runAsUser:1001,runAsGroup:1001,fsGroup:1001,seccompProfile:{type:"RuntimeDefault"}},containers:[{name:"check",image:$image,command:["/bin/bash","-ec",$script],env:$env,resources:{requests:{cpu:"100m",memory:"128Mi"},limits:{cpu:"500m",memory:"512Mi"}},securityContext:{readOnlyRootFilesystem:true,allowPrivilegeEscalation:false,capabilities:{drop:["ALL"]}},volumeMounts:[{name:"tmp",mountPath:"/tmp"}]}],volumes:[{name:"tmp",emptyDir:{medium:"Memory",sizeLimit:"64Mi"}}]}} | if $pvc != "" then .spec.volumes += [{name:"files",persistentVolumeClaim:{claimName:$pvc}}] | .spec.containers[0].volumeMounts += [{name:"files",mountPath:"/files"}] else . end' | kubectl create -f - >/dev/null
   for ((attempt=0; attempt<90; attempt++)); do
-    phase="$(kubectl -n ooh-platform get pod "$check_pod" -o jsonpath='{.status.phase}')"
+    phase="$(kubectl -n "$check_namespace" get pod "$check_pod" -o jsonpath='{.status.phase}')"
     [[ "$phase" != Succeeded && "$phase" != Failed ]] || break
     sleep 2
   done
@@ -100,19 +100,14 @@ rc=0
 run_pod ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie '[[ "$(psql -h ooh-pg-rw -U keycloak -d keycloak -Atc "SELECT 1")" == 1 ]]' "$env" || rc=1
 result "$rc" 'PostgreSQL SELECT 1 as keycloak' 'connection or query failed; check database role and secret names'
 rc=0
-credentials="$(kubectl -n ooh-platform get secret spaces -o json)" || rc=1
-access="$(jq -r '.data["access-key"] | @base64d' <<< "$credentials")"
-secret="$(jq -r '.data["secret-key"] | @base64d' <<< "$credentials")"
-[[ -n "$access" && -n "$secret" && "$access$secret" != *[\"\\\$'\r\n']* ]] || stop "Spaces keys are missing or invalid; check secret with the owner"
-url="https://$SPACES_BUCKET.$SPACES_REGION.digitaloceanspaces.com/checks/platform-$(date +%s)-$RANDOM.txt"
-message="open-office-harness platform check $(date -u +%FT%TZ)"
-spaces_curl() {
-  printf 'user = "%s:%s"\n' "$access" "$secret" | curl --config - --aws-sigv4 "aws:amz:$SPACES_REGION:s3" --connect-timeout 10 --max-time 30 -fsS "$@" "$url"
-}
-spaces_curl -X PUT --data-binary "$message" >/dev/null 2>&1 || rc=1
-readback="$(spaces_curl 2>/dev/null)" || rc=1
-[[ "$readback" == "$message" ]] || rc=1
-unset credentials access secret
-result "$rc" 'storage write/read under checks/' 'check Spaces bucket, region and key read/write permissions; check objects are retained'
+# shellcheck disable=SC2016 # Expanded inside the storage check pod.
+run_pod ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie 'set -euo pipefail
+umask 077
+mkdir -p /files/checks
+file="/files/checks/stage0-$(date -u +%s%N).txt"
+message="open-office-harness storage check"
+printf "%s\n" "$message" > "$file"
+[[ "$(cat "$file")" == "$message" ]]' '[]' ooh-apps ooh-files || rc=1
+result "$rc" 'storage PVC ooh-files write/read under checks/' 'check ooh-files PVC, local-path provisioner, disk space and pod volume permissions in ooh-apps; check files are retained'
 ((failed == 0)) || stop "platform checks failed; fix the FAIL lines above and re-run"
 printf 'DONE\n'

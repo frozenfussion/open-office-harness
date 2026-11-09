@@ -11,14 +11,11 @@ source "$ROOT/deploy/values/do.env"
 [[ -f "$HOME/.config/ooh/do.env" ]] || stop "local settings missing; copy install/ooh.env.example as described in README"
 # shellcheck source=/dev/null
 source "$HOME/.config/ooh/do.env"
-for setting in LETSENCRYPT_EMAIL SPACES_REGION SPACES_BUCKET; do
-  [[ -n "${!setting:-}" ]] || stop "local setting $setting is empty; fill it in as described in README"
-done
+[[ -n "${LETSENCRYPT_EMAIL:-}" ]] || stop "local setting LETSENCRYPT_EMAIL is empty; fill it in as described in README"
 [[ "$LETSENCRYPT_EMAIL" == *@*.* && "$LETSENCRYPT_EMAIL" != *[[:space:]]* ]] || stop "contact email is invalid; correct local settings"
-[[ "$SPACES_REGION" == sgp1 && "$SPACES_BUCKET" == ooh-files ]] || stop "Spaces settings must name sgp1 and ooh-files"
 
 [[ "$LETSENCRYPT_EMAIL" != *[\"\\]* ]] || stop "contact email contains unsupported characters; correct local settings"
-for secret in keycloak-db keycloak-bootstrap spaces; do
+for secret in keycloak-db keycloak-bootstrap; do
   kubectl -n ooh-platform get secret "$secret" >/dev/null || stop "required secret missing; run install/20-platform-secrets.sh"
 done
 tmp="$(mktemp -d)"
@@ -29,6 +26,8 @@ while IFS= read -r line; do
   printf '%s\n' "${line//\$\{LETSENCRYPT_EMAIL\}/$email}"
 done < deploy/platform/cert-manager/cluster-issuers.template.yaml > "$tmp/issuers.yaml"
 kubectl apply -f deploy/platform/namespaces.yaml
+# local-path binds on first use; the storage check pod triggers provisioning.
+kubectl apply -f deploy/platform/storage/files-pvc.yaml
 kubectl apply -f "$tmp/issuers.yaml"
 kubectl wait --for=condition=Ready clusterissuer/letsencrypt-staging clusterissuer/letsencrypt-prod --timeout=300s
 kubectl apply -f deploy/platform/kafka/kafka.yaml
