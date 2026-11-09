@@ -273,6 +273,32 @@ paths:
                 - output
                 - error
                 additionalProperties: false
+                oneOf:
+                - properties:
+                    type:
+                      enum:
+                      - job.completed
+                    output:
+                      type: object
+                    error:
+                      type: 'null'
+                - properties:
+                    type:
+                      enum:
+                      - job.failed
+                    output:
+                      type: 'null'
+                    error:
+                      type: object
+                - properties:
+                    type:
+                      enum:
+                      - job.queued
+                      - job.awaiting_approval
+                    output:
+                      type: 'null'
+                    error:
+                      type: 'null'
         '400':
           description: Invalid input
           content:
@@ -315,6 +341,7 @@ paths:
                   url:
                     type: string
                     format: uri
+                    pattern: ^https?://[^\s/?#]+(?:[/?#][^\s]*)?$
                   expires_at:
                     type: string
                     format: date-time
@@ -372,10 +399,12 @@ components:
     Error:
       type: object
       properties:
-        code: &id001
+        code:
           type: string
           minLength: 1
-        message: *id001
+        message:
+          type: string
+          minLength: 1
       required:
       - code
       - message

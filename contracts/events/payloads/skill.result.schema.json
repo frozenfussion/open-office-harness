@@ -75,5 +75,37 @@
     "output",
     "error"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "status": {
+          "enum": [
+            "completed"
+          ]
+        },
+        "output": {
+          "type": "object"
+        },
+        "error": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "properties": {
+        "status": {
+          "enum": [
+            "failed"
+          ]
+        },
+        "output": {
+          "type": "null"
+        },
+        "error": {
+          "type": "object"
+        }
+      }
+    }
+  ]
 }

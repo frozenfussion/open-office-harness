@@ -12,6 +12,25 @@ from check_contracts import ROOT, check_contracts, load, validate_example
 
 def test_all_contracts() -> None:
     assert check_contracts()["topics"] == 11
+    for document, route, field in [
+        ("control-centre", "/api/models", "endpoint_url"),
+        ("harness-api", "/api/files/{key}", "url"),
+    ]:
+        path = ROOT / f"http/{document}.openapi.yaml"
+        schema = load(path)["paths"][route]["get"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        properties = (
+            schema["items"]["properties"]
+            if document == "control-centre"
+            else schema["properties"]
+        )
+        for invalid in ["not-a-uri", "https://", "https://bad host/file", "/relative"]:
+            with pytest.raises(ValidationError):
+                validate_example(properties[field], invalid, path)
+        validate_example(
+            properties[field], "https://example.invalid/path?key=value", path
+        )
 
 
 def test_invalid_example_is_rejected() -> None:
@@ -66,6 +85,24 @@ def test_generic_result_and_job_updates(failed: bool) -> None:
     }
     path = ROOT / "events/payloads/skill.result.schema.json"
     validate_example(load(path), result, path)
+    with pytest.raises(ValidationError):
+        validate_example(
+            load(path), result | {"status": "completed" if failed else "failed"}, path
+        )
+    with pytest.raises(ValidationError):
+        validate_example(
+            load(path),
+            result
+            | {
+                "error": {"code": "failed", "message": "Failure"},
+                "output": {
+                    "file_key": "example",
+                    "mime": "text/plain",
+                    "summary": "Example",
+                },
+            },
+            path,
+        )
     path = ROOT / "http/harness-api.openapi.yaml"
     schema = load(path)["paths"]["/api/events"]["get"]["responses"]["200"]["content"][
         "text/event-stream"
@@ -73,6 +110,16 @@ def test_generic_result_and_job_updates(failed: bool) -> None:
     result["type"] = "job." + result.pop("status")
     result["correlation_id"] = "00000000-0000-4000-8000-000000000001"
     validate_example(schema, result, path)
+    with pytest.raises(ValidationError):
+        validate_example(
+            schema, result | {"type": "job.completed" if failed else "job.failed"}, path
+        )
+    for state in ("job.queued", "job.awaiting_approval"):
+        validate_example(
+            schema, result | {"type": state, "output": None, "error": None}, path
+        )
+        with pytest.raises(ValidationError):
+            validate_example(schema, result | {"type": state}, path)
 
 
 @pytest.mark.parametrize(

@@ -72,6 +72,10 @@ and are suggestions. Registry replies describe runtime provider assignments, inc
 model_id and secret_ref (the name of a Kubernetes Secret key, never its value).
 No deployment model choices are fixed here. tier is required for chat registry
 lookups and omitted for other purposes. Query/path inputs are declared as parameters.
+OpenAPI declares purpose and tier as separate query parameters, so this dependency
+is expressed in the operation description rather than a cross-parameter schema.
+The checker enforces it through the /api/models special case in
+validate_parameters; generic OpenAPI parameter validators alone do not enforce it.
 
 The ooh.smoke topic carries free-form test messages for platform checks only.
 It has no schema or envelope; the checker explicitly exempts it from payload
@@ -94,7 +98,10 @@ skill.requested declares skill, skill_version and an input object. The worker
 validates input against contracts/skills/<skill>/input.schema.json; adding a skill
 does not change the generic event schema. skill.result and Harness job updates
 use generic skill names, nullable output/error and unrestricted MIME strings.
-Only the Slides contracts constrain the output to PowerPoint.
+oneOf branches require an output object and null error for completed results,
+an error object and null output for failed results, and null output/error for
+queued or awaiting-approval job updates. Only the Slides contracts constrain the
+output to PowerPoint.
 
 POST /api/uploads accepts multipart/form-data with a binary file field. Its JSON
 example represents the decoded file part's synthetic bytes as a string; clients
@@ -105,3 +112,7 @@ OpenAPI errors are defined once per document as components/schemas/Error and
 referenced with JSON pointers. Responses without content (such as 204) need no
 body example. The checker uses explicit errors even when Python optimization
 is enabled.
+
+Registry endpoint_url and signed-download url retain format: uri and also require
+an HTTP(S) URL pattern with a nonempty authority and no whitespace. This pattern
+is checked without optional URI-validation packages or new dependencies.

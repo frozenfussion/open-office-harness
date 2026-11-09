@@ -208,10 +208,12 @@ components:
     Error:
       type: object
       properties:
-        code: &id001
+        code:
           type: string
           minLength: 1
-        message: *id001
+        message:
+          type: string
+          minLength: 1
       required:
       - code
       - message
