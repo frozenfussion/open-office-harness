@@ -1,0 +1,24 @@
+{
+  "$comment": "SPDX-License-Identifier: AGPL-3.0-only",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "file_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mime": {
+      "const": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "file_key",
+    "mime",
+    "summary"
+  ],
+  "additionalProperties": false
+}

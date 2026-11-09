@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: k8s.keycloak.org/v2beta1
+kind: Keycloak
+metadata:
+  name: ooh-keycloak
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  instances: 1
+  image: quay.io/keycloak/keycloak:26.8.2
+  # Stock-image startup needs a writable root filesystem.
+  startOptimized: false
+  db:
+    vendor: postgres
+    host: ooh-pg-rw
+    database: keycloak
+    usernameSecret:
+      name: keycloak-db
+      key: username
+    passwordSecret:
+      name: keycloak-db
+      key: password
+  bootstrapAdmin:
+    user:
+      secret: keycloak-bootstrap
+  http:
+    httpEnabled: true
+  hostname:
+    hostname: https://auth.${DOMAIN}
+  proxy:
+    headers: xforwarded
+  ingress:
+    enabled: false
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: '2'
+      memory: 2Gi
+  unsupported:
+    podTemplate:
+      spec:
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+        containers:
+        - name: keycloak
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+              - ALL
+          volumeMounts:
+          - name: keycloak-tmp
+            mountPath: /tmp
+        volumes:
+        - name: keycloak-tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi

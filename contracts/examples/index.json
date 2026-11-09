@@ -1,0 +1,726 @@
+{
+  "$comment": "SPDX-License-Identifier: AGPL-3.0-only",
+  "examples": [
+    {
+      "file": "examples/events/payloads/skill.requested.example.json",
+      "schema": "events/payloads/skill.requested.schema.json"
+    },
+    {
+      "file": "examples/events/payloads/skill.result.example.json",
+      "schema": "events/payloads/skill.result.schema.json"
+    },
+    {
+      "file": "examples/events/payloads/approval.requested.example.json",
+      "schema": "events/payloads/approval.requested.schema.json"
+    },
+    {
+      "file": "examples/events/payloads/approval.decided.example.json",
+      "schema": "events/payloads/approval.decided.schema.json"
+    },
+    {
+      "file": "examples/events/payloads/audit.event.example.json",
+      "schema": "events/payloads/audit.event.schema.json"
+    },
+    {
+      "file": "examples/events/payloads/dlq.entry.example.json",
+      "schema": "events/payloads/dlq.entry.schema.json"
+    },
+    {
+      "file": "examples/events/envelope.example.json",
+      "schema": "events/envelope.schema.json"
+    },
+    {
+      "file": "examples/skills/manifest.example.json",
+      "schema": "skills/manifest.schema.json"
+    },
+    {
+      "file": "examples/skills/slides/input.example.json",
+      "schema": "skills/slides/input.schema.json"
+    },
+    {
+      "file": "examples/skills/slides/output.example.json",
+      "schema": "skills/slides/output.schema.json"
+    },
+    {
+      "file": "examples/http/control-centre.get-health.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/health",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-health.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/health",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.post-rights-check.request.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/check",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/control-centre.post-rights-check.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/check",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.post-rights-check.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/check",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.post-rights-check.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/check",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.post-rights-check.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/check",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.post-rights-check.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/check",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.get-rights-me.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-rights-me.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-rights-me.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-rights-me.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-rights-me.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.get-skills.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/skills",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-skills.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/skills",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-skills.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/skills",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-skills.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/skills",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-skills.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/skills",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.get-models.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/models",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-models.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/models",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-models.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/models",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-models.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/models",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-models.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/models",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/model-gateway.get-health.200.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/health",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.get-health.503.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/health",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.request.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.400.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.401.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.403.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.503.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.sse.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-classify.request.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/classify",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-classify.200.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/classify",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-classify.400.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/classify",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-classify.401.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/classify",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-classify.403.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/classify",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-classify.503.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/classify",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.get-health.200.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/health",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-health.503.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/health",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations.request.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations.201.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "201"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations.400.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations.401.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations.403.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations.503.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.request.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.200.sse.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.400.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.401.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.403.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.503.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.post-uploads.request.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/uploads",
+      "method": "post",
+      "kind": "request",
+      "media_type": "multipart/form-data"
+    },
+    {
+      "file": "examples/http/harness-api.post-uploads.201.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/uploads",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "201"
+    },
+    {
+      "file": "examples/http/harness-api.post-uploads.400.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/uploads",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/harness-api.post-uploads.401.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/uploads",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/harness-api.post-uploads.403.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/uploads",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/harness-api.post-uploads.503.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/uploads",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.get-events.200.sse.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/events",
+      "method": "get",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-events.400.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/events",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/harness-api.get-events.401.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/events",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/harness-api.get-events.403.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/events",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/harness-api.get-events.503.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/events",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.get-files-key.200.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/files/{key}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-files-key.400.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/files/{key}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/harness-api.get-files-key.401.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/files/{key}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/harness-api.get-files-key.403.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/files/{key}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/harness-api.get-files-key.503.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/files/{key}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.get-rights-me.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/me",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-skills.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/skills",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-models.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/models",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.parameters.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/harness-api.get-files-key.parameters.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/files/{key}",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.404.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/harness-api.get-files-key.404.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/files/{key}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/control-centre.get-models.parameters.classification.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/models",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-models.200.classification.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/models",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ooh-files
+  namespace: ${APPS_NAMESPACE}
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: ${FILES_STORAGE}

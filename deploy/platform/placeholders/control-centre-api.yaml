@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: control-centre-api
+  namespace: ${APPS_NAMESPACE}
+data:
+  index.html: <!doctype html><html lang="en"><meta charset="utf-8"><title>Control
+    Centre API</title><body>open-office-harness · Control Centre API · arrives in
+    Stage 1</body></html>
+  default.conf: server { listen 8080; location / { root /usr/share/nginx/html; try_files
+    $uri /index.html; } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: control-centre-api
+  namespace: ${APPS_NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: control-centre-api
+  template:
+    metadata:
+      labels:
+        app: control-centre-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: page
+        image: nginxinc/nginx-unprivileged:1.28.0-alpine
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+        volumeMounts:
+        - name: page
+          mountPath: /usr/share/nginx/html/index.html
+          subPath: index.html
+          readOnly: true
+        - name: page
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: page
+        configMap:
+          name: control-centre-api
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: control-centre-api
+  namespace: ${APPS_NAMESPACE}
+spec:
+  selector:
+    app: control-centre-api
+  ports:
+  - port: 8080
+    targetPort: 8080

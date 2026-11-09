@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: keycloak
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: keycloak
+  login: true
+  passwordSecret:
+    name: keycloak-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: keycloak
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: keycloak
+  owner: keycloak
+  databaseReclaimPolicy: retain
