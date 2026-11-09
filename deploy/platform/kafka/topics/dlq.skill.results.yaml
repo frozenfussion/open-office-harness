@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: dlq-skill-results
+  namespace: ${PLATFORM_NAMESPACE}
+  labels:
+    strimzi.io/cluster: ooh-kafka
+spec:
+  topicName: dlq.skill.results
+  partitions: 1
+  replicas: 1
+  config:
+    retention.ms: 2592000000
+    min.insync.replicas: 1

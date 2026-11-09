@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: approvals-requested
+  namespace: ${PLATFORM_NAMESPACE}
+  labels:
+    strimzi.io/cluster: ooh-kafka
+spec:
+  topicName: approvals.requested
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 2592000000
+    min.insync.replicas: 1
