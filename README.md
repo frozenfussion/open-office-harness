@@ -101,8 +101,9 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
 6. **Check the Control Centre.** Type this in your harness terminal, Shell
    tile, plain shell. This checks sign-in, rights, registries, approvals,
    outgoing Kafka events and database audit protection. No password in the
-   terminal. When the script prints a browser link and code, open that link,
-   enter the code and sign in as an administrator in your browser. Tokens are
+   terminal. Open the `Open:` link and sign in as an administrator in your
+   browser; the user code is already included. If needed, use the plain fallback
+   link and enter the displayed user code. Tokens are
    held only in shell variables and refreshed before each admin call.
    Device sign-in uses PKCE S256; its random verifier stays in a shell variable.
    Good result: every check prints `PASS`, then `DONE`.
