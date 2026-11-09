@@ -4,9 +4,9 @@
 
 Only Aziz runs the deployment and live-check scripts. Use the Shell tile, plain
 shell, for every command below. None of these scripts asks for a password.
-Everyday work uses `~/projects/open-office-harness` on `main`. Until Stage 1 is
-accepted, only first-deploy steps 4–6 use the merged `stage-1` worktree. Pushing
-that merged branch builds the image with its exact 12-character commit tag.
+After acceptance, everyday work uses `~/projects/open-office-harness` on `main`.
+During the build and testing, use the folder shown for your phase below. Pushing
+the merged `stage-1` branch builds the image with its exact 12-character commit tag.
 On a fresh server, finish the Stage 0 setup below first; the apply/check order is
 **30 → 59 → 60 → 61 → 40 → 62**.
 
@@ -29,10 +29,29 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
    fi
    ```
 
-2. **Make the databases.** Type this in your harness terminal, Shell tile,
-   plain shell. This creates the live and test databases, each with a separate
-   owner and app role. No password. Good result: four roles and two databases
-   meet their condition, private test settings are saved, then `DONE`.
+2. **Make the databases.** This creates the live and test databases, each
+   with a separate owner and app role. No password. Good result: four roles and
+   two databases meet their condition, private test settings are saved, then
+   `DONE`. Use the command for your current phase.
+
+   **Before the merge:** Type this in your harness terminal, Shell tile, plain
+   shell. This runs the database setup from Part B.
+
+   ```bash
+   cd ~/projects/worktrees/stage-1-part-b
+   install/59-control-centre-databases.sh
+   ```
+
+   **After the merge, before acceptance:** Type this in your harness terminal,
+   Shell tile, plain shell. This runs the database setup from the merged code.
+
+   ```bash
+   cd ~/projects/worktrees/stage-1
+   install/59-control-centre-databases.sh
+   ```
+
+   **After acceptance:** Type this in your harness terminal, Shell tile, plain
+   shell. This runs the database setup from the main clone.
 
    ```bash
    cd ~/projects/open-office-harness
@@ -163,10 +182,21 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
    ```
 
 8. **After a reboot.** Kubernetes starts the app by itself if it was running
-   before the reboot. Allow five minutes. Type this in your harness terminal,
-   Shell tile, plain shell. No password. This checks the platform, then the
-   Control Centre, including browser sign-in again. Good result: both scripts
-   finish with `DONE` and no `FAIL` lines.
+   before the reboot. Allow five minutes. These commands check the platform,
+   then the Control Centre, including browser sign-in again. No password.
+   Good result: both scripts finish with `DONE` and no `FAIL` lines.
+
+   **Until Stage 1 is accepted:** Type this in your harness terminal, Shell
+   tile, plain shell. This runs the reboot checks from the merged code.
+
+   ```bash
+   cd ~/projects/worktrees/stage-1
+   install/40-check-platform.sh
+   install/62-check-control-centre.sh
+   ```
+
+   **After acceptance:** Type this in your harness terminal, Shell tile, plain
+   shell. This runs the reboot checks from the main clone.
 
    ```bash
    cd ~/projects/open-office-harness
@@ -204,7 +234,7 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
     | Kafka password changed in Strimzi | Ask the maintainer before replacing control-centre-kafka; the script preserves the existing Secret. |
     | Secret setup failed or application secret missing | Check platform readiness and run 60 again. Existing secrets are kept. |
     | Image not built yet | Run the workflow for the code commit; wait for a green tick and make the package public. |
-    | Image exists but is not public | Switch the ooh-control-centre package to Public on GitHub, as in step 3. |
+    | Image not found or not public | Check that the workflow run for this commit is green, then switch the ooh-control-centre package to Public (README step 3). |
     | Registry unreachable or registry check failed | Check ghcr.io availability and retry. |
     | Registry returned an invalid token | Retry; inspect ghcr.io availability if it continues. |
     | Unexpected admin certificate issuer | Inspect the existing admin Ingress; keep the certificate managed by that Ingress. |
@@ -213,6 +243,7 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
     | Device sign-in unavailable | Run `install/35-realm-sync.sh`, then repeat 62. This updates existing clients only. |
     | Device sign-in refused, expired, invalid timing or missing refresh token | Retry and sign in promptly as an administrator; inspect Keycloak client settings if it repeats. |
     | Account is not an administrator | Repeat the check and sign in with the ooh-admin account. |
+    | KafkaTopic partition count could not be read or is invalid | Inspect the named KafkaTopic and its spec.partitions, then retry. |
     | Start Kafka check at newest offsets FAIL | Check Kafka access, ensure no other ooh-stage-check consumer is running and retry. |
     | Approval list is not an array, paging did not advance or invalid response id | Inspect the API contract and response handling before retrying. |
     | HTTP sign-in, audience or registry access FAIL | Check the expected HTTP status printed with the check and the realm audience mappers. |

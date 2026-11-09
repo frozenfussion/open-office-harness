@@ -168,6 +168,15 @@ require "$rc" 'device sign-in' 'the account is not an administrator; sign in wit
 
 kafka() (
   local mode="$1" event="${2:-}" script manifest phase='' output rc=0
+  local audit_partitions='' decision_partitions=''
+  if [[ "$mode" == start ]]; then
+    audit_partitions="$(kubectl -n "$PLATFORM_NAMESPACE" get kafkatopic audit-events -o jsonpath='{.spec.partitions}')" ||
+      stop "KafkaTopic audit-events partition count could not be read; inspect the topic and retry"
+    decision_partitions="$(kubectl -n "$PLATFORM_NAMESPACE" get kafkatopic approvals-decided -o jsonpath='{.spec.partitions}')" ||
+      stop "KafkaTopic approvals-decided partition count could not be read; inspect the topic and retry"
+    [[ "$audit_partitions" =~ ^[1-9][0-9]*$ ]] || stop "KafkaTopic audit-events partition count is invalid; inspect spec.partitions and retry"
+    [[ "$decision_partitions" =~ ^[1-9][0-9]*$ ]] || stop "KafkaTopic approvals-decided partition count is invalid; inspect spec.partitions and retry"
+  fi
   trap 'if [[ -n "$check_pod" ]]; then kubectl -n "$PLATFORM_NAMESPACE" delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true; fi' EXIT
   # shellcheck disable=SC2016 # Password and event expansion happen only inside the check pod.
   script='set -euo pipefail
@@ -178,6 +187,7 @@ unset PASSWORD
 cd /opt/kafka/bin
 if [[ "$MODE" == start ]]; then
   for topic in audit.events approvals.decided; do
+    if [[ "$topic" == audit.events ]]; then expected="$AUDIT_PARTITIONS"; else expected="$DECISION_PARTITIONS"; fi
     ./kafka-consumer-groups.sh --bootstrap-server ooh-kafka-kafka-bootstrap:9092 --group ooh-stage-check --topic "$topic" --reset-offsets --to-latest --execute --command-config /tmp/client.properties > /tmp/reset.log 2>&1
     count=0
     while read -r group topic_name partition offset extra; do
@@ -186,7 +196,7 @@ if [[ "$MODE" == start ]]; then
         count=$((count + 1))
       fi
     done < /tmp/reset.log
-    [[ "$count" == 3 ]] || exit 1
+    [[ "$count" == "$expected" ]] || exit 1
   done
 elif [[ "$MODE" == publish ]]; then
   printf "%s\t%s\n%s\t%s\n" "$CORRELATION" "$EVENT" "$CORRELATION" "$EVENT" |
@@ -202,11 +212,11 @@ else
   done < /tmp/read.log
 fi'
   check_pod="ooh-stage-check-$(date +%s)-$RANDOM"
-  manifest="$(jq -n --arg namespace "$PLATFORM_NAMESPACE" --arg name "$check_pod" --arg mode "$mode" --arg event "$event" --arg correlation "$correlation_id" --arg script "$script" --arg audit_correlations "$audit_correlations" '
+  manifest="$(jq -n --arg namespace "$PLATFORM_NAMESPACE" --arg name "$check_pod" --arg mode "$mode" --arg event "$event" --arg correlation "$correlation_id" --arg script "$script" --arg audit_correlations "$audit_correlations" --arg audit_partitions "$audit_partitions" --arg decision_partitions "$decision_partitions" '
     {apiVersion:"v1",kind:"Pod",metadata:{name:$name,namespace:$namespace},spec:{restartPolicy:"Never",activeDeadlineSeconds:100,automountServiceAccountToken:false,
     securityContext:{runAsNonRoot:true,runAsUser:1001,runAsGroup:1001,fsGroup:1001,seccompProfile:{type:"RuntimeDefault"}},
     containers:[{name:"check",image:"quay.io/strimzi/kafka:1.3.1-kafka-4.3.2",command:["/bin/bash","-ec",$script],
-    env:[{name:"PASSWORD",valueFrom:{secretKeyRef:{name:"ooh-stage-check",key:"password"}}},{name:"MODE",value:$mode},{name:"EVENT",value:$event},{name:"CORRELATION",value:$correlation},{name:"AUDIT_CORRELATIONS",value:$audit_correlations}],
+    env:[{name:"PASSWORD",valueFrom:{secretKeyRef:{name:"ooh-stage-check",key:"password"}}},{name:"MODE",value:$mode},{name:"EVENT",value:$event},{name:"CORRELATION",value:$correlation},{name:"AUDIT_CORRELATIONS",value:$audit_correlations},{name:"AUDIT_PARTITIONS",value:$audit_partitions},{name:"DECISION_PARTITIONS",value:$decision_partitions}],
     resources:{requests:{cpu:"100m",memory:"128Mi"},limits:{cpu:"500m",memory:"512Mi"}},
     securityContext:{readOnlyRootFilesystem:true,allowPrivilegeEscalation:false,capabilities:{drop:["ALL"]}},volumeMounts:[{name:"tmp",mountPath:"/tmp"}]}],
     volumes:[{name:"tmp",emptyDir:{medium:"Memory",sizeLimit:"64Mi"}}]}}')" || return 1

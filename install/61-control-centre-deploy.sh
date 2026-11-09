@@ -30,7 +30,7 @@ check_registry_status() {
   case "$1" in
     200) ;;
     404) stop "image not built yet; run the workflow for this commit" ;;
-    401|403) stop "image exists but is not public; switch the ooh-control-centre package to Public (README step 3)" ;;
+    401|403) stop "image not found or not public; check that the workflow run for this commit is green, then switch the ooh-control-centre package to Public (README step 3)" ;;
     *) stop "registry check failed with HTTP $1; check ghcr.io availability and retry" ;;
   esac
 }
