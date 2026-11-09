@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: ooh-smoke
+  namespace: ooh-platform
+  labels:
+    strimzi.io/cluster: ooh-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+    - resource:
+        type: topic
+        name: ooh.smoke
+        patternType: literal
+      operations:
+      - Read
+      - Write
+      - Describe
+    - resource:
+        type: group
+        name: ooh-smoke
+        patternType: literal
+      operations:
+      - Read

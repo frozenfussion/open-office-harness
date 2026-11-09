@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: auth
+  namespace: ooh-platform
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - auth.faysalaziz.com
+    secretName: auth-tls
+  rules:
+  - host: auth.faysalaziz.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ooh-keycloak-service
+            port:
+              number: 8080

@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: k8s.keycloak.org/v2beta1
+kind: Keycloak
+metadata:
+  name: ooh-keycloak
+  namespace: ooh-platform
+spec:
+  instances: 1
+  image: quay.io/keycloak/keycloak:26.8.2
+  db:
+    vendor: postgres
+    host: ooh-pg-rw
+    database: keycloak
+    usernameSecret:
+      name: keycloak-db
+      key: username
+    passwordSecret:
+      name: keycloak-db
+      key: password
+  bootstrapAdmin:
+    user:
+      secret: keycloak-bootstrap
+  http:
+    httpEnabled: true
+  hostname:
+    hostname: https://auth.faysalaziz.com
+  proxy:
+    headers: xforwarded
+  ingress:
+    enabled: false
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: '2'
+      memory: 2Gi
