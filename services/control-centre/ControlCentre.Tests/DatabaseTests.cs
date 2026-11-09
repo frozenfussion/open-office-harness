@@ -16,7 +16,7 @@ public sealed class DatabaseTests
   private static CentreDb Database(bool owner = false)
   {
     var settings = TestSettings.Load();
-    return new CentreDb(new DbContextOptionsBuilder<CentreDb>().UseNpgsql(settings[owner ? "CC_TEST_DB_MIGRATE_CONNECTION" : "CC_TEST_DB_CONNECTION"]).Options);
+    return new CentreDb(new DbContextOptionsBuilder<CentreDb>().UseNpgsql(DatabaseConnections.Configure(settings[owner ? "CC_TEST_DB_MIGRATE_CONNECTION" : "CC_TEST_DB_CONNECTION"])).Options);
   }
   private static async Task Migrate()
   {

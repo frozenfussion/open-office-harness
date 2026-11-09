@@ -15,7 +15,7 @@ namespace ControlCentre.Tests;
 public sealed class ReviewRegressionTests
 {
   private static CentreDb Database(bool owner = false, params IInterceptor[] interceptors) => new(
-    new DbContextOptionsBuilder<CentreDb>().UseNpgsql(TestSettings.Load()[owner ? "CC_TEST_DB_MIGRATE_CONNECTION" : "CC_TEST_DB_CONNECTION"])
+    new DbContextOptionsBuilder<CentreDb>().UseNpgsql(DatabaseConnections.Configure(TestSettings.Load()[owner ? "CC_TEST_DB_MIGRATE_CONNECTION" : "CC_TEST_DB_CONNECTION"]))
       .AddInterceptors(interceptors).Options);
   private static async Task Migrate()
   {
