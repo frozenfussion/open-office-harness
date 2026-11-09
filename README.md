@@ -50,7 +50,9 @@
    After merge, use `cd ~/projects/open-office-harness` instead.
 
 3. **Check the server.** Type this in your harness terminal, `shell` tile, plain
-   shell. This checks the node, local settings, DNS and local port listeners.
+   shell. This checks the node, local settings, DNS, Traefik pod readiness and
+   local HTTP/HTTPS responses. Any HTTP status (including 404) is good here;
+   the local HTTPS check allows Traefik's initial untrusted certificate.
    No password. Good result: all `PASS` lines, then `DONE`.
 
    ```bash
@@ -191,7 +193,8 @@
 | `missing tool` | Ask Aziz to finish server setup; Codex does not install system tools. |
 | `k3s node is not Ready`, kubectl access error | Check server setup and kubectl access; wait for k3s after reboot. |
 | `DNS lookup failed`, `does not resolve only to` | Correct the named A record to 143.198.221.2 or wait for DNS to spread. |
-| `nothing listening on port` | Inspect k3s Traefik; the server check checks local listeners only. |
+| `Traefik pod is missing or not Ready` | Inspect Traefik pods in kube-system and wait for them to become Ready. |
+| `local Traefik request failed`, `no HTTP status from` | Inspect Traefik and ServiceLB. Local HTTP and HTTPS must return a status; 404 is normal before ingress routes exist. |
 | `<url> not found` | Send the URL to Codex; verify the same version on the vendor's release page. Do not substitute a new version. |
 | `Spaces keys are empty` | Repeat step 5 with both keys. Hidden input is normal. |
 | `required secret missing` | Run step 5 first. |
@@ -262,10 +265,15 @@ Operator download URLs are pinned in `install/10-platform-operators.sh`; each
 must return HTTP 200 before it is applied. Strimzi uses the individual official
 files from tag `1.3.1`, avoiding reliance on an unavailable release-asset gateway.
 The scripts use existing server tools (bash, curl, jq, OpenSSL, kubectl, getent,
-ss, awk, sed, sort); no new system package installation is added.
+awk, sed, sort); no new system package installation is added.
 
-Spec clarifications from Claude, 09 Nov 2026: the server check tests local port
-listeners; staging certificate issuance tests outside reachability. The realm
+Spec clarifications from Claude, 09 Nov 2026: the server check tests Traefik pod
+readiness and local HTTP/HTTPS responses; staging certificate issuance tests
+outside reachability. ServiceLB forwards ports through iptables, so an `ss`
+listener check incorrectly rejected a working Traefik installation. Aziz's first
+run passed node access, settings and DNS but stopped on that listener check;
+local requests returned Traefik's normal 404. The check now accepts any HTTP
+status and allows the initial untrusted certificate only for local HTTPS. The realm
 has a fifth confidential service client, `ooh-model-gateway`, with no redirects,
 and the audience mappers described above. The smoke topic uses free-form test
 messages with no schema or envelope. These are owner-supplied updates to the

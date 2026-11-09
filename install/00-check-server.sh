@@ -17,7 +17,7 @@ done
 [[ "$LETSENCRYPT_EMAIL" == *@*.* && "$LETSENCRYPT_EMAIL" != *[[:space:]]* ]] || stop "contact email is invalid; correct local settings"
 [[ "$SPACES_REGION" == sgp1 && "$SPACES_BUCKET" == ooh-files ]] || stop "Spaces settings must name sgp1 and ooh-files"
 
-for tool in kubectl getent ss jq; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
+for tool in kubectl getent curl jq; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 kubectl get nodes -o json | jq -e '.items | length == 1 and all(.[]; any(.status.conditions[]; .type == "Ready" and .status == "True"))' >/dev/null || stop "k3s node is not Ready; check server setup"
 printf 'PASS kubectl access and k3s node Ready\nPASS local settings complete\n'
 for name in harness admin auth; do
@@ -25,9 +25,16 @@ for name in harness admin auth; do
   [[ "$addresses" == "$PUBLIC_IP" ]] || stop "$name.$DOMAIN does not resolve only to $PUBLIC_IP; fix DNS or wait for it to spread"
   printf 'PASS DNS %s.%s\n' "$name" "$DOMAIN"
 done
-for port in 80 443; do
-  listeners="$(ss -H -ltn "sport = :$port")"
-  [[ -n "$listeners" ]] || stop "nothing listening on port $port; check k3s Traefik"
-  printf 'PASS local listener port %s\n' "$port"
+kubectl -n kube-system get pods -l app.kubernetes.io/name=traefik -o json |
+  jq -e '.items | length > 0 and all(.[]; any(.status.conditions[]?; .type == "Ready" and .status == "True"))' >/dev/null || stop "Traefik pod is missing or not Ready in kube-system; check k3s Traefik"
+printf 'PASS Traefik pod Ready in kube-system\n'
+# ServiceLB forwards ports without a process listening in ss. Any HTTP response proves local routing.
+for url in http://127.0.0.1/ https://127.0.0.1/; do
+  options=()
+  # The default local certificate is not trusted before platform TLS is installed.
+  [[ "$url" != https:* ]] || options+=(--insecure)
+  status="$(curl "${options[@]}" --connect-timeout 5 --max-time 15 -sS -o /dev/null -w '%{http_code}' "$url")" || stop "local Traefik request failed for $url; check Traefik and ServiceLB"
+  [[ "$status" =~ ^[1-5][0-9][0-9]$ ]] || stop "no HTTP status from $url; check Traefik and ServiceLB"
+  printf 'PASS local Traefik %s returned HTTP %s\n' "$url" "$status"
 done
 printf 'DONE\n'
