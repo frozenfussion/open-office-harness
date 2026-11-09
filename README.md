@@ -195,7 +195,8 @@
 | `DNS lookup failed`, `does not resolve only to` | Correct the named A record to 143.198.221.2 or wait for DNS to spread. |
 | `Traefik pod is missing or not Ready` | Inspect Traefik pods in kube-system and wait for them to become Ready. |
 | `local Traefik request failed`, `no HTTP status from` | Inspect Traefik and ServiceLB. Local HTTP and HTTPS must return a status; 404 is normal before ingress routes exist. |
-| `<url> not found` | Send the URL to Codex; verify the same version on the vendor's release page. Do not substitute a new version. |
+| `<url> not found` | The server returned HTTP 404 after retries. Send the URL to Codex; verify the same version on the vendor's release page. Do not substitute a new version. |
+| `<url> download failed (HTTP ...; curl exit ...)` | Retries were exhausted. HTTP 504 or another server error can be temporary; wait and rerun the same script. HTTP 000 means no HTTP response; check connectivity and the curl error. |
 | `Spaces keys are empty` | Repeat step 5 with both keys. Hidden input is normal. |
 | `required secret missing` | Run step 5 first. |
 | `certificate pending for` | Check DNS and DigitalOcean inbound TCP 80/443; inspect cert-manager events and logs. Staging issuance is the real outside check. |
@@ -262,7 +263,13 @@ PostgreSQL's exact image comes from the pinned operator's
 [version source](https://github.com/cloudnative-pg/cloudnative-pg/blob/v1.30.0/pkg/versions/versions.go)
 and [release notes](https://github.com/cloudnative-pg/cloudnative-pg/blob/v1.30.0/docs/src/release_notes/v1.30.md).
 Operator download URLs are pinned in `install/10-platform-operators.sh`; each
-must return HTTP 200 before it is applied. Strimzi uses the individual official
+must return HTTP 200 before it is applied. All operator downloads retry up to
+five times with a five-second delay, including connection failures. Only HTTP
+404 is reported as `not found`; other failures include the final HTTP status
+and curl exit code. The first operator-install run created both namespaces,
+then a transient GitHub HTTP 504 was incorrectly reported as a missing
+cert-manager manifest. The retry and status handling corrects that failure.
+Strimzi uses the individual official
 files from tag `1.3.1`, avoiding reliance on an unavailable release-asset gateway.
 The scripts use existing server tools (bash, curl, jq, OpenSSL, kubectl, getent,
 awk, sed, sort); no new system package installation is added.

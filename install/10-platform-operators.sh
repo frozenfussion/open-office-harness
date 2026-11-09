@@ -10,9 +10,10 @@ for tool in kubectl curl sed; do command -v "$tool" >/dev/null || stop "missing 
 tmp="$(mktemp -d)"
 trap 'rm -rf -- "$tmp"' EXIT
 fetch() {
-  local url="$1" target="$2" status
-  status="$(curl --connect-timeout 15 --max-time 120 -sSL -w '%{http_code}' -o "$target" "$url")" || stop "$url not found"
-  [[ "$status" == 200 ]] || stop "$url not found"
+  local url="$1" target="$2" status curl_status=0
+  status="$(curl --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 15 --max-time 120 -fsSL -w '%{http_code}' -o "$target" "$url")" || curl_status=$?
+  [[ "$status" != 404 ]] || stop "$url not found"
+  [[ "$curl_status" == 0 && "$status" == 200 ]] || stop "$url download failed (HTTP ${status:-000}; curl exit $curl_status); check connectivity or retry later"
 }
 kubectl apply -f deploy/platform/namespaces.yaml
 fetch https://github.com/cert-manager/cert-manager/releases/download/v1.21.3/cert-manager.yaml "$tmp/cert.yaml"
