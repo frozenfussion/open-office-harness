@@ -57,7 +57,7 @@ wait_keycloak
 awk '/(^|[[:space:]])[&*][a-zA-Z0-9]/ {exit 1}' deploy/platform/keycloak/realm-ooh.yaml || stop "realm client format changed; expand YAML aliases before syncing"
 rows="$(awk '
   $1 == "-" && $2 == "clientId:" {client=$3; print "CLIENT\t" client}
-  $1 == "included.client.audience:" {print "AUDIENCE\t" client "\t" $2}
+  $1 ~ /^included\.(client|custom)\.audience:$/ {print "AUDIENCE\t" client "\t" $2}
 ' deploy/platform/keycloak/realm-ooh.yaml)"
 desired="$(jq -Rn '[inputs | split("\t")] | reduce .[] as $row ({}; if $row[0] == "CLIENT" then .[$row[1]] = [] else .[$row[1]] += [$row[2]] end)' <<< "$rows")"
 jq -e 'keys | sort == (["ooh-workspace","ooh-admin-console","ooh-harness-api","ooh-control-centre","ooh-model-gateway"] | sort)' <<< "$desired" >/dev/null || stop "realm client format changed; check realm-ooh.yaml before syncing"
@@ -115,6 +115,25 @@ client_definition() {
        else .[$row[0]] = ($row[1] == "true") end)
   ' <<< "$fields"
 }
+normalize_mappers() {
+  # Keycloak may add defaults or express the audience in either supported config field.
+  jq -c '[.[] | select(.protocolMapper == "oidc-audience-mapper") |
+    {name,protocol,protocolMapper,
+     audiences: ([.config["included.client.audience"], .config["included.custom.audience"]] | map(select(type == "string" and length > 0)) | unique),
+     accessToken: ((.config["access.token.claim"] | tostring) == "true"),
+     idToken: (((.config["id.token.claim"] // false) | tostring) == "true")}] | sort_by(.name)'
+}
+audience_names() {
+  jq -c '[.[] | select(.protocolMapper == "oidc-audience-mapper") |
+    .config["included.client.audience"], .config["included.custom.audience"]] |
+    map(select(type == "string" and length > 0)) | unique'
+}
+print_audiences() {
+  local label="$1" names="$2" display
+  # Show configured Stage 0 audience names only, never arbitrary config values or token-like strings.
+  display="$(jq -r 'if length == 0 then "(none)" else map(if test("^ooh-[a-z0-9-]{1,60}$") then . else "[non-name audience redacted]" end) | join(", ") end' <<< "$names")"
+  printf '%s audiences for %s: %s\n' "$label" "$client" "$display" >&2
+}
 while IFS= read -r client; do
   representation="$(kcadm get clients -r ooh -q "clientId=$client" --fields id,clientId)"
   if [[ "$(jq 'length' <<< "$representation")" == 0 ]]; then
@@ -134,7 +153,7 @@ while IFS= read -r client; do
       printf '%s\n' "$mapper" | kcadm create "$endpoint" -r ooh -f - >/dev/null
     elif [[ "$count" == 1 ]]; then
       jq -e '.[0].protocolMapper == "oidc-audience-mapper"' <<< "$matches" >/dev/null || stop "mapper name conflicts with another mapper type for $client; inspect it before retrying"
-      if ! jq -e --argjson expected "$mapper" '.[0] | {name,protocol,protocolMapper,consentRequired:(.consentRequired // false),config} == $expected' <<< "$matches" >/dev/null; then
+      if [[ "$(normalize_mappers <<< "$matches")" != "$(normalize_mappers <<< "[$mapper]")" ]]; then
         mapper_id="$(jq -er '.[0].id' <<< "$matches")"
         update="$(jq -c --arg id "$mapper_id" '. + {id:$id}' <<< "$mapper")"
         printf '%s\n' "$update" | kcadm update "$endpoint/$mapper_id" -r ooh -n -f - >/dev/null
@@ -148,7 +167,16 @@ while IFS= read -r client; do
     kcadm delete "$endpoint/$mapper_id" -r ooh >/dev/null
   done < <(jq -r --argjson expected "$expected" '.[] | select(.protocolMapper == "oidc-audience-mapper") | . as $mapper | select(all($expected[]; .name != $mapper.name)) | .id' <<< "$existing")
   actual="$(kcadm get "$endpoint" -r ooh)"
-  jq -e --argjson expected "$expected" '[.[] | select(.protocolMapper == "oidc-audience-mapper") | {name,protocol,protocolMapper,consentRequired:(.consentRequired // false),config}] | sort_by(.name) == ($expected | sort_by(.name))' <<< "$actual" >/dev/null || stop "audience verification failed for $client; re-run step 6"
+  if [[ "$(normalize_mappers <<< "$actual")" != "$(normalize_mappers <<< "$expected")" ]]; then
+    found_names="$(audience_names <<< "$actual")"
+    expected_names="$(audience_names <<< "$expected")"
+    print_audiences FOUND "$found_names"
+    print_audiences EXPECTED "$expected_names"
+    if [[ "$found_names" == "$expected_names" ]]; then
+      printf 'Audience values match, but mapper names, protocol or token flags differ\n' >&2
+    fi
+    stop "audience verification failed for $client; re-run step 6"
+  fi
   printf 'Synced audience mappers: %s\n' "$client"
 done < <(jq -r 'keys[]' <<< "$desired")
 unset username password
