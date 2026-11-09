@@ -203,6 +203,7 @@
 | `invalid deployment value`, `usage: install/30-platform-apply.sh` | Check deploy/values/do.env and use step 6, or `--check` for local validation. |
 | `existing file PVC has an unsupported storage class` | Inspect the file claim before retrying; do not replace or delete it. |
 | `Keycloak rollout is not Ready on the current revision` | Inspect the Keycloak CR, StatefulSet and pod. Allow rollout to finish, then repeat step 6. Both apply and realm sync wait for a non-terminating Ready pod on the target revision. |
+| `mapper name conflicts`, `duplicate mapper names` | Inspect the named client before retrying; the sync stops rather than overwriting an unrelated mapper. |
 | `Keycloak CLI login failed`, `Keycloak CLI ... failed`, `realm audience sync failed`, `realm client format changed`, `could not create private Keycloak CLI settings directory`, `audience verification failed` | Read the redacted CLI error, check Keycloak readiness, bootstrap access and realm manifest format, then repeat step 6. |
 | `required secret missing` | Run step 5 first. |
 | `certificate pending for` | Check DNS and DigitalOcean inbound TCP 80/443; inspect cert-manager events and logs. Staging issuance is the real outside check. |
@@ -280,8 +281,10 @@ PostgreSQL and file PVs to Retain without replacing their claims.
 Apply and realm sync wait up to ten minutes for the current Keycloak CR and
 StatefulSet rollout, including a Ready pod matching the target revision.
 Keycloak realm import creates the initial realm. The realm-sync script then
-updates only client audience mappers to match the manifest, preserving other
-mapper types, users and credentials. It uses Keycloak's own admin CLI inside
+looks up clients and mappers by name. It creates missing entries, updates
+changed audience mappers individually by ID and skips equal entries. Unwanted
+audience mappers are removed, including Control Centre's self and Model Gateway
+audiences. Other mapper types, users and existing client credentials are preserved. It uses Keycloak's own admin CLI inside
 the pod with the bootstrap secret and an explicit private config path under
 a writable `/tmp` emptyDir. CLI errors are shown with credentials and tokens
 redacted; successful login output is suppressed.

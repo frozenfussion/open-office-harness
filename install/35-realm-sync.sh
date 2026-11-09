@@ -88,22 +88,67 @@ printf '%s\n%s\n' "$username" "$password" |
 unset bootstrap
 kcadm() {
   local options=()
-  [[ "$1" != update ]] || options+=(-i)
+  case "$1" in create|update) options+=(-i) ;; esac
   kubectl -n "$PLATFORM_NAMESPACE" exec "${options[@]}" ooh-keycloak-0 -c keycloak -- /opt/keycloak/bin/kcadm.sh "$@" --config "$config" 2> >(redact_errors) || {
     local status=$?
     printf 'Keycloak CLI %s failed (exit %s)\n' "$1" "$status" >&2
     return "$status"
   }
 }
+client_definition() {
+  local client="$1" fields
+  # Read the fixed Stage 0 client fields, keeping credentials out of this representation.
+  fields="$(awk -v wanted="$client" '
+    $1 == "-" && $2 == "clientId:" {active=($3 == wanted); field=""; next}
+    !active {next}
+    $1 ~ /^(enabled|publicClient|serviceAccountsEnabled|standardFlowEnabled|directAccessGrantsEnabled):$/ {key=$1; sub(/:$/, "", key); print key "\t" $2; field=""; next}
+    $1 == "redirectUris:" || $1 == "webOrigins:" {field=$1; sub(/:$/, "", field); next}
+    $1 == "-" && field != "" {print field "\t" $2; next}
+    $1 == "pkce.code.challenge.method:" {print "pkce\t" $2}
+    {field=""}
+  ' deploy/platform/keycloak/realm-ooh.yaml)"
+  jq -Rn --arg client "$client" --arg domain "$DOMAIN" '
+    reduce (inputs | split("\t")) as $row
+      ({clientId:$client,protocol:"openid-connect",redirectUris:[],webOrigins:[],attributes:{}};
+       if $row[0] == "redirectUris" or $row[0] == "webOrigins" then .[$row[0]] += [($row[1] | gsub("\\$\\{DOMAIN\\}"; $domain))]
+       elif $row[0] == "pkce" then .attributes["pkce.code.challenge.method"] = $row[1]
+       else .[$row[0]] = ($row[1] == "true") end)
+  ' <<< "$fields"
+}
 while IFS= read -r client; do
-  representation="$(kcadm get clients -r ooh -q "clientId=$client" --fields id,clientId,protocolMappers)"
+  representation="$(kcadm get clients -r ooh -q "clientId=$client" --fields id,clientId)"
+  if [[ "$(jq 'length' <<< "$representation")" == 0 ]]; then
+    client_definition "$client" | kcadm create clients -r ooh -f - >/dev/null
+    representation="$(kcadm get clients -r ooh -q "clientId=$client" --fields id,clientId)"
+  fi
   id="$(jq -er --arg client "$client" 'if length == 1 and .[0].clientId == $client then .[0].id else error("client missing or ambiguous") end' <<< "$representation")"
+  endpoint="clients/$id/protocol-mappers/models"
+  existing="$(kcadm get "$endpoint" -r ooh)"
   audiences="$(jq -c --arg client "$client" '.[$client]' <<< "$desired")"
-  # Keep other mapper types; only the client audience mappers are synchronized.
-  update="$(jq -c --argjson audiences "$audiences" '{protocolMappers: ((.[0].protocolMappers // [] | map(select(.protocolMapper != "oidc-audience-mapper"))) + ($audiences | map({name:("audience-" + .),protocol:"openid-connect",protocolMapper:"oidc-audience-mapper",consentRequired:false,config:{"included.client.audience":.,"access.token.claim":"true","id.token.claim":"false"}})))}' <<< "$representation")"
-  printf '%s\n' "$update" | kcadm update "clients/$id" -r ooh -f - >/dev/null
-  actual="$(kcadm get "clients/$id" -r ooh --fields protocolMappers)"
-  jq -e --argjson expected "$audiences" '[.protocolMappers[]? | select(.protocolMapper == "oidc-audience-mapper")] | all(.[]; .config["access.token.claim"] == "true" and .config["id.token.claim"] == "false") and (map(.config["included.client.audience"]) | sort == ($expected | sort))' <<< "$actual" >/dev/null || stop "audience verification failed for $client; re-run step 6"
+  expected="$(jq -cn --argjson audiences "$audiences" '$audiences | map({name:("audience-" + .),protocol:"openid-connect",protocolMapper:"oidc-audience-mapper",consentRequired:false,config:{"included.client.audience":.,"access.token.claim":"true","id.token.claim":"false"}})')"
+  while IFS= read -r mapper; do
+    name="$(jq -r '.name' <<< "$mapper")"
+    matches="$(jq -c --arg name "$name" '[.[] | select(.name == $name)]' <<< "$existing")"
+    count="$(jq 'length' <<< "$matches")"
+    if [[ "$count" == 0 ]]; then
+      printf '%s\n' "$mapper" | kcadm create "$endpoint" -r ooh -f - >/dev/null
+    elif [[ "$count" == 1 ]]; then
+      jq -e '.[0].protocolMapper == "oidc-audience-mapper"' <<< "$matches" >/dev/null || stop "mapper name conflicts with another mapper type for $client; inspect it before retrying"
+      if ! jq -e --argjson expected "$mapper" '.[0] | {name,protocol,protocolMapper,consentRequired:(.consentRequired // false),config} == $expected' <<< "$matches" >/dev/null; then
+        mapper_id="$(jq -er '.[0].id' <<< "$matches")"
+        update="$(jq -c --arg id "$mapper_id" '. + {id:$id}' <<< "$mapper")"
+        printf '%s\n' "$update" | kcadm update "$endpoint/$mapper_id" -r ooh -n -f - >/dev/null
+      fi
+    else
+      stop "duplicate mapper names for $client; inspect them before retrying"
+    fi
+  done < <(jq -c '.[]' <<< "$expected")
+  # Only audience configuration is removed; unrelated mapper types are left untouched.
+  while IFS= read -r mapper_id; do
+    kcadm delete "$endpoint/$mapper_id" -r ooh >/dev/null
+  done < <(jq -r --argjson expected "$expected" '.[] | select(.protocolMapper == "oidc-audience-mapper") | . as $mapper | select(all($expected[]; .name != $mapper.name)) | .id' <<< "$existing")
+  actual="$(kcadm get "$endpoint" -r ooh)"
+  jq -e --argjson expected "$expected" '[.[] | select(.protocolMapper == "oidc-audience-mapper") | {name,protocol,protocolMapper,consentRequired:(.consentRequired // false),config}] | sort_by(.name) == ($expected | sort_by(.name))' <<< "$actual" >/dev/null || stop "audience verification failed for $client; re-run step 6"
   printf 'Synced audience mappers: %s\n' "$client"
 done < <(jq -r 'keys[]' <<< "$desired")
 unset username password
