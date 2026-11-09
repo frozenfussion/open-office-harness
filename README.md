@@ -200,6 +200,7 @@
 | `certificate pending for` | Check DNS and DigitalOcean inbound TCP 80/443; inspect cert-manager events and logs. Staging issuance is the real outside check. |
 | `production certificate pending` | Inspect certificate events. If rate limited, wait for the stated limit window before retrying. |
 | Keycloak crashes with `--optimized flag was used for first ever server start` | Stop the waiting apply script with Ctrl+C. The stock image requires `startOptimized: false`, which is set in the manifest. Re-run step 6 with the corrected manifest; existing resources and secrets are reused. |
+| Keycloak keeps crashing on an old StatefulSet revision after the manifest fix | Follow the one-time Keycloak pod recovery below, then repeat step 6. |
 | `step failed; see README` | Read the immediately preceding tool error. Check operator/pod events, connectivity, storage and memory; send the error to Codex. No changes are rolled back or deleted. |
 | `admin request failed` | Check Keycloak readiness and bootstrap secret; re-run step 8. A partly created marked first-admin account gets its role completed without changing its password. |
 | `username/email/password missing or passwords differ` | Repeat step 8 with nonempty username, valid email and matching passwords. |
@@ -219,6 +220,29 @@ matter. This shows platform events for troubleshooting; no password.
 ```bash
 kubectl -n ooh-platform get events --sort-by=.metadata.creationTimestamp
 kubectl -n cert-manager get events --sort-by=.metadata.creationTimestamp
+```
+
+If Keycloak still crash-loops after a manifest fix, its StatefulSet can be waiting
+for the broken old pod instead of replacing it. First stop the waiting apply
+script with Ctrl+C in the shell tile.
+
+Type this in your harness terminal, `shell` tile, plain shell. The folder doesn't
+matter. This shows the StatefulSet's current and target revisions, plus the pod's
+revision and container state. No password is requested.
+
+```bash
+kubectl -n ooh-platform get statefulset ooh-keycloak -o 'jsonpath={.status.currentRevision}{" current\n"}{.status.updateRevision}{" target\n"}'
+kubectl -n ooh-platform get pod ooh-keycloak-0 -o 'jsonpath={.metadata.labels.controller-revision-hash}{" pod revision\n"}{.status.containerStatuses[*].state}{"\n"}'
+```
+
+Only if the pod is crash-looping on an old revision that differs from the target,
+use this one-time recovery. Type this in your harness terminal, `shell` tile,
+plain shell. The folder doesn't matter. This removes the broken pod once; the
+StatefulSet creates its replacement using the updated configuration. No password
+is requested. Then repeat step 6 and send the result to Codex.
+
+```bash
+kubectl -n ooh-platform delete pod ooh-keycloak-0
 ```
 
 ## What is where
@@ -299,5 +323,11 @@ The first platform apply reached Ready Kafka, all eleven topics, the smoke user,
 PostgreSQL and the Keycloak database/role, then Keycloak crashed because its
 stock image had not been built for optimized startup. The Keycloak manifest now
 sets `startOptimized: false` so the stock image builds its configuration on
-startup. Stop the pending wait with Ctrl+C and repeat step 6; no resources or
-data need to be removed.
+startup. Stop the pending wait with Ctrl+C and repeat step 6. Existing secrets,
+databases and volumes stay in place.
+
+On the next apply run, the StatefulSet received that fix but its old crash-looping
+pod remained on the previous revision. One manual removal of `ooh-keycloak-0`
+allowed its replacement to bootstrap with the updated configuration. Realm import
+then completed, staging certificates were issued for all three hosts, and all
+three production certificates became Ready. The apply script ended with `DONE`.
