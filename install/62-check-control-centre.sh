@@ -47,15 +47,26 @@ token_request() {
 }
 # Secrets and tokens reach curl only on stdin; no response bodies are displayed.
 service_token() {
-  local client="$1" secret reply
+  local client="$1" secret reply token
   case "$client" in
     ooh-harness-api) secret="$harness_secret" ;;
     ooh-model-gateway) secret="$gateway_secret" ;;
     ooh-control-centre) secret="$centre_secret" ;;
     *) return 1 ;;
   esac
-  reply="$(printf 'grant_type=client_credentials&client_id=%s&client_secret=%s' "$client" "$secret" | token_request)" || return 1
-  printf '%s' "$reply" | jq -er '.access_token | select(type == "string" and length > 0)'
+  if ! reply="$(printf 'grant_type=client_credentials&client_id=%s&client_secret=%s' "$client" "$secret" | token_request)"; then
+    printf 'FAIL service token for %s: Keycloak token endpoint could not be reached\n' "$client" >&2
+    return 1
+  fi
+  if ! token="$(printf '%s' "$reply" | jq -jer '.access_token | select(type == "string" and length > 0)' 2>/dev/null)"; then
+    if printf '%s' "$reply" | jq -e '.error == "invalid_client" or .error == "unauthorized_client"' >/dev/null 2>&1; then
+      printf 'FAIL service token for %s: Keycloak refused the client credentials\n' "$client" >&2
+    else
+      printf 'FAIL service token for %s: Keycloak did not return a valid access token\n' "$client" >&2
+    fi
+    return 1
+  fi
+  printf '%s' "$token"
 }
 refresh_admin() {
   local reply
@@ -68,7 +79,7 @@ request() {
   case "$principal" in
     admin) refresh_admin || return 1; token="$admin_token" ;;
     anonymous) ;;
-    *) token="$(service_token "$principal")" || return 1 ;;
+    *) token="$(service_token "$principal")" || stop "service token unavailable; fix the failure above and re-run" ;;
   esac
   [[ -z "$token" || "$token" =~ ^[A-Za-z0-9_.-]+$ ]] || return 1
   reply="$(
@@ -110,7 +121,7 @@ read_client_secret() {
     secret="$(/opt/keycloak/bin/kcadm.sh get "clients/$clients/client-secret" -r ooh --config "$1" 2>/dev/null)"
     printf "%s" "$secret"
   ' -- "$config_dir/kcadm.config" "$client" 2>/dev/null)" || return 1
-  printf '%s' "$reply" | jq -er '.value | select(type == "string" and length > 0)' | form_encode
+  printf '%s' "$reply" | jq -jer '.value | select(type == "string" and length > 0)' | form_encode
 }
 harness_secret="$(read_client_secret ooh-harness-api)" || stop "Harness client secret unavailable; inspect the existing Keycloak client privately"
 gateway_secret="$(read_client_secret ooh-model-gateway)" || stop "Gateway client secret unavailable; inspect the existing Keycloak client privately"

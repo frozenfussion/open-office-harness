@@ -240,6 +240,8 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
     | Unexpected admin certificate issuer | Inspect the existing admin Ingress; keep the certificate managed by that Ingress. |
     | Deployment, revision or migrations not Ready | Read migration and pod logs above. Check the public package and exact tag. Never edit an applied migration. |
     | Keycloak CLI login or client secret unavailable | Inspect Keycloak readiness and bootstrap access privately; the named existing client must exist. |
+    | Service token for a client: Keycloak refused the client credentials | Inspect that client's Keycloak credentials and service-account settings privately; fix them and repeat 62. No API check ran for that failed token request. |
+    | Service token endpoint unreachable or no valid access token returned | Check Keycloak availability and its token endpoint; fix the token failure before repeating 62. |
     | Device sign-in unavailable | Run `install/35-realm-sync.sh`, then repeat 62. This updates existing clients only. |
     | Device sign-in refused, expired, invalid timing or missing refresh token | Retry and sign in promptly as an administrator; inspect Keycloak client settings if it repeats. |
     | Account is not an administrator | Repeat the check and sign in with the ooh-admin account. |
