@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: controlcentre
+  namespace: ooh-platform
+spec:
+  cluster:
+    name: ooh-pg
+  name: controlcentre
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: controlcentre-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: controlcentre-app
+  namespace: ooh-platform
+spec:
+  cluster:
+    name: ooh-pg
+  name: controlcentre_app
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: controlcentre-app-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: controlcentre-test
+  namespace: ooh-platform
+spec:
+  cluster:
+    name: ooh-pg
+  name: controlcentre_test
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: controlcentre-test-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: controlcentre-test-app
+  namespace: ooh-platform
+spec:
+  cluster:
+    name: ooh-pg
+  name: controlcentre_test_app
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: controlcentre-test-app-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: controlcentre
+  namespace: ooh-platform
+spec:
+  cluster:
+    name: ooh-pg
+  name: controlcentre
+  owner: controlcentre
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: controlcentre-test
+  namespace: ooh-platform
+spec:
+  cluster:
+    name: ooh-pg
+  name: controlcentre_test
+  owner: controlcentre_test
+  databaseReclaimPolicy: retain

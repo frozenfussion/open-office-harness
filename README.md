@@ -1,5 +1,28 @@
 # QUICK GUIDE
 
+**Stage 1 database setup (before the Control Centre tests).**
+Type this in your harness terminal, `shell` tile, plain shell, not Codex.
+This creates the live and test databases and four separate database roles.
+It asks for no password. Existing passwords are kept and never displayed.
+Good result: four roles and both databases are applied, the private test
+settings file is saved with mode 600, then `DONE`.
+
+```bash
+cd ~/projects/worktrees/stage-1-part-b
+install/59-control-centre-databases.sh
+```
+
+The test settings are in `~/.config/ooh/control-centre-test.env`. They contain
+only test database connections. Never paste that file into chat or commit it.
+Re-running the script keeps existing credentials and refreshes this file.
+If it prints `STOP:`, fix the named problem and run it again: finish server
+setup for a missing tool; apply the platform if its namespace is missing;
+check PostgreSQL if it is not Ready or `ooh-pg-rw` has no ClusterIP; inspect
+Database and DatabaseRole status if resources do not become ready. Unexpected
+credentials must be inspected privately by the maintainer; do not replace or
+print the Secrets. For any other database setup failure, inspect PostgreSQL
+readiness before retrying. Tell Codex when the script finishes with `DONE`.
+
 1. **What this is.** Open Office Harness is an open-source office AI platform.
    Stage 0 installs its foundation; the apps are placeholder pages. The Droplet
    runbook lives in the course's own private notes, outside this repository.
