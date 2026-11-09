@@ -331,3 +331,15 @@ pod remained on the previous revision. One manual removal of `ooh-keycloak-0`
 allowed its replacement to bootstrap with the updated configuration. Realm import
 then completed, staging certificates were issued for all three hosts, and all
 three production certificates became Ready. The apply script ended with `DONE`.
+
+Part B validation on 09 Nov 2026: the server check, operator install, secret
+creation and platform apply all completed with `DONE`. Claude ran the final
+platform check in the shell tile and reported every check `PASS`, then `DONE`:
+pods, three production certificates, four HTTPS routes, OIDC issuer, eleven
+topics, Kafka smoke read/write and forbidden-write refusal, PostgreSQL query,
+and the file PVC write/read. Aziz then ran the first-admin script (`DONE`) and
+successfully signed in at the realm account page, including the required
+password change and profile form. No account details or credentials are stored
+here. Elapsed time was not recorded. The reboot test, review, merged-worktree
+checks and stage acceptance remain separate stage-wide steps; `docs/STATUS.md`
+is written at merge. Keep the deployed realm unchanged after this validation.
