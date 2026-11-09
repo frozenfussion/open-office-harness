@@ -1,9 +1,9 @@
-# Stage 1 — Control Centre: built and reviewed; live checks pending
+# Stage 1 — Control Centre: accepted
 
-Both reviewed Parts are merged without conflicts into branch `stage-1`, in
-`~/projects/worktrees/stage-1`, created from `stage-1-base`. Stage 1 is not yet
-accepted. The main clone remains on `main`; this merge does not push to `main`
-or create an acceptance tag.
+Stage 1 accepted by Aziz on **10 Nov 2026 01:02 MYT**. Both reviewed Parts,
+the live-run fixes and the agreed spec changes are merged without conflicts
+into `stage-1`, in `~/projects/worktrees/stage-1`, created from `stage-1-base`.
+The acceptance commit is merged into `main` and published with tag `spine-v0.1`.
 
 ## Merged sources
 
@@ -12,7 +12,12 @@ or create an acceptance tag.
 | Base tag `stage-1-base` | `c483be8` |
 | Reviewed Part A, `origin/stage-1-part-a` | `2546f74530e58efa793121d27adc9b2d445e8614` |
 | Reviewed Part B, `origin/stage-1-part-b` | `0974c4e3b3018511aff540a3a4b9bc1601dd8ba0` |
-| Combined code, before this status update | `d95c239988782b42165925c7079bbcfb3132f081` |
+| Initial combined code | `d95c239988782b42165925c7079bbcfb3132f081` |
+| Part A after live-run fix | `c96d5cc` |
+| Part B after final device sign-in review | `4edfa42` |
+| Combined implementation before spec merge | `d3788da` |
+| `origin/main`, including merged spec pull request #5 | `b3b2649c5b6bb6f35404457ac8692d681421ec70` |
+| Clean merged worktree checked for acceptance | `51e9f3b3d4771dbd96540ef7d260d004db4363aa` |
 
 Aziz reported that Part A's re-review cleared all 11 findings with no new
 findings, and Part B's final review cleared all findings with no new findings.
@@ -42,11 +47,11 @@ file. This status update is the only file authored during the merge step.
 |---|---|
 | `dotnet format --verify-no-changes` | Passed |
 | `dotnet build -warnaserror` | Passed; zero warnings, zero errors |
-| `dotnet test` | 100 passed, zero failed, zero skipped; database tests included |
+| `dotnet test` | 105 passed, zero failed, zero skipped; database tests included |
 | `uv run --project contracts/check pytest` | 17 passed; Python 3.14.10 |
 | `bash -n` on every `install/*.sh` | Passed; 12 scripts |
 | `shellcheck install/*.sh` | Passed; 12 scripts |
-| actionlint 1.7.7 on the image workflow | Passed |
+| actionlint 1.7.7 on the image workflow | Previously passed; not rerun at acceptance because the executable was unavailable |
 | `kubeconform -strict` on locally rendered `deploy/` | 51 resources in 34 files; 33 valid, zero invalid/errors, 18 explicitly skipped |
 
 PostgreSQL Database/DatabaseRole and Strimzi KafkaUser resources were validated
@@ -56,23 +61,47 @@ KeycloakRealmImport. These skips do not claim schema validation or live readines
 of those custom resources. Rendering used deployment values and a synthetic
 image tag; it did not apply manifests or change the cluster.
 
-## Live results and pending work
+## Live results reported by Aziz
 
-Aziz already ran `install/59-control-centre-databases.sh`: all four roles and
-both databases met their conditions; the test settings file was saved with mode
-600 and the script printed DONE. The merged tests used that test database;
-they do not establish live service readiness.
+- Database setup, application secrets and deployment completed with `DONE`.
+  The database setup saved the test settings file with mode 600. Automated
+  database tests use only `controlcentre_test`.
+- Deployed image: `ghcr.io/frozenfussion/ooh-control-centre:f52d721b5eaf`.
+- `install/62-check-control-centre.sh`: **49 PASS, 0 FAIL, DONE**, including
+  browser device sign-in, HTTP rights/registries/approvals, Kafka messages and
+  audit protections.
+- After Aziz ran `sudo reboot`, `install/40-check-platform.sh` passed again
+  with **27 PASS, 0 FAIL, DONE**, and `install/62-check-control-centre.sh`
+  passed again with **49 PASS, 0 FAIL, DONE**.
+- These live results were supplied by Aziz from his deployment and reboot runs.
+  Codex's acceptance checks did not deploy, reboot or change the cluster.
 
-The merged image build, anonymous image pull, application secrets, migration
-init container, application readiness, device sign-in, HTTP/Kafka/audit live
-checks and reboot verification remain pending. Aziz runs 60, 61 and 62 after the
-merged image is ready, using the first 12 characters of the pushed `stage-1`
-HEAD as the image tag. Those scripts were not run during this merge. Stage
-acceptance, merging into `main` and tag `spine-v0.1` remain pending as well.
+## Live-run fixes and agreed spec changes
 
-The image workflow is inspected after pushing this status commit so its run can
-be matched to the final pushed HEAD. Its start/status is reported in the merge
-handoff; this document does not claim the image has been built or deployed.
+The four live-run fixes are merged:
+
+| Commit | Fix |
+|---|---|
+| `c96d5cc` | Read `ASPNETCORE_` settings to listen on port 8080; disable Npgsql GSS encryption because the chiseled image has no Kerberos library |
+| `e72627b` | Preserve client secret bytes without a trailing newline; report token failures safely |
+| `afeefb4` | Send a PKCE S256 challenge during device sign-in |
+| `53a9580` | Display the complete device verification sign-in link |
+
+Final device sign-in review fixes and recovery instructions are included in
+`4edfa42`. The agreed changes are recorded in
+[Stage 1 spec section 14](specs/stage-1-control-centre.md#14-changes-agreed-during-the-build--these-override-the-sections-above),
+including the live-run fixes in row 9, merged through
+[pull request #5](https://github.com/frozenfussion/open-office-harness/pull/5).
+
+## Open items for later stages
+
+- Stage 4: switch device sign-in off again for `ooh-admin-console` when the
+  Admin Console exists.
+- Harness stage: rewrite `contracts/storage.md` and the storage paragraph in
+  `docs/ARCHITECTURE.md` for the `ooh-files` volume.
+- Stage 2: pass ordinary users' name and email; until then people may appear
+  by Keycloak user id only.
+- Branded sign-in page: Jira HEA-71.
 
 ---
 
