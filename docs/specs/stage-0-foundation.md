@@ -251,6 +251,9 @@ Any product service, any database other than `keycloak`, Kafka users for future 
 | 8 | Keycloak runs with `startOptimized: false` (stock image). If the Keycloak pod crash-loops on an old revision after a fix, delete that pod once | Build finding, 16:37–16:45 |
 | 9 | Downloads in the scripts retry 5 times; only HTTP 404 is reported as "not found" | Build finding, 16:16 |
 | 10 | Live realm changes go through `install/35-realm-sync.sh` (Keycloak's own admin CLI), because a realm import only creates a realm | Spec author, 17:06 |
-| 11 | All volumes (Kafka, PostgreSQL, `ooh-files`) use reclaim policy **Retain** — nothing is ever deleted | Spec author, 17:06 |
+| 11 | All volumes (Kafka, PostgreSQL, `ooh-files`) keep k3s's `local-path` storage class; `30-platform-apply.sh` patches each bound volume to reclaim policy **Retain** and `40-check-platform.sh` checks it — nothing is ever deleted. No extra StorageClass (Strimzi cannot change a node pool's storage class) | Spec author, 17:06, revised 17:55 |
 | 12 | Codex permissions on the Droplet: "Approve for me" (sandbox on). Ubuntu 24.04 needs an AppArmor profile for `/usr/bin/bwrap` for the Codex sandbox to work | Aziz + Claude, 15:44–15:50 |
+| 14 | PostgreSQL's first start creates the `keycloak` database and owner (the proven setting); `db-keycloak.yaml` also manages them declaratively | Spec author, 17:55 |
+| 15 | `35-realm-sync.sh` only updates audience mappers of existing clients; it never creates a client (a missing client = STOP with the reason) | Spec author, 17:55 |
+| 16 | The realm sync logs in **inside** the Keycloak pod with the pod's own `KC_BOOTSTRAP_ADMIN_*` settings; the password is never read on the Droplet. It does reach `kcadm.sh`'s command line inside that pod — accepted, because kcadm cannot read a password from stdin and the pod already holds it | Spec author, 18:10 |
 | 13 | Cosmetics deferred to the apps stage: realm display name "Open Office Harness", branded sign-in page, no forced password change for an admin who set his own password | Aziz, 16:56 |
