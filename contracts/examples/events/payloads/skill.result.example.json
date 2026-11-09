@@ -1,0 +1,10 @@
+{
+  "status": "completed",
+  "output": {
+    "file_key": "outputs/report/example/report.txt",
+    "mime": "text/plain",
+    "summary": "Synthetic report"
+  },
+  "skill": "report",
+  "error": null
+}

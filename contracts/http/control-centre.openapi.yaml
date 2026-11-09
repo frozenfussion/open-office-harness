@@ -1,0 +1,404 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+openapi: 3.1.0
+info:
+  title: Control Centre
+  version: 1.0.0
+paths:
+  /health:
+    get:
+      operationId: get_health
+      security: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    const: ok
+                required:
+                - status
+                additionalProperties: false
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/rights/check:
+    post:
+      operationId: post_api_rights_check
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  allowed:
+                    type: boolean
+                  reason:
+                    type: string
+                    minLength: 1
+                  decided_by:
+                    type: string
+                    minLength: 1
+                required:
+                - allowed
+                - reason
+                - decided_by
+                additionalProperties: false
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: string
+                  minLength: 1
+                action:
+                  type: string
+                  enum:
+                  - chat.tier
+                  - skill.use
+                  - image.generate
+                target:
+                  type: string
+                  minLength: 1
+              required:
+              - user_id
+              - action
+              - target
+              additionalProperties: false
+  /api/rights/me:
+    get:
+      operationId: get_api_rights_me
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chat_tiers:
+                    type: array
+                    items:
+                      type: integer
+                      minimum: 1
+                  skills:
+                    type: array
+                    items:
+                      type: string
+                      minLength: 1
+                  image:
+                    type: boolean
+                required:
+                - chat_tiers
+                - skills
+                - image
+                additionalProperties: false
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - name: user_id
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+  /api/skills:
+    get:
+      operationId: get_api_skills
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                    title:
+                      type: string
+                      minLength: 1
+                    kind:
+                      type: string
+                      enum:
+                      - service
+                      - instruction
+                    description:
+                      type: string
+                      minLength: 1
+                    input_schema:
+                      type: string
+                      minLength: 1
+                    output_schema:
+                      type: string
+                      minLength: 1
+                    right:
+                      type: string
+                      minLength: 1
+                    needs_approval:
+                      type: boolean
+                    topic:
+                      type: string
+                      minLength: 1
+                    version:
+                      type: string
+                      pattern: ^\d+\.\d+\.\d+$
+                  required:
+                  - name
+                  - title
+                  - kind
+                  - description
+                  - input_schema
+                  - output_schema
+                  - right
+                  - needs_approval
+                  - version
+                  additionalProperties: false
+                  allOf:
+                  - if:
+                      properties:
+                        kind:
+                          const: service
+                    then:
+                      required:
+                      - topic
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - name: user_id
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+  /api/models:
+    get:
+      operationId: get_api_models
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    model_entry_id:
+                      type: string
+                      minLength: 1
+                    purpose:
+                      type: string
+                      minLength: 1
+                    tier:
+                      type: integer
+                      minimum: 1
+                    role:
+                      type: string
+                      enum:
+                      - main
+                      - backup
+                    location:
+                      type: string
+                      enum:
+                      - on_prem
+                      - cloud
+                    api_type:
+                      type: string
+                      minLength: 1
+                    endpoint_url:
+                      type: string
+                      format: uri
+                      pattern: ^https?://[^\s/?#]+(?:[/?#][^\s]*)?$
+                    model_id:
+                      type: string
+                      minLength: 1
+                    secret_ref:
+                      type: string
+                      minLength: 1
+                    rate_limit_per_minute:
+                      type: integer
+                      minimum: 1
+                    daily_budget:
+                      type: number
+                      minimum: 0
+                    health:
+                      type: string
+                      minLength: 1
+                  required:
+                  - model_entry_id
+                  - purpose
+                  - role
+                  - location
+                  - api_type
+                  - endpoint_url
+                  - model_id
+                  - secret_ref
+                  - rate_limit_per_minute
+                  - daily_budget
+                  - health
+                  additionalProperties: false
+                  allOf:
+                  - if:
+                      properties:
+                        purpose:
+                          const: chat
+                      required:
+                      - purpose
+                    then:
+                      required:
+                      - tier
+                    else:
+                      not:
+                        required:
+                        - tier
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - name: purpose
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: tier
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+        description: Required when purpose=chat; omit for other purposes.
+      description: Gateway-only registry lookup. purpose is required. tier is required
+        for purpose=chat and omitted otherwise. secret_ref names a Kubernetes Secret
+        key; it never contains credentials.
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+          minLength: 1
+        message:
+          type: string
+          minLength: 1
+      required:
+      - code
+      - message
+      additionalProperties: false
