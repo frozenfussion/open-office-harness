@@ -203,7 +203,7 @@
 | `invalid deployment value`, `usage: install/30-platform-apply.sh` | Check deploy/values/do.env and use step 6, or `--check` for local validation. |
 | `existing file PVC has an unsupported storage class` | Inspect the file claim before retrying; do not replace or delete it. |
 | `Keycloak rollout is not Ready on the current revision` | Inspect the Keycloak CR, StatefulSet and pod. Allow rollout to finish, then repeat step 6. Both apply and realm sync wait for a non-terminating Ready pod on the target revision. |
-| `realm audience sync failed`, `realm client format changed`, `could not create private Keycloak CLI settings directory`, `audience verification failed` | Check Keycloak readiness, the bootstrap secret reference and realm manifest format, then repeat step 6. |
+| `Keycloak CLI login failed`, `Keycloak CLI ... failed`, `realm audience sync failed`, `realm client format changed`, `could not create private Keycloak CLI settings directory`, `audience verification failed` | Read the redacted CLI error, check Keycloak readiness, bootstrap access and realm manifest format, then repeat step 6. |
 | `required secret missing` | Run step 5 first. |
 | `certificate pending for` | Check DNS and DigitalOcean inbound TCP 80/443; inspect cert-manager events and logs. Staging issuance is the real outside check. |
 | `production certificate pending` | Inspect certificate events. If rate limited, wait for the stated limit window before retrying. |
@@ -282,7 +282,9 @@ StatefulSet rollout, including a Ready pod matching the target revision.
 Keycloak realm import creates the initial realm. The realm-sync script then
 updates only client audience mappers to match the manifest, preserving other
 mapper types, users and credentials. It uses Keycloak's own admin CLI inside
-the pod with the bootstrap secret and temporary private CLI settings.
+the pod with the bootstrap secret and an explicit private config path under
+a writable `/tmp` emptyDir. CLI errors are shown with credentials and tokens
+redacted; successful login output is suppressed.
 Keycloak runs as a non-root user; its root filesystem remains writable because
 the stock image builds its configuration at startup.
 Public clients use PKCE S256. The realm includes confidential service clients

@@ -8,7 +8,18 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
 source "$ROOT/deploy/values/do.env"
-for tool in kubectl jq awk; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
+for tool in kubectl jq awk sed; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
+redact_errors() {
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ -n "${password:-}" ]]; then line="${line//"$password"/[REDACTED]}"; fi
+    if [[ -n "${username:-}" ]]; then line="${line//"$username"/[REDACTED]}"; fi
+    printf '%s\n' "$line"
+  done | sed -E \
+    -e 's/[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+/[REDACTED TOKEN]/g' \
+    -e 's/([Bb]earer)[[:space:]]+[^[:space:]",}]+/\1 [REDACTED]/g' \
+    -e '/((access|refresh|id)[_-]?token|token|password|client[_-]?secret|secret|authorization|credentials?)[[:space:]"]*[:=]/I c\[redacted sensitive diagnostic line]' >&2
+}
 wait_keycloak() {
   local deadline=$((SECONDS + 600)) resources
   printf 'Waiting for Keycloak and its current pod revision to be Ready\n'
@@ -72,13 +83,17 @@ printf '%s\n%s\n' "$username" "$password" |
     umask 077
     read -r username
     read -r password
-    /opt/keycloak/bin/kcadm.sh config credentials --config "$1" --server http://localhost:8080 --realm master --user "$username" --password "$password" >/dev/null 2>&1
-  ' -- "$config"
-unset bootstrap username password
+    /opt/keycloak/bin/kcadm.sh config credentials --config "$1" --server http://localhost:8080 --realm master --user "$username" --password "$password" >/dev/null
+  ' -- "$config" 2> >(redact_errors) || stop "Keycloak CLI login failed; see the redacted error above, then re-run step 6"
+unset bootstrap
 kcadm() {
   local options=()
   [[ "$1" != update ]] || options+=(-i)
-  kubectl -n "$PLATFORM_NAMESPACE" exec "${options[@]}" ooh-keycloak-0 -c keycloak -- /opt/keycloak/bin/kcadm.sh "$@" --config "$config" 2>/dev/null
+  kubectl -n "$PLATFORM_NAMESPACE" exec "${options[@]}" ooh-keycloak-0 -c keycloak -- /opt/keycloak/bin/kcadm.sh "$@" --config "$config" 2> >(redact_errors) || {
+    local status=$?
+    printf 'Keycloak CLI %s failed (exit %s)\n' "$1" "$status" >&2
+    return "$status"
+  }
 }
 while IFS= read -r client; do
   representation="$(kcadm get clients -r ooh -q "clientId=$client" --fields id,clientId,protocolMappers)"
@@ -91,4 +106,5 @@ while IFS= read -r client; do
   jq -e --argjson expected "$audiences" '[.protocolMappers[]? | select(.protocolMapper == "oidc-audience-mapper")] | all(.[]; .config["access.token.claim"] == "true" and .config["id.token.claim"] == "false") and (map(.config["included.client.audience"]) | sort == ($expected | sort))' <<< "$actual" >/dev/null || stop "audience verification failed for $client; re-run step 6"
   printf 'Synced audience mappers: %s\n' "$client"
 done < <(jq -r 'keys[]' <<< "$desired")
+unset username password
 printf 'DONE\n'
