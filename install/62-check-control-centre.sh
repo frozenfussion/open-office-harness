@@ -13,7 +13,7 @@ for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE; do
   [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/do.env"
 done
 [[ $# == 0 ]] || stop "usage: install/62-check-control-centre.sh"
-for tool in kubectl jq curl date; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
+for tool in kubectl jq curl date openssl tr; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 failed=0
 correlation_id=""
 audit_correlations=""
@@ -37,6 +37,22 @@ cleanup() {
 }
 trap cleanup EXIT
 form_encode() { jq -sRr @uri; }
+generate_pkce() {
+  code_verifier="$(openssl rand -hex 32)"
+  code_challenge="$(printf '%s' "$code_verifier" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
+}
+keycloak_error() {
+  local detail sensitive
+  detail="$(jq -r '
+    [.error, .error_description] |
+    map(if type == "string" then gsub("[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]+"; "[REDACTED TOKEN]") else "(not provided)" end) |
+    "Keycloak error=\(.[0] | @json); error_description=\(.[1] | @json)"
+  ' 2>/dev/null)" || detail='Keycloak returned an invalid error response'
+  for sensitive in "${code_verifier:-}" "${code_challenge:-}" "${device_code:-}" "${code:-}" "${admin_token:-}" "${refresh_token:-}"; do
+    [[ -z "$sensitive" ]] || detail="${detail//"$sensitive"/[REDACTED]}"
+  done
+  printf '%s' "$detail"
+}
 is_admin_token() {
   jq -Re 'split(".") | select(length == 3) | .[1] | gsub("-"; "+") | gsub("_"; "/") |
     @base64d | fromjson | (.realm_access.roles // []) | index("ooh-admin") != null' >/dev/null 2>&1
@@ -143,12 +159,13 @@ rc=0
 request ooh-harness-api GET '/api/models?purpose=classification' && [[ "$status" == 403 ]] || rc=1
 require "$rc" 'Harness registry access refused' 'expected HTTP 403'
 
-device_reply="$(printf 'client_id=ooh-admin-console' |
+generate_pkce
+device_reply="$(printf 'client_id=ooh-admin-console&code_challenge=%s&code_challenge_method=S256' "$code_challenge" |
   curl --connect-timeout 10 --max-time 30 -sS -H 'Content-Type: application/x-www-form-urlencoded' --data-binary @- \
     "$issuer/protocol/openid-connect/auth/device" 2>/dev/null)"
 rc=0
 jq -e '.device_code and .user_code and .verification_uri and (.expires_in > 0)' <<< "$device_reply" >/dev/null || rc=1
-require "$rc" 'device sign-in available' 'run install/35-realm-sync.sh, then re-run this check'
+require "$rc" 'device sign-in available' "$(printf '%s' "$device_reply" | keycloak_error)"
 device_code="$(jq -r '.device_code' <<< "$device_reply")"
 link="$(jq -r '.verification_uri' <<< "$device_reply")"
 code="$(jq -r '.user_code' <<< "$device_reply")"
@@ -161,18 +178,18 @@ expires="$(jq -r '.expires_in' <<< "$device_reply")"
 deadline=$((SECONDS + expires))
 while ((SECONDS < deadline)); do
   sleep "$interval"
-  reply="$(printf 'grant_type=urn:ietf:params:oauth:grant-type:device_code&client_id=ooh-admin-console&device_code=%s' "$(printf '%s' "$device_code" | form_encode)" | token_request)"
+  reply="$(printf 'grant_type=urn:ietf:params:oauth:grant-type:device_code&client_id=ooh-admin-console&device_code=%s&code_verifier=%s' "$(printf '%s' "$device_code" | form_encode)" "$code_verifier" | token_request)"
   error="$(jq -r '.error // empty' <<< "$reply")"
   case "$error" in
     authorization_pending) continue ;;
     slow_down) interval=$((interval + 5)); ((interval <= 30)) || interval=30; continue ;;
     '') break ;;
-    *) result 1 'device sign-in' 'sign-in refused or expired; re-run and sign in as an administrator'; stop "device sign-in failed" ;;
+    *) result 1 'device sign-in' "$(printf '%s' "$reply" | keycloak_error)"; stop "device sign-in failed" ;;
   esac
 done
 admin_token="$(jq -er '.access_token | select(type == "string" and length > 0)' <<< "$reply")" || stop "device sign-in timed out; re-run the check"
 refresh_token="$(jq -er '.refresh_token | select(type == "string" and length > 0)' <<< "$reply")" || stop "device sign-in returned no refresh token; inspect Keycloak"
-unset device_reply device_code reply
+unset device_reply device_code reply code_verifier code_challenge
 rc=0
 printf '%s' "$admin_token" | is_admin_token || rc=1
 require "$rc" 'device sign-in' 'the account is not an administrator; sign in with the ooh-admin account'
