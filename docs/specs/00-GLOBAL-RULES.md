@@ -43,12 +43,12 @@ When Codex needs something only Aziz may do, it writes the exact commands into a
 - Control Centre: C# on .NET 10 (LTS), ASP.NET Core, EF Core with migrations, PostgreSQL. One deployable, built as a modular monolith.
 - Harness API, Model Gateway, skill workers, read-only consumers: Python 3.14.
 - Workspace and Admin Console: two separate Angular 22 apps.
-- Sign-in: Keycloak (OIDC). Messaging: Apache Kafka (KRaft, no ZooKeeper) run by the Strimzi operator. Database: PostgreSQL 18 run by the CloudNativePG operator. Files: S3-compatible object storage (DigitalOcean Spaces now, Amazon S3 on AWS).
-- Runs on Kubernetes: k3s on the DigitalOcean Droplet now, AWS EKS later, with the same manifests and different values. Container images go to `ghcr.io/frozenfussion/ooh-<name>`, tagged with the git short hash.
+- Sign-in: Keycloak (OIDC). Messaging: Apache Kafka (KRaft, no ZooKeeper) run by the Strimzi operator. Database: PostgreSQL 18 run by the CloudNativePG operator. Files: a Kubernetes volume `ooh-files` on the Droplet disk now (agreed 09 Nov 2026: no Spaces, no S3 server); Amazon S3 on AWS in Stage 6.
+- Runs on Kubernetes: k3s on the DigitalOcean Droplet now, AWS EKS later, with the same manifests and different values. Container images are built by GitHub Actions (`.github/workflows/`) and go to `ghcr.io/frozenfussion/ooh-<name>`, tagged with the git short hash (agreed 09 Nov 2026: free for a public repo, nothing added to the Droplet).
 - Exact versions are fixed and dated in each stage spec.
 
 **Places and names**
-- Droplet `harness` (DigitalOcean, 143.198.221.2), password login for user `aziz`. Main clone `~/projects/open-office-harness`; one git worktree per Part under `~/projects/worktrees/`; local settings in `~/.config/ooh/`. Everyone works inside the tmux session `harness` (windows: `shell`, `claude`, `codex-a`, `codex-b`, more as needed).
+- Droplet `harness` (DigitalOcean, 143.198.221.2), password login for user `aziz`. Main clone `~/projects/open-office-harness`; one git worktree per Part under `~/projects/worktrees/`; local settings in `~/.config/ooh/`. Everyone works inside the tmux session `harness`, window `work`, four labelled tiles: 0 Codex A (builds), 1 Codex B (builds), 2 Claude Code (reviews), 3 Shell (Aziz, sudo).
 - Public hostnames (A records to `harness`): `harness.faysalaziz.com` = Workspace app, with the Harness API under `/api`; `admin.faysalaziz.com` = Admin Console, with the Control Centre API under `/api`; `auth.faysalaziz.com` = Keycloak. Each app talks only to its own host (no cross-site calls). Model Gateway, Kafka and PostgreSQL have no public name.
 - Kubernetes namespaces: `ooh-platform` (Kafka, PostgreSQL, Keycloak) and `ooh-apps` (our services).
 - Secrets live only in Kubernetes Secrets, created by scripts Aziz runs. The repo holds `.env.example` files and `*.example.yaml` files with names and no values.
@@ -73,6 +73,7 @@ open-office-harness/
     apps/                our services' manifests (from Stage 1)
     values/              do.yaml (Droplet), aws.yaml (EKS, Stage 6)
   install/               scripts Aziz runs (setup, secrets, deploy, checks)
+  .github/workflows/     image builds (GitHub Actions)                              — from Stage 1
   services/              control-centre (C#), harness-api, model-gateway (Python)   — from Stage 1
   workers/               one folder per skill worker                                — from Stage 3
   consumers/             audit-writer, safety-watcher, cost-meter                   — from Stage 3
