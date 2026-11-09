@@ -1,12 +1,4 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: local-path-retain
-provisioner: rancher.io/local-path
-reclaimPolicy: Retain
-volumeBindingMode: WaitForFirstConsumer
----
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -15,7 +7,7 @@ metadata:
 spec:
   accessModes:
   - ReadWriteOnce
-  storageClassName: local-path-retain
+  storageClassName: local-path
   resources:
     requests:
       storage: ${FILES_STORAGE}

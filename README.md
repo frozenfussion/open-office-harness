@@ -86,7 +86,8 @@
    Good result: resources become Ready, then `DONE`. A repeat run preserves
    production issuers and existing data. It also synchronizes client audience
    mappers using `install/35-realm-sync.sh` and marks bound data volumes Retain.
-   New volumes use `local-path-retain`; bound claims keep their original class.
+   Kafka, PostgreSQL and files use `local-path`. A short-lived pod first mounts
+   a fresh file claim so its PV can be marked Retain before the apply completes.
 
    ```bash
    cd ~/projects/open-office-harness
@@ -95,7 +96,7 @@
 
 7. **Check the platform.** Type this in your harness terminal, `shell` tile, plain
    shell. This checks pods, trusted HTTPS, issuer, all eleven topics, Kafka rights,
-   database access and file volume read/write. No password. It creates temporary
+   database access, file volume read/write and Retain policy on all three data volumes. No password. It creates temporary
    check pods and removes them. Small test files under `checks/` stay on the
    `ooh-files` volume in `ooh-apps`.
    Good result: every line says `PASS`, then `DONE`.
@@ -201,8 +202,9 @@
 | `<url> download failed (HTTP ...; curl exit ...)` | Retries were exhausted. HTTP 504 or another server error can be temporary; wait and rerun the same script. HTTP 000 means no HTTP response; check connectivity and the curl error. |
 | `platform namespace missing` | Run step 4 (operators) first, then repeat step 5. |
 | `invalid deployment value`, `usage: install/30-platform-apply.sh` | Check deploy/values/do.env and use step 6, or `--check` for local validation. |
-| `existing file PVC has an unsupported storage class` | Inspect the file claim before retrying; do not replace or delete it. |
+| `file claim binding failed` | Inspect the file claim, binding pod and local-path provisioner; fix scheduling or disk issues and repeat step 6. |
 | `Keycloak rollout is not Ready on the current revision` | Inspect the Keycloak CR, StatefulSet and pod. Allow rollout to finish, then repeat step 6. Both apply and realm sync wait for a non-terminating Ready pod on the target revision. |
+| `client ... is missing from realm ooh` | Inspect initial realm setup. Sync updates mappers only and will not create clients. |
 | `mapper name conflicts`, `duplicate mapper names` | Inspect the named client before retrying; the sync stops rather than overwriting an unrelated mapper. |
 | `Keycloak CLI login failed`, `Keycloak CLI ... failed`, `realm audience sync failed`, `realm client format changed`, `could not create private Keycloak CLI settings directory`, `audience verification failed` | Read the redacted CLI error or FOUND/EXPECTED audience names, check Keycloak readiness, bootstrap access and realm manifest format, then repeat step 6. |
 | `required secret missing` | Run step 5 first. |
@@ -220,6 +222,7 @@
 | `FAIL topic` | Re-run step 6; inspect the named KafkaTopic and Kafka readiness. |
 | `FAIL Kafka smoke` | Inspect KafkaUser `ooh-smoke` and its ACLs. Only `ooh.smoke` is permitted; denial must specifically be a topic authorization error. |
 | `FAIL PostgreSQL` | Inspect database/role status and the `keycloak-db` secret reference. Passwords must match; do not replace existing secrets blindly. |
+| `FAIL PV retention` | Inspect the bound claim and PV. Step 6 must set the PV reclaim policy to Retain; the class stays local-path. |
 | `FAIL storage` | Inspect PVC `ooh-files` in `ooh-apps`, the local-path provisioner, disk space and check pod volume permissions. The test file is retained. |
 | `platform checks failed` | Fix every `FAIL` line above it, then repeat step 7. |
 
@@ -260,6 +263,8 @@ kubectl -n ooh-platform delete pod ooh-keycloak-0
 | Path | Contents |
 |---|---|
 | `deploy/platform/` | Namespaces, certificates, Kafka, PostgreSQL, Keycloak, file PVC and placeholder manifests |
+| `deploy/platform/postgres/cluster.yaml` | Proven first-boot setup creates the keycloak database and owner with the database secret. |
+| `deploy/platform/postgres/db-keycloak.yaml` | Database and managed-role resources maintain that same setup after bootstrap. Both definitions are intentional: initial creation and ongoing management. |
 | `deploy/values/do.env` | Public deployment values; no credentials or personal contact data |
 | `install/ooh.env.example` | Template for private local settings in `~/.config/ooh/do.env` |
 | `install/00` through `install/50` scripts | Server check, operators, secrets, apply, realm sync, checks, first admin |
@@ -269,27 +274,30 @@ kubectl -n ooh-platform delete pod ooh-keycloak-0
 Secrets exist in Kubernetes only; interactive inputs are held in process memory.
 Kafka check credentials exist briefly in a temporary pod's in-memory volume.
 Files live on the Droplet disk in the `ooh-files` PVC (`ooh-apps`, 20Gi).
-New volumes use `local-path-retain`. Existing bound claims keep their class.
-The apply script creates the claim; it may stay Pending until the storage
-check pod first mounts it. The short-lived pod writes `checks/stage0-<time>.txt`,
+All three data volumes use the existing `local-path` StorageClass. The apply
+script creates the file claim and briefly mounts it in a temporary pod if it
+is not yet Bound, so its PV exists before retention is set. The short-lived pod writes `checks/stage0-<time>.txt`,
 reads it back and leaves the file in place. It reuses the pinned PostgreSQL image
 for its shell tools, adding no new image or storage server.
 No application or database data is removed by these scripts. All persistent
-volumes use the k3s local-path provisioner. The retaining StorageClass protects
-new volumes; the apply script patches the reclaim policy of bound Kafka,
-PostgreSQL and file PVs to Retain without replacing their claims.
+volumes use the k3s local-path provisioner. The apply script patches the reclaim
+policy of every bound Kafka, PostgreSQL and file PV to Retain without replacing
+claims. The platform check verifies all three groups remain Bound on local-path
+with Retain. No additional StorageClass is installed.
 Apply and realm sync wait up to ten minutes for the current Keycloak CR and
 StatefulSet rollout, including a Ready pod matching the target revision.
 Keycloak realm import creates the initial realm. The realm-sync script then
-looks up clients and mappers by name. It creates missing entries, updates
+requires every client to exist and looks up mappers by name. It creates missing
+audience mappers, updates
 changed audience mappers individually by ID and skips equal entries. Unwanted
 audience mappers are removed, including Control Centre's self and Model Gateway
 audiences. Verification reads both included client and custom audiences and
 ignores harmless extra config defaults. Admin Console expects only
 `ooh-control-centre`. Other mapper types, users and existing client credentials
 are preserved. It uses Keycloak's own admin CLI inside
-the pod with the bootstrap secret and an explicit private config path under
-a writable `/tmp` emptyDir. CLI errors are shown with credentials and tokens
+the pod with the bootstrap password passed through stdin and an explicit mode
+600 config file under a writable `/tmp` emptyDir. Temporary CLI settings are
+removed on exit; the password is never passed in a command-line argument. CLI errors are shown with credentials and tokens
 redacted; successful login output is suppressed.
 Keycloak runs as a non-root user; its root filesystem remains writable because
 the stock image builds its configuration at startup.

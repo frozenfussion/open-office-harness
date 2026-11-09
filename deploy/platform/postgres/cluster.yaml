@@ -9,7 +9,7 @@ spec:
   imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
   storage:
     size: ${POSTGRES_STORAGE}
-    storageClass: local-path-retain
+    storageClass: local-path
   resources:
     requests:
       cpu: 250m
@@ -19,4 +19,7 @@ spec:
       memory: 1Gi
   bootstrap:
     initdb:
-      database: postgres
+      database: keycloak
+      owner: keycloak
+      secret:
+        name: keycloak-db

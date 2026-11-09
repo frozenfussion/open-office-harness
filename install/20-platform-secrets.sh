@@ -14,8 +14,9 @@ existing="$(kubectl -n "$PLATFORM_NAMESPACE" get secrets -o json)"
 has_secret() { jq -e --arg name "$1" 'any(.items[]; .metadata.name == $name)' <<< "$existing" >/dev/null; }
 create_secret() {
   local name="$1" userkey="$2" passkey="$3" user="$4" password="$5" type="$6"
-  jq -n --arg name "$name" --arg uk "$userkey" --arg pk "$passkey" --arg u "$user" --arg p "$password" --arg type "$type" --arg namespace "$PLATFORM_NAMESPACE" \
-    '{apiVersion:"v1",kind:"Secret",metadata:{name:$name,namespace:$namespace},type:$type,stringData:{($uk):$u,($pk):$p}}' |
+  # Feed generated secret values through stdin, never an external process argument.
+  printf '%s\0' "$name" "$userkey" "$passkey" "$user" "$password" "$type" "$PLATFORM_NAMESPACE" |
+    jq -Rs 'split("\u0000") as $v | {apiVersion:"v1",kind:"Secret",metadata:{name:$v[0],namespace:$v[6]},type:$v[5],stringData:{($v[1]):$v[3],($v[2]):$v[4]}}' |
     kubectl create -f - >/dev/null
   printf 'Created %s\n' "$name"
 }

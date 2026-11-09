@@ -83,7 +83,8 @@ printf '%s\n%s\n' "$username" "$password" |
     umask 077
     read -r username
     read -r password
-    /opt/keycloak/bin/kcadm.sh config credentials --config "$1" --server http://localhost:8080 --realm master --user "$username" --password "$password" >/dev/null
+    printf "%s\n" "$password" | /opt/keycloak/bin/kcadm.sh config credentials --config "$1" --server http://localhost:8080 --realm master --user "$username" >/dev/null
+    chmod 600 "$1"
   ' -- "$config" 2> >(redact_errors) || stop "Keycloak CLI login failed; see the redacted error above, then re-run step 6"
 unset bootstrap
 kcadm() {
@@ -94,26 +95,6 @@ kcadm() {
     printf 'Keycloak CLI %s failed (exit %s)\n' "$1" "$status" >&2
     return "$status"
   }
-}
-client_definition() {
-  local client="$1" fields
-  # Read the fixed Stage 0 client fields, keeping credentials out of this representation.
-  fields="$(awk -v wanted="$client" '
-    $1 == "-" && $2 == "clientId:" {active=($3 == wanted); field=""; next}
-    !active {next}
-    $1 ~ /^(enabled|publicClient|serviceAccountsEnabled|standardFlowEnabled|directAccessGrantsEnabled):$/ {key=$1; sub(/:$/, "", key); print key "\t" $2; field=""; next}
-    $1 == "redirectUris:" || $1 == "webOrigins:" {field=$1; sub(/:$/, "", field); next}
-    $1 == "-" && field != "" {print field "\t" $2; next}
-    $1 == "pkce.code.challenge.method:" {print "pkce\t" $2}
-    {field=""}
-  ' deploy/platform/keycloak/realm-ooh.yaml)"
-  jq -Rn --arg client "$client" --arg domain "$DOMAIN" '
-    reduce (inputs | split("\t")) as $row
-      ({clientId:$client,protocol:"openid-connect",redirectUris:[],webOrigins:[],attributes:{}};
-       if $row[0] == "redirectUris" or $row[0] == "webOrigins" then .[$row[0]] += [($row[1] | gsub("\\$\\{DOMAIN\\}"; $domain))]
-       elif $row[0] == "pkce" then .attributes["pkce.code.challenge.method"] = $row[1]
-       else .[$row[0]] = ($row[1] == "true") end)
-  ' <<< "$fields"
 }
 normalize_mappers() {
   # Keycloak may add defaults or express the audience in either supported config field.
@@ -137,8 +118,7 @@ print_audiences() {
 while IFS= read -r client; do
   representation="$(kcadm get clients -r ooh -q "clientId=$client" --fields id,clientId)"
   if [[ "$(jq 'length' <<< "$representation")" == 0 ]]; then
-    client_definition "$client" | kcadm create clients -r ooh -f - >/dev/null
-    representation="$(kcadm get clients -r ooh -q "clientId=$client" --fields id,clientId)"
+    stop "client $client is missing from realm ooh; realm sync cannot create clients; inspect the initial realm setup"
   fi
   id="$(jq -er --arg client "$client" 'if length == 1 and .[0].clientId == $client then .[0].id else error("client missing or ambiguous") end' <<< "$representation")"
   endpoint="clients/$id/protocol-mappers/models"

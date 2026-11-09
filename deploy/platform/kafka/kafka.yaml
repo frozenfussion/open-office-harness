@@ -17,7 +17,7 @@ spec:
     - id: 0
       type: persistent-claim
       size: ${KAFKA_STORAGE}
-      class: local-path-retain
+      class: local-path
       deleteClaim: false
       kraftMetadata: shared
   resources:

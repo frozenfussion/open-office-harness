@@ -114,5 +114,20 @@ message="open-office-harness storage check"
 printf "%s\n" "$message" > "$file"
 [[ "$(cat "$file")" == "$message" ]]' '[]' "$APPS_NAMESPACE" ooh-files || rc=1
 result "$rc" 'storage PVC ooh-files write/read under checks/' "check ooh-files PVC, local-path provisioner, disk space and pod volume permissions in $APPS_NAMESPACE; check files are retained"
+check_retention() {
+  local namespace="$1" label="$2" claims name volume pv rc=0
+  shift 2
+  claims="$(kubectl -n "$namespace" get pvc "$@" -o json 2>/dev/null)" || rc=1
+  jq -e '.items | length > 0 and all(.[]; .status.phase == "Bound" and (.spec.volumeName // "") != "")' <<< "$claims" >/dev/null 2>&1 || rc=1
+  while IFS=$'\t' read -r name volume; do
+    [[ -n "$volume" ]] || continue
+    pv="$(kubectl get pv "$volume" -o json 2>/dev/null)" || rc=1
+    jq -e --arg namespace "$namespace" --arg name "$name" '.spec.persistentVolumeReclaimPolicy == "Retain" and .spec.storageClassName == "local-path" and .status.phase == "Bound" and .spec.claimRef.namespace == $namespace and .spec.claimRef.name == $name' <<< "$pv" >/dev/null 2>&1 || rc=1
+  done < <(jq -r '.items[]? | select(.status.phase == "Bound") | [.metadata.name,.spec.volumeName] | @tsv' <<< "$claims" 2>/dev/null)
+  result "$rc" "PV retention $label" 'expected bound local-path PVs with Retain; re-run step 6 and inspect claims and PVs'
+}
+check_retention "$PLATFORM_NAMESPACE" Kafka -l strimzi.io/cluster=ooh-kafka
+check_retention "$PLATFORM_NAMESPACE" PostgreSQL -l cnpg.io/cluster=ooh-pg
+check_retention "$APPS_NAMESPACE" ooh-files --field-selector metadata.name=ooh-files
 ((failed == 0)) || stop "platform checks failed; fix the FAIL lines above and re-run"
 printf 'DONE\n'
