@@ -199,6 +199,7 @@
 | `required secret missing` | Run step 5 first. |
 | `certificate pending for` | Check DNS and DigitalOcean inbound TCP 80/443; inspect cert-manager events and logs. Staging issuance is the real outside check. |
 | `production certificate pending` | Inspect certificate events. If rate limited, wait for the stated limit window before retrying. |
+| Keycloak crashes with `--optimized flag was used for first ever server start` | Stop the waiting apply script with Ctrl+C. The stock image requires `startOptimized: false`, which is set in the manifest. Re-run step 6 with the corrected manifest; existing resources and secrets are reused. |
 | `step failed; see README` | Read the immediately preceding tool error. Check operator/pod events, connectivity, storage and memory; send the error to Codex. No changes are rolled back or deleted. |
 | `admin request failed` | Check Keycloak readiness and bootstrap secret; re-run step 8. A partly created marked first-admin account gets its role completed without changing its password. |
 | `username/email/password missing or passwords differ` | Repeat step 8 with nonempty username, valid email and matching passwords. |
@@ -293,3 +294,10 @@ Droplet disk through the `ooh-files` PVC. No object storage service or storage
 credentials are required. `deploy/platform/storage/files-pvc.yaml` is added to
 Part B's permitted file list. The operator installer completed with all four
 operators rolled out and `DONE` before this change was made.
+
+The first platform apply reached Ready Kafka, all eleven topics, the smoke user,
+PostgreSQL and the Keycloak database/role, then Keycloak crashed because its
+stock image had not been built for optimized startup. The Keycloak manifest now
+sets `startOptimized: false` so the stock image builds its configuration on
+startup. Stop the pending wait with Ctrl+C and repeat step 6; no resources or
+data need to be removed.
