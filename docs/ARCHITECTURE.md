@@ -13,7 +13,7 @@ database rather than shared tables.
 | Admin Console (Angular 22) | Rights, tiers, registry, skills, approvals and audit screens | Contact the Harness directly |
 | Control Centre (.NET 10 modular monolith) | Deterministic rights, model and skill registries, approval rules, audit query contract | Call AI models |
 | Harness API (Python 3.14) | Conversations, agent loop, context, classifier routing, allowed tools, streaming | Decide rights or store secrets |
-| Model Gateway (Python 3.14) | Purpose/tier routing, credentials, rate limits, cost and failover | Make policy decisions about users |
+| Model Gateway (Python 3.14) | Purpose/tier routing, credentials, rate limits, cost and failover | Know who the user is beyond user_id for cost |
 | Skill workers (Python 3.14) | One skill each; requests, files and results | Check rights after a job is published |
 | Audit writer | Append-only audit store | Change upstream business state or publish jobs |
 | Safety watcher | Read events and raise approval flags | Publish skill jobs or grant rights |
@@ -35,10 +35,12 @@ database rather than shared tables.
   creates its right. Registry assignments and credentials are runtime data.
 - [Harness HTTP](../contracts/http/harness-api.openapi.yaml): conversations,
   message streaming, uploads, job updates and signed downloads.
-- [Events](../contracts/events/envelope.schema.json): all records share an
-  envelope; the Kafka key is correlation_id. Consumers ignore duplicate event_id
+- [Events](../contracts/events/envelope.schema.json): all business-event records
+  share an envelope; the Kafka key is correlation_id. Consumers ignore duplicate event_id
   values, retry a fixed configured number of times, then publish to dlq.<topic>.
-  Retry counts are specified when consumers are built. Topic retention and
+  Retry counts are specified when consumers are built. The ooh.smoke
+  platform-check topic is free-form with no schema or envelope.
+  Topic retention and
   partitions are fixed in [topics.yaml](../contracts/events/topics.yaml).
 - [Skills](../contracts/skills/manifest.schema.json): a manifest declares the
   permission, approval need and input/output shapes. Only allowed skills appear
@@ -59,8 +61,9 @@ publishes approval.decided. Only an approved request with valid rights proceeds;
 a rejected request never becomes a skill job. The UI shows awaiting approval.
 
 **Tier routing:** a classifier score may suggest a higher tier. The Harness
-checks chat.tier for that tier before calling the Gateway. A denial can fall
-back only to a separately allowed lower tier. Unavailable policy fails closed.
+checks chat.tier for that tier before calling the Gateway. A denial falls back
+to separately allowed tier 1 plus a note: "an admin can give you the advanced
+model". Unavailable policy fails closed.
 The Gateway reads the Control Centre registry to resolve purpose and tier.
 
 **Worker down:** Kafka retains queued jobs. The worker catches up when it returns,

@@ -1,158 +1,113 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-{
-  "replication_factor": 1,
-  "min_insync_replicas": 1,
-  "message_key": "correlation_id",
-  "topics": [
-    {
-      "name": "skill.requests.slides",
-      "event_type": "skill.requested",
-      "payload_schema": "events/payloads/skill.requested.schema.json",
-      "writers": [
-        "harness-api"
-      ],
-      "readers": [
-        "slides-worker"
-      ],
-      "partitions": 3,
-      "retention_ms": 604800000
-    },
-    {
-      "name": "skill.results",
-      "event_type": "skill.result",
-      "payload_schema": "events/payloads/skill.result.schema.json",
-      "writers": [
-        "slides-worker"
-      ],
-      "readers": [
-        "harness-api",
-        "audit-writer",
-        "safety-watcher",
-        "cost-meter"
-      ],
-      "partitions": 3,
-      "retention_ms": 604800000
-    },
-    {
-      "name": "approvals.requested",
-      "event_type": "approval.requested",
-      "payload_schema": "events/payloads/approval.requested.schema.json",
-      "writers": [
-        "harness-api",
-        "safety-watcher"
-      ],
-      "readers": [
-        "control-centre"
-      ],
-      "partitions": 3,
-      "retention_ms": 2592000000
-    },
-    {
-      "name": "approvals.decided",
-      "event_type": "approval.decided",
-      "payload_schema": "events/payloads/approval.decided.schema.json",
-      "writers": [
-        "control-centre"
-      ],
-      "readers": [
-        "harness-api"
-      ],
-      "partitions": 3,
-      "retention_ms": 2592000000
-    },
-    {
-      "name": "audit.events",
-      "event_type": "audit.event",
-      "payload_schema": "events/payloads/audit.event.schema.json",
-      "writers": [
-        "every-service"
-      ],
-      "readers": [
-        "audit-writer"
-      ],
-      "partitions": 3,
-      "retention_ms": 2592000000
-    },
-    {
-      "name": "dlq.skill.requests.slides",
-      "event_type": "dlq.entry",
-      "payload_schema": "events/payloads/dlq.entry.schema.json",
-      "writers": [
-        "slides-worker"
-      ],
-      "readers": [
-        "control-centre"
-      ],
-      "partitions": 1,
-      "retention_ms": 2592000000
-    },
-    {
-      "name": "dlq.skill.results",
-      "event_type": "dlq.entry",
-      "payload_schema": "events/payloads/dlq.entry.schema.json",
-      "writers": [
-        "harness-api",
-        "audit-writer",
-        "safety-watcher",
-        "cost-meter"
-      ],
-      "readers": [
-        "control-centre"
-      ],
-      "partitions": 1,
-      "retention_ms": 2592000000
-    },
-    {
-      "name": "dlq.approvals.requested",
-      "event_type": "dlq.entry",
-      "payload_schema": "events/payloads/dlq.entry.schema.json",
-      "writers": [
-        "control-centre"
-      ],
-      "readers": [
-        "control-centre"
-      ],
-      "partitions": 1,
-      "retention_ms": 2592000000
-    },
-    {
-      "name": "dlq.approvals.decided",
-      "event_type": "dlq.entry",
-      "payload_schema": "events/payloads/dlq.entry.schema.json",
-      "writers": [
-        "harness-api"
-      ],
-      "readers": [
-        "control-centre"
-      ],
-      "partitions": 1,
-      "retention_ms": 2592000000
-    },
-    {
-      "name": "dlq.audit.events",
-      "event_type": "dlq.entry",
-      "payload_schema": "events/payloads/dlq.entry.schema.json",
-      "writers": [
-        "audit-writer"
-      ],
-      "readers": [
-        "control-centre"
-      ],
-      "partitions": 1,
-      "retention_ms": 2592000000
-    },
-    {
-      "name": "ooh.smoke",
-      "event_type": "audit.event",
-      "payload_schema": "events/payloads/audit.event.schema.json",
-      "writers": [
-        "ooh-smoke"
-      ],
-      "readers": [
-        "ooh-smoke"
-      ],
-      "partitions": 1,
-      "retention_ms": 3600000
-    }
-  ]
-}
+replication_factor: 1
+min_insync_replicas: 1
+message_key: correlation_id
+topics:
+- name: skill.requests.slides
+  event_type: skill.requested
+  payload_schema: events/payloads/skill.requested.schema.json
+  writers:
+  - harness-api
+  readers:
+  - slides-worker
+  partitions: 3
+  retention_ms: 604800000
+- name: skill.results
+  event_type: skill.result
+  payload_schema: events/payloads/skill.result.schema.json
+  writers:
+  - slides-worker
+  readers:
+  - harness-api
+  - audit-writer
+  - safety-watcher
+  - cost-meter
+  partitions: 3
+  retention_ms: 604800000
+- name: approvals.requested
+  event_type: approval.requested
+  payload_schema: events/payloads/approval.requested.schema.json
+  writers:
+  - harness-api
+  - safety-watcher
+  readers:
+  - control-centre
+  partitions: 3
+  retention_ms: 2592000000
+- name: approvals.decided
+  event_type: approval.decided
+  payload_schema: events/payloads/approval.decided.schema.json
+  writers:
+  - control-centre
+  readers:
+  - harness-api
+  partitions: 3
+  retention_ms: 2592000000
+- name: audit.events
+  event_type: audit.event
+  payload_schema: events/payloads/audit.event.schema.json
+  writers:
+  - every-service
+  readers:
+  - audit-writer
+  partitions: 3
+  retention_ms: 2592000000
+- name: dlq.skill.requests.slides
+  event_type: dlq.entry
+  payload_schema: events/payloads/dlq.entry.schema.json
+  writers:
+  - slides-worker
+  readers:
+  - control-centre
+  partitions: 1
+  retention_ms: 2592000000
+- name: dlq.skill.results
+  event_type: dlq.entry
+  payload_schema: events/payloads/dlq.entry.schema.json
+  writers:
+  - harness-api
+  - audit-writer
+  - safety-watcher
+  - cost-meter
+  readers:
+  - control-centre
+  partitions: 1
+  retention_ms: 2592000000
+- name: dlq.approvals.requested
+  event_type: dlq.entry
+  payload_schema: events/payloads/dlq.entry.schema.json
+  writers:
+  - control-centre
+  readers:
+  - control-centre
+  partitions: 1
+  retention_ms: 2592000000
+- name: dlq.approvals.decided
+  event_type: dlq.entry
+  payload_schema: events/payloads/dlq.entry.schema.json
+  writers:
+  - harness-api
+  readers:
+  - control-centre
+  partitions: 1
+  retention_ms: 2592000000
+- name: dlq.audit.events
+  event_type: dlq.entry
+  payload_schema: events/payloads/dlq.entry.schema.json
+  writers:
+  - audit-writer
+  readers:
+  - control-centre
+  partitions: 1
+  retention_ms: 2592000000
+- name: ooh.smoke
+  event_type: null
+  payload_schema: null
+  writers:
+  - ooh-smoke
+  readers:
+  - ooh-smoke
+  partitions: 1
+  retention_ms: 3600000
+  envelope: false
+  description: Free-form test messages; platform checks only.
