@@ -48,6 +48,7 @@ keycloak_error() {
     map(if type == "string" then gsub("[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]+"; "[REDACTED TOKEN]") else "(not provided)" end) |
     "Keycloak error=\(.[0] | @json); error_description=\(.[1] | @json)"
   ' 2>/dev/null)" || detail='Keycloak returned an invalid error response'
+  [[ -n "$detail" ]] || detail='Keycloak did not answer'
   for sensitive in "${code_verifier:-}" "${code_challenge:-}" "${device_code:-}" "${code:-}" "${admin_token:-}" "${refresh_token:-}"; do
     [[ -z "$sensitive" ]] || detail="${detail//"$sensitive"/[REDACTED]}"
   done
@@ -165,7 +166,7 @@ device_reply="$(printf 'client_id=ooh-admin-console&code_challenge=%s&code_chall
     "$issuer/protocol/openid-connect/auth/device" 2>/dev/null)"
 rc=0
 jq -e '.device_code and .user_code and .verification_uri and (.expires_in > 0)' <<< "$device_reply" >/dev/null || rc=1
-require "$rc" 'device sign-in available' "$(printf '%s' "$device_reply" | keycloak_error)"
+require "$rc" 'device sign-in available' "$(printf '%s' "$device_reply" | keycloak_error); run install/35-realm-sync.sh, then re-run this check"
 device_code="$(jq -r '.device_code' <<< "$device_reply")"
 link="$(jq -r '.verification_uri' <<< "$device_reply")"
 complete_link="$(jq -r '.verification_uri_complete // .verification_uri' <<< "$device_reply")"
@@ -187,7 +188,7 @@ while ((SECONDS < deadline)); do
     authorization_pending) continue ;;
     slow_down) interval=$((interval + 5)); ((interval <= 30)) || interval=30; continue ;;
     '') break ;;
-    *) result 1 'device sign-in' "$(printf '%s' "$reply" | keycloak_error)"; stop "device sign-in failed" ;;
+    *) result 1 'device sign-in' "$(printf '%s' "$reply" | keycloak_error); re-run and sign in as an administrator"; stop "device sign-in failed" ;;
   esac
 done
 admin_token="$(jq -er '.access_token | select(type == "string" and length > 0)' <<< "$reply")" || stop "device sign-in timed out; re-run the check"
