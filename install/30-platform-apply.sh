@@ -144,6 +144,7 @@ wait_keycloak
 install/35-realm-sync.sh
 retain_existing
 for file in "$tmp"/deploy/platform/placeholders/*.yaml "$tmp"/deploy/platform/keycloak/ingress.yaml; do
+  [[ "$file" != "$tmp/deploy/platform/placeholders/control-centre-api.yaml" ]] || continue
   # A successful re-run must not request staging certificates again.
   case "$file" in
     *ingress.yaml)
@@ -158,7 +159,7 @@ for file in "$tmp"/deploy/platform/placeholders/*.yaml "$tmp"/deploy/platform/ke
     *) kubectl apply -f "$file" ;;
   esac
 done
-for name in workspace harness-api admin-console control-centre-api; do
+for name in workspace harness-api admin-console; do
   kubectl -n "$APPS_NAMESPACE" rollout status "deployment/$name" --timeout=300s
 done
 for entry in "$PLATFORM_NAMESPACE auth" "$APPS_NAMESPACE harness" "$APPS_NAMESPACE admin"; do

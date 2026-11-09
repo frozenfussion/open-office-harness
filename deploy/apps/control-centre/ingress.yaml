@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: control-centre
+  namespace: ${APPS_NAMESPACE}
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - admin.${DOMAIN}
+    secretName: admin-tls
+  rules:
+  - host: admin.${DOMAIN}
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: control-centre
+            port:
+              number: 8080

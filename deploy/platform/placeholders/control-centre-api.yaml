@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+# RETIRED: replaced by deploy/apps/control-centre; no longer applied.
 apiVersion: v1
 kind: ConfigMap
 metadata:

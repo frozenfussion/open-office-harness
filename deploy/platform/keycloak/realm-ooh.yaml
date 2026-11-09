@@ -48,6 +48,7 @@ spec:
       - https://admin.${DOMAIN}
       attributes:
         pkce.code.challenge.method: S256
+        oauth2.device.authorization.grant.enabled: 'true'
       protocolMappers:
       - name: audience-ooh-control-centre
         protocol: openid-connect

@@ -16,13 +16,6 @@ spec:
   - host: admin.${DOMAIN}
     http:
       paths:
-      - path: /api
-        pathType: Prefix
-        backend:
-          service:
-            name: control-centre-api
-            port:
-              number: 8080
       - path: /
         pathType: Prefix
         backend:

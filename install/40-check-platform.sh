@@ -30,10 +30,19 @@ for entry in "$PLATFORM_NAMESPACE auth" "$APPS_NAMESPACE harness" "$APPS_NAMESPA
   jq -e '.spec.issuerRef.name == "letsencrypt-prod" and (.metadata.generation as $g | any(.status.conditions[]?; .type == "Ready" and .status == "True" and .observedGeneration == $g))' <<< "$cert" >/dev/null 2>&1 || rc=1
   result "$rc" "production certificate $name" 'certificate is not Ready with production issuer; inspect certificate events'
 done
-for url in "https://harness.$DOMAIN/" "https://harness.$DOMAIN/api/" "https://admin.$DOMAIN/" "https://admin.$DOMAIN/api/"; do
+control_centre="$(kubectl -n "$APPS_NAMESPACE" get deployment control-centre --ignore-not-found -o name)"
+admin_api="https://admin.$DOMAIN/api/"
+admin_expected=200
+if [[ -n "$control_centre" ]]; then
+  admin_api="https://admin.$DOMAIN/api/rights/me?user_id=x"
+  admin_expected=401
+fi
+for url in "https://harness.$DOMAIN/" "https://harness.$DOMAIN/api/" "https://admin.$DOMAIN/" "$admin_api"; do
+  expected=200
+  [[ "$url" != "$admin_api" ]] || expected="$admin_expected"
   status="$(curl --connect-timeout 10 --max-time 30 -sS -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true)"
-  rc=0; [[ "$status" == 200 ]] || rc=1
-  result "$rc" "HTTPS $url" 'expected HTTP 200 with trusted TLS; check ingress, certificate and deployment'
+  rc=0; [[ "$status" == "$expected" ]] || rc=1
+  result "$rc" "HTTPS $url" "expected HTTP $expected with trusted TLS; check ingress, certificate and deployment"
 done
 issuer="https://auth.$DOMAIN/realms/ooh"
 rc=0
