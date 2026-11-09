@@ -381,7 +381,952 @@ paths:
         description: Required when purpose=chat; omit for other purposes.
       description: Gateway-only registry lookup. purpose is required. tier is required
         for purpose=chat and omitted otherwise. secret_ref names a Kubernetes Secret
-        key; it never contains credentials.
+        (the Gateway reads its key api-key); never contains credentials.
+  /api/admin/people:
+    get:
+      operationId: get_api_admin_people
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Person'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - &id001
+        name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 50
+  /api/admin/people/{user_id}:
+    get:
+      operationId: get_api_admin_people_user_id
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Person'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema: &id004
+          type: string
+          minLength: 1
+  /api/admin/rights:
+    get:
+      operationId: get_api_admin_rights
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Right'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - *id001
+  /api/admin/grants:
+    post:
+      operationId: post_api_admin_grants
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Grant'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantInput'
+  /api/admin/grants/{id}:
+    delete:
+      operationId: delete_api_admin_grants_id
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Removed'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: &id002
+          type: string
+          format: uuid
+  /api/admin/models:
+    get:
+      operationId: get_api_admin_models
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ModelEntry'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - *id001
+    post:
+      operationId: post_api_admin_models
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelEntry'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelInput'
+  /api/admin/models/{id}:
+    get:
+      operationId: get_api_admin_models_id
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelEntry'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters: &id003
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+    put:
+      operationId: put_api_admin_models_id
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelEntry'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelInput'
+      parameters: *id003
+    delete:
+      operationId: delete_api_admin_models_id
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Removed'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters: *id003
+  /api/admin/skills:
+    get:
+      operationId: get_api_admin_skills
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SkillManifest'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - *id001
+    post:
+      operationId: post_api_admin_skills
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused. Existing
+        active name and same version returns 200 without a change; use PUT for a different
+        version.
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillManifest'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillManifest'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillManifest'
+  /api/admin/skills/{name}:
+    get:
+      operationId: get_api_admin_skills_name
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillManifest'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters: &id005
+      - name: name
+        in: path
+        required: true
+        schema: *id004
+    put:
+      operationId: put_api_admin_skills_name
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillManifest'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillManifest'
+      parameters: *id005
+    delete:
+      operationId: delete_api_admin_skills_name
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Removed'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters: *id005
+  /api/admin/approvals:
+    get:
+      operationId: get_api_admin_approvals
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Approval'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - pending
+          - approved
+          - rejected
+      - name: correlation_id
+        in: query
+        required: false
+        schema: *id002
+      - *id001
+      - name: before
+        in: query
+        required: false
+        schema:
+          type: string
+          description: UTC ISO 8601 created_at followed by a comma and the UUID id
+            of the last row.
+  /api/admin/approvals/{id}:
+    get:
+      operationId: get_api_admin_approvals_id
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Approval'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters: &id006
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+  /api/admin/approvals/{id}/decision:
+    post:
+      operationId: post_api_admin_approvals_id_decision
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Approval'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Decision'
+      parameters: *id006
+  /api/admin/audit:
+    get:
+      operationId: get_api_admin_audit
+      security:
+      - bearerAuth: []
+      description: Administrator only. Unknown input fields are refused.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditRow'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - name: actor
+        in: query
+        required: false
+        schema: *id004
+      - name: action
+        in: query
+        required: false
+        schema: *id004
+      - name: target
+        in: query
+        required: false
+        schema: *id004
+      - name: correlation_id
+        in: query
+        required: false
+        schema: *id002
+      - name: before_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - *id001
 components:
   securitySchemes:
     bearerAuth:
@@ -401,4 +1346,388 @@ components:
       required:
       - code
       - message
+      additionalProperties: false
+    Grant:
+      type: object
+      properties:
+        id: *id002
+        created_at: &id007
+          type: string
+          format: date-time
+        updated_at: *id007
+        deleted_at: *id007
+        created_by: *id004
+        updated_by: *id004
+        right_key: *id004
+        subject_type:
+          enum:
+          - user
+          - everyone
+        subject_id: *id004
+      required:
+      - id
+      - created_at
+      - updated_at
+      - created_by
+      - updated_by
+      - right_key
+      - subject_type
+      additionalProperties: false
+    Right:
+      type: object
+      properties:
+        id: *id002
+        created_at: *id007
+        updated_at: *id007
+        deleted_at: *id007
+        created_by: *id004
+        updated_by: *id004
+        key: *id004
+        description: *id004
+        source:
+          enum:
+          - tier
+          - skill
+          - builtin
+      required:
+      - id
+      - created_at
+      - updated_at
+      - created_by
+      - updated_by
+      - key
+      - description
+      - source
+      additionalProperties: false
+    Person:
+      type: object
+      properties:
+        id: *id002
+        user_id: *id004
+        email:
+          type: string
+        name:
+          type: string
+        first_seen_at: *id007
+        last_seen_at: *id007
+        grants:
+          type: array
+          items:
+            $ref: '#/components/schemas/Grant'
+      required:
+      - id
+      - user_id
+      - first_seen_at
+      - last_seen_at
+      - grants
+      additionalProperties: false
+    ModelEntry:
+      type: object
+      properties:
+        model_entry_id:
+          type: string
+          minLength: 1
+        purpose:
+          type: string
+          minLength: 1
+        tier:
+          type: integer
+          minimum: 1
+        role:
+          type: string
+          enum:
+          - main
+          - backup
+        location:
+          type: string
+          enum:
+          - on_prem
+          - cloud
+        api_type:
+          type: string
+          minLength: 1
+        endpoint_url:
+          type: string
+          format: uri
+          pattern: ^https?://[^\s/?#]+(?:[/?#][^\s]*)?$
+        model_id:
+          type: string
+          minLength: 1
+        secret_ref:
+          type: string
+          minLength: 1
+        rate_limit_per_minute:
+          type: integer
+          minimum: 1
+        daily_budget:
+          type: number
+          minimum: 0
+        health:
+          type: string
+          minLength: 1
+      required:
+      - model_entry_id
+      - purpose
+      - role
+      - location
+      - api_type
+      - endpoint_url
+      - model_id
+      - secret_ref
+      - rate_limit_per_minute
+      - daily_budget
+      - health
+      additionalProperties: false
+      allOf:
+      - if:
+          properties:
+            purpose:
+              const: chat
+          required:
+          - purpose
+        then:
+          required:
+          - tier
+        else:
+          not:
+            required:
+            - tier
+    ModelInput:
+      type: object
+      properties:
+        purpose:
+          type: string
+          minLength: 1
+        tier:
+          type: integer
+          minimum: 1
+        role:
+          type: string
+          enum:
+          - main
+          - backup
+        location:
+          type: string
+          enum:
+          - on_prem
+          - cloud
+        api_type:
+          type: string
+          minLength: 1
+        endpoint_url:
+          type: string
+          format: uri
+          pattern: ^https?://[^\s/?#]+(?:[/?#][^\s]*)?$
+        model_id:
+          type: string
+          minLength: 1
+        secret_ref:
+          type: string
+          minLength: 1
+          pattern: ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$
+          maxLength: 253
+          description: names a Kubernetes Secret (the Gateway reads its key api-key);
+            never contains credentials
+        rate_limit_per_minute:
+          type: integer
+          minimum: 1
+        daily_budget:
+          type: number
+          minimum: 0
+      required:
+      - purpose
+      - role
+      - location
+      - api_type
+      - endpoint_url
+      - model_id
+      - secret_ref
+      - rate_limit_per_minute
+      - daily_budget
+      additionalProperties: false
+      allOf:
+      - if:
+          properties:
+            purpose:
+              const: chat
+          required:
+          - purpose
+        then:
+          required:
+          - tier
+        else:
+          not:
+            required:
+            - tier
+    SkillManifest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        title:
+          type: string
+          minLength: 1
+        kind:
+          type: string
+          enum:
+          - service
+          - instruction
+        description:
+          type: string
+          minLength: 1
+        input_schema:
+          type: string
+          minLength: 1
+        output_schema:
+          type: string
+          minLength: 1
+        right:
+          type: string
+          minLength: 1
+        needs_approval:
+          type: boolean
+        topic:
+          type: string
+          minLength: 1
+        version:
+          type: string
+          pattern: ^\d+\.\d+\.\d+$
+      required:
+      - name
+      - title
+      - kind
+      - description
+      - input_schema
+      - output_schema
+      - right
+      - needs_approval
+      - version
+      additionalProperties: false
+      allOf:
+      - if:
+          properties:
+            kind:
+              const: service
+        then:
+          required:
+          - topic
+    GrantInput:
+      type: object
+      properties:
+        right_key: *id004
+        subject_type:
+          type: string
+          enum:
+          - user
+          - everyone
+        subject_id:
+          type:
+          - string
+          - 'null'
+          minLength: 1
+      required:
+      - right_key
+      - subject_type
+      additionalProperties: false
+      allOf:
+      - if:
+          properties:
+            subject_type:
+              const: user
+        then:
+          required:
+          - subject_id
+          properties:
+            subject_id: *id004
+        else:
+          properties:
+            subject_id:
+              type: 'null'
+    Approval:
+      type: object
+      properties:
+        id: *id002
+        created_at: *id007
+        updated_at: *id007
+        deleted_at: *id007
+        created_by: *id004
+        updated_by: *id004
+        request_event_id: *id002
+        correlation_id: *id002
+        requester_user_id: *id004
+        producer: *id004
+        action: *id004
+        details:
+          type: object
+        risk: *id004
+        requested_by: *id004
+        status:
+          type: string
+          enum:
+          - pending
+          - approved
+          - rejected
+        decided_by: *id004
+        note:
+          type: string
+        decided_at: *id007
+      required:
+      - id
+      - created_at
+      - updated_at
+      - created_by
+      - updated_by
+      - request_event_id
+      - correlation_id
+      - requester_user_id
+      - producer
+      - action
+      - details
+      - risk
+      - requested_by
+      - status
+      additionalProperties: false
+    Decision:
+      type: object
+      properties:
+        approved:
+          type: boolean
+        note:
+          type: string
+      required:
+      - approved
+      - note
+      additionalProperties: false
+    AuditRow:
+      type: object
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        occurred_at: *id007
+        actor: *id004
+        action: *id004
+        target: *id004
+        outcome: *id004
+        detail:
+          type: object
+        correlation_id: *id002
+      required:
+      - id
+      - occurred_at
+      - actor
+      - action
+      - target
+      - outcome
+      - detail
+      - correlation_id
+      additionalProperties: false
+    Removed:
+      type: object
+      properties:
+        status:
+          const: removed
+      required:
+      - status
       additionalProperties: false

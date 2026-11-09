@@ -1,0 +1,14 @@
+{
+  "model_entry_id": "fake-entry",
+  "purpose": "chat",
+  "tier": 1,
+  "role": "main",
+  "location": "cloud",
+  "api_type": "fake-api",
+  "endpoint_url": "https://example.invalid/fake-api",
+  "model_id": "fake-model",
+  "secret_ref": "fake-model-secret-key",
+  "rate_limit_per_minute": 60,
+  "daily_budget": 0,
+  "health": "healthy"
+}

@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "occurred_at": "2026-11-09T00:00:00Z",
+    "actor": "synthetic-admin",
+    "action": "grant.created",
+    "target": "image.generate",
+    "outcome": "success",
+    "detail": {
+      "after": {
+        "id": "00000000-0000-4000-8000-000000000101",
+        "created_at": "2026-11-09T00:00:00Z",
+        "updated_at": "2026-11-09T00:00:00Z",
+        "created_by": "synthetic-admin",
+        "updated_by": "synthetic-admin",
+        "right_key": "image.generate",
+        "subject_type": "user",
+        "subject_id": "synthetic-user"
+      }
+    },
+    "correlation_id": "00000000-0000-4000-8000-000000000103"
+  }
+]

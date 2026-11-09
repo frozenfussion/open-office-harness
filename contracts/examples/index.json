@@ -721,6 +721,1190 @@
       "kind": "response",
       "media_type": "application/json",
       "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-people.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/people",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-people.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/people",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-people.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/people",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-people.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/people",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-people.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/people",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-people.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/people",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-people-user_id.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/people/{user_id}",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-people-user_id.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/people/{user_id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-people-user_id.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/people/{user_id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-people-user_id.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/people/{user_id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-people-user_id.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/people/{user_id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-people-user_id.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/people/{user_id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-people-user_id.404.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/people/{user_id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-rights.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/rights",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-rights.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/rights",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-rights.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/rights",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-rights.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/rights",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-rights.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/rights",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-rights.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/rights",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-grants.request.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-grants.201.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "201"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-grants.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-grants.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-grants.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-grants.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-grants.409.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "409"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-grants-id.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants/{id}",
+      "method": "delete",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-grants-id.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants/{id}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-grants-id.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants/{id}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-grants-id.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants/{id}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-grants-id.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants/{id}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-grants-id.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants/{id}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-grants-id.404.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/grants/{id}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-models.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-models.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-models.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-models.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-models.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-models.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-models.request.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-models.201.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "201"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-models.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-models.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-models.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-models.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-models.409.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "409"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-models-id.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-models-id.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-models-id.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-models-id.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-models-id.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-models-id.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-models-id.404.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-models-id.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "put",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-models-id.request.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "put",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-models-id.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-models-id.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-models-id.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-models-id.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-models-id.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-models-id.404.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-models-id.409.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "409"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-models-id.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "delete",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-models-id.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-models-id.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-models-id.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-models-id.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-models-id.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-models-id.404.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/models/{id}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-skills.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-skills.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-skills.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-skills.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-skills.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-skills.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-skills.request.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-skills.201.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "201"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-skills.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-skills.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-skills.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-skills.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-skills.409.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "409"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-skills.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-skills-name.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-skills-name.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-skills-name.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-skills-name.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-skills-name.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-skills-name.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-skills-name.404.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-skills-name.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "put",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-skills-name.request.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "put",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-skills-name.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-skills-name.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-skills-name.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-skills-name.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-skills-name.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-skills-name.404.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/control-centre.put-admin-skills-name.409.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "put",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "409"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-skills-name.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "delete",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-skills-name.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-skills-name.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-skills-name.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-skills-name.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-skills-name.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.delete-admin-skills-name.404.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/skills/{name}",
+      "method": "delete",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-approvals.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-approvals.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-approvals.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-approvals.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-approvals.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-approvals.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-approvals-id.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-approvals-id.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-approvals-id.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-approvals-id.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-approvals-id.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-approvals-id.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-approvals-id.404.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-approvals-id-decision.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}/decision",
+      "method": "post",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-approvals-id-decision.request.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}/decision",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-approvals-id-decision.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}/decision",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-approvals-id-decision.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}/decision",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-approvals-id-decision.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}/decision",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-approvals-id-decision.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}/decision",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-approvals-id-decision.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}/decision",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-approvals-id-decision.404.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}/decision",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-approvals-id-decision.409.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/approvals/{id}/decision",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "409"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-audit.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/audit",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-audit.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/audit",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-audit.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/audit",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-audit.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/audit",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-audit.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/audit",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-audit.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/audit",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
     }
   ]
 }
