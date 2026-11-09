@@ -84,7 +84,9 @@ short-lived check pods are removed after each check. DLQ screens and replay
 remain deferred even though the Control Centre has the contracted read ACLs.
 
 During Stage 1, device sign-in is enabled on the existing `ooh-admin-console`
-client for Aziz's browser sign-in during installation checks. Access and refresh
+client. Device sign-in sends a PKCE S256 code challenge, because the client
+requires S256; the verifier stays in a shell variable.
+This supports Aziz's browser sign-in during installation checks. Access and refresh
 tokens remain in shell variables and reach HTTP tools on standard input, never
 on a command line or in a saved file. The check refreshes before each admin call.
 Stage 4 disables device sign-in again when the Admin Console is available.
