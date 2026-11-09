@@ -3,7 +3,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: DatabaseRole
 metadata:
   name: controlcentre
-  namespace: ooh-platform
+  namespace: ${PLATFORM_NAMESPACE}
 spec:
   cluster:
     name: ooh-pg
@@ -22,7 +22,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: DatabaseRole
 metadata:
   name: controlcentre-app
-  namespace: ooh-platform
+  namespace: ${PLATFORM_NAMESPACE}
 spec:
   cluster:
     name: ooh-pg
@@ -41,7 +41,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: DatabaseRole
 metadata:
   name: controlcentre-test
-  namespace: ooh-platform
+  namespace: ${PLATFORM_NAMESPACE}
 spec:
   cluster:
     name: ooh-pg
@@ -60,7 +60,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: DatabaseRole
 metadata:
   name: controlcentre-test-app
-  namespace: ooh-platform
+  namespace: ${PLATFORM_NAMESPACE}
 spec:
   cluster:
     name: ooh-pg
@@ -79,7 +79,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
   name: controlcentre
-  namespace: ooh-platform
+  namespace: ${PLATFORM_NAMESPACE}
 spec:
   cluster:
     name: ooh-pg
@@ -91,7 +91,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
   name: controlcentre-test
-  namespace: ooh-platform
+  namespace: ${PLATFORM_NAMESPACE}
 spec:
   cluster:
     name: ooh-pg

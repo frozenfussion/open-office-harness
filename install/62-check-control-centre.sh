@@ -7,6 +7,11 @@ stop() { printf 'STOP: %s\n' "$*" >&2; exit 1; }
 trap 'stop "Control Centre check could not continue; fix the last FAIL or check platform readiness and retry"' ERR
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=/dev/null
+source "$ROOT/deploy/values/do.env"
+for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE; do
+  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/do.env"
+done
 [[ $# == 0 ]] || stop "usage: install/62-check-control-centre.sh"
 for tool in kubectl jq curl date; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 failed=0
@@ -20,18 +25,22 @@ require() {
   result "$rc" "$label" "$reason"
   [[ "$rc" == 0 ]] || stop "cannot continue after $label; fix the FAIL line and re-run"
 }
-issuer=https://auth.faysalaziz.com/realms/ooh
-base=https://admin.faysalaziz.com
+issuer="https://auth.$DOMAIN/realms/ooh"
+base="https://admin.$DOMAIN"
 config_dir=''
 check_pod=''
 cleanup() {
-  if [[ -n "$check_pod" ]]; then kubectl -n ooh-platform delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true; fi
+  if [[ -n "$check_pod" ]]; then kubectl -n "$PLATFORM_NAMESPACE" delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true; fi
   if [[ "$config_dir" =~ ^/tmp/ooh-stage-check\.[a-zA-Z0-9]+$ ]]; then
-    kubectl -n ooh-platform exec ooh-keycloak-0 -c keycloak -- rm -rf -- "$config_dir" >/dev/null 2>&1 || true
+    kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- rm -rf -- "$config_dir" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
 form_encode() { jq -sRr @uri; }
+is_admin_token() {
+  jq -Re 'split(".") | select(length == 3) | .[1] | gsub("-"; "+") | gsub("_"; "/") |
+    @base64d | fromjson | (.realm_access.roles // []) | index("ooh-admin") != null' >/dev/null 2>&1
+}
 token_request() {
   curl --connect-timeout 10 --max-time 30 -sS -H 'Content-Type: application/x-www-form-urlencoded' \
     --data-binary @- "$issuer/protocol/openid-connect/token" 2>/dev/null
@@ -79,10 +88,10 @@ rc=0
 request anonymous GET '/api/rights/me?user_id=x' && [[ "$status" == 401 ]] || rc=1
 require "$rc" 'unauthenticated request refused' 'expected HTTP 401; check API ingress and deployment'
 
-config_dir="$(kubectl -n ooh-platform exec ooh-keycloak-0 -c keycloak -- /bin/bash -c 'umask 077; mktemp -d /tmp/ooh-stage-check.XXXXXXXX')"
+config_dir="$(kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- /bin/bash -c 'umask 077; mktemp -d /tmp/ooh-stage-check.XXXXXXXX')"
 [[ "$config_dir" =~ ^/tmp/ooh-stage-check\.[a-zA-Z0-9]+$ ]] || stop "could not create private Keycloak CLI settings directory"
 # shellcheck disable=SC2016 # Credentials are expanded only inside the Keycloak pod.
-kubectl -n ooh-platform exec ooh-keycloak-0 -c keycloak -- sh -c '
+kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- sh -c '
   set -eu
   set +x
   umask 077
@@ -93,7 +102,7 @@ read_client_secret() {
   local client="$1" reply
   # Capture the client secret inside the pod before transferring it privately to this shell.
   # shellcheck disable=SC2016 # Pod-local expansion, not host expansion.
-  reply="$(kubectl -n ooh-platform exec ooh-keycloak-0 -c keycloak -- sh -c '
+  reply="$(kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- sh -c '
     set -eu
     set +x
     clients="$(/opt/keycloak/bin/kcadm.sh get clients -r ooh -q "clientId=$2" --fields id --format csv --noquotes --config "$1" 2>/dev/null)"
@@ -153,11 +162,13 @@ done
 admin_token="$(jq -er '.access_token | select(type == "string" and length > 0)' <<< "$reply")" || stop "device sign-in timed out; re-run the check"
 refresh_token="$(jq -er '.refresh_token | select(type == "string" and length > 0)' <<< "$reply")" || stop "device sign-in returned no refresh token; inspect Keycloak"
 unset device_reply device_code reply
-result 0 'device sign-in' ''
+rc=0
+printf '%s' "$admin_token" | is_admin_token || rc=1
+require "$rc" 'device sign-in' 'the account is not an administrator; sign in with the ooh-admin account'
 
 kafka() (
   local mode="$1" event="${2:-}" script manifest phase='' output rc=0
-  trap 'if [[ -n "$check_pod" ]]; then kubectl -n ooh-platform delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true; fi' EXIT
+  trap 'if [[ -n "$check_pod" ]]; then kubectl -n "$PLATFORM_NAMESPACE" delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true; fi' EXIT
   # shellcheck disable=SC2016 # Password and event expansion happen only inside the check pod.
   script='set -euo pipefail
 set +x
@@ -165,12 +176,24 @@ umask 077
 printf "security.protocol=SASL_PLAINTEXT\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"ooh-stage-check\" password=\"%s\";\n" "$PASSWORD" > /tmp/client.properties
 unset PASSWORD
 cd /opt/kafka/bin
-if [[ "$MODE" == publish ]]; then
+if [[ "$MODE" == start ]]; then
+  for topic in audit.events approvals.decided; do
+    ./kafka-consumer-groups.sh --bootstrap-server ooh-kafka-kafka-bootstrap:9092 --group ooh-stage-check --topic "$topic" --reset-offsets --to-latest --execute --command-config /tmp/client.properties > /tmp/reset.log 2>&1
+    count=0
+    while read -r group topic_name partition offset extra; do
+      if [[ "$group" == ooh-stage-check && "$topic_name" == "$topic" ]]; then
+        [[ "$partition" =~ ^[0-9]+$ && "$offset" =~ ^[0-9]+$ && -z "$extra" ]] || exit 1
+        count=$((count + 1))
+      fi
+    done < /tmp/reset.log
+    [[ "$count" == 3 ]] || exit 1
+  done
+elif [[ "$MODE" == publish ]]; then
   printf "%s\t%s\n%s\t%s\n" "$CORRELATION" "$EVENT" "$CORRELATION" "$EVENT" |
     ./kafka-console-producer.sh --bootstrap-server ooh-kafka-kafka-bootstrap:9092 --topic approvals.requested --producer.config /tmp/client.properties --property parse.key=true --property key.separator=$'"'\t'"' > /tmp/produce.log 2>&1
 else
   if [[ "$MODE" == decisions ]]; then topic=approvals.decided; else topic=audit.events; fi
-  ./kafka-console-consumer.sh --bootstrap-server ooh-kafka-kafka-bootstrap:9092 --topic "$topic" --group ooh-stage-check --from-beginning --timeout-ms 15000 --consumer.config /tmp/client.properties --consumer-property enable.auto.commit=false --property print.key=true --property key.separator=$'"'\t'"' > /tmp/read.log 2>/tmp/consume.log || true
+  ./kafka-console-consumer.sh --bootstrap-server ooh-kafka-kafka-bootstrap:9092 --topic "$topic" --group ooh-stage-check --timeout-ms 15000 --consumer.config /tmp/client.properties --consumer-property enable.auto.commit=false --consumer-property auto.offset.reset=none --property print.key=true --property key.separator=$'"'\t'"' > /tmp/read.log 2>/tmp/consume.log || true
   while IFS=$'"'\t'"' read -r key message; do
     if [[ "$MODE" == decisions && "$key" == "$CORRELATION" ]] ||
        [[ "$MODE" == audit && "|$AUDIT_CORRELATIONS|" == *"|$key|"* ]]; then
@@ -179,8 +202,8 @@ else
   done < /tmp/read.log
 fi'
   check_pod="ooh-stage-check-$(date +%s)-$RANDOM"
-  manifest="$(jq -n --arg name "$check_pod" --arg mode "$mode" --arg event "$event" --arg correlation "$correlation_id" --arg script "$script" --arg audit_correlations "$audit_correlations" '
-    {apiVersion:"v1",kind:"Pod",metadata:{name:$name,namespace:"ooh-platform"},spec:{restartPolicy:"Never",activeDeadlineSeconds:100,automountServiceAccountToken:false,
+  manifest="$(jq -n --arg namespace "$PLATFORM_NAMESPACE" --arg name "$check_pod" --arg mode "$mode" --arg event "$event" --arg correlation "$correlation_id" --arg script "$script" --arg audit_correlations "$audit_correlations" '
+    {apiVersion:"v1",kind:"Pod",metadata:{name:$name,namespace:$namespace},spec:{restartPolicy:"Never",activeDeadlineSeconds:100,automountServiceAccountToken:false,
     securityContext:{runAsNonRoot:true,runAsUser:1001,runAsGroup:1001,fsGroup:1001,seccompProfile:{type:"RuntimeDefault"}},
     containers:[{name:"check",image:"quay.io/strimzi/kafka:1.3.1-kafka-4.3.2",command:["/bin/bash","-ec",$script],
     env:[{name:"PASSWORD",valueFrom:{secretKeyRef:{name:"ooh-stage-check",key:"password"}}},{name:"MODE",value:$mode},{name:"EVENT",value:$event},{name:"CORRELATION",value:$correlation},{name:"AUDIT_CORRELATIONS",value:$audit_correlations}],
@@ -190,16 +213,16 @@ fi'
   printf '%s' "$manifest" | kubectl create -f - >/dev/null || return 1
   local deadline=$((SECONDS + 110))
   while ((SECONDS < deadline)); do
-    phase="$(kubectl -n ooh-platform get pod "$check_pod" -o jsonpath='{.status.phase}')" || break
+    phase="$(kubectl -n "$PLATFORM_NAMESPACE" get pod "$check_pod" -o jsonpath='{.status.phase}')" || break
     [[ "$phase" != Succeeded && "$phase" != Failed ]] || break
     sleep 2
   done
   if [[ "$phase" == Succeeded ]]; then
-    output="$(kubectl -n ooh-platform logs "$check_pod" -c check)" || rc=1
+    output="$(kubectl -n "$PLATFORM_NAMESPACE" logs "$check_pod" -c check)" || rc=1
   else
     rc=1
   fi
-  kubectl -n ooh-platform delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null || rc=1
+  kubectl -n "$PLATFORM_NAMESPACE" delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null || rc=1
   check_pod=''
   [[ "$rc" == 0 ]] || return 1
   printf '%s' "$output"
@@ -207,10 +230,10 @@ fi'
 
 audit_protection() {
   local primary count role operation expected output rc statement
-  primary="$(kubectl -n ooh-platform get cluster ooh-pg -o jsonpath='{.status.currentPrimary}')" || return 1
+  primary="$(kubectl -n "$PLATFORM_NAMESPACE" get cluster ooh-pg -o jsonpath='{.status.currentPrimary}')" || return 1
   [[ "$primary" =~ ^ooh-pg-[0-9]+$ ]] || return 1
   count="$(printf 'SELECT count(*) FROM audit_log;\n' |
-    kubectl -n ooh-platform exec -i "$primary" -c postgres -- psql -X -U postgres -d controlcentre -At -v ON_ERROR_STOP=1 2>/dev/null)" || return 1
+    kubectl -n "$PLATFORM_NAMESPACE" exec -i "$primary" -c postgres -- psql -X -U postgres -d controlcentre -At -v ON_ERROR_STOP=1 2>/dev/null)" || return 1
   [[ "$count" =~ ^[0-9]+$ && "$count" != 0 ]] || return 1
   for role in controlcentre_app controlcentre; do
     if [[ "$role" == controlcentre_app ]]; then expected=42501; else expected=P0001; fi
@@ -222,7 +245,7 @@ audit_protection() {
       fi
       # ON_ERROR_STOP stays off so ROLLBACK is sent even after a refused statement.
       output="$(printf 'BEGIN;\nSET ROLE %s;\n%s\nROLLBACK;\n' "$role" "$statement" |
-        kubectl -n ooh-platform exec -i "$primary" -c postgres -- \
+        kubectl -n "$PLATFORM_NAMESPACE" exec -i "$primary" -c postgres -- \
           psql -X -U postgres -d controlcentre -v ON_ERROR_STOP=0 -v VERBOSITY=verbose 2>&1)" || return 1
       rc=0
       [[ "$output" == *"ERROR:  $expected:"* && "$output" == *ROLLBACK* ]] || rc=1
@@ -242,6 +265,9 @@ expect_request() {
   request "$principal" "$method" "$path" "$data" && [[ "$status" == "$expected" ]] || rc=1
   require "$rc" "$label" "expected HTTP $expected; inspect the API contract and Control Centre logs privately"
 }
+rc=0
+kafka start >/dev/null || rc=1
+require "$rc" 'start Kafka check at newest offsets' 'check Kafka access and ensure no other ooh-stage-check consumer is running; retry this check'
 expect_request admin GET '/api/admin/models?limit=200' 200 'read check model entries'
 old_models="$(jq -er '[.[] | select(.model_id == "stage-check") | .model_entry_id] | .[]' <<< "$body")" || old_models=''
 while IFS= read -r old_id; do
@@ -277,6 +303,8 @@ rc=0
 request admin POST /api/admin/skills "$skill_manifest" && [[ "$status" == 200 || "$status" == 201 ]] &&
   jq -e '.name == "slides" and .right == "skill.slides"' <<< "$body" >/dev/null || rc=1
 require "$rc" 'register Slides skill' 'expected the Slides manifest, with HTTP 200 on an unchanged repeat or 201 when created'
+slides_created=false
+[[ "$status" != 201 ]] || slides_created=true
 expect_request ooh-harness-api GET "/api/skills?user_id=$user_id" 200 'list skills without a grant'
 rc=0
 jq -e 'type == "array" and all(.[]; .name != "slides")' <<< "$body" >/dev/null || rc=1
@@ -290,6 +318,26 @@ rc=0
 jq -e 'any(.[]; .name == "slides" and .right == "skill.slides")' <<< "$body" >/dev/null || rc=1
 require "$rc" 'Slides visible with its grant' 'expected the Slides skill in the allowed list'
 expect_request admin DELETE "/api/admin/grants/$skill_grant_id" 200 'remove check Slides grant'
+
+# Page before deciding rows, since decisions change the pending result set.
+before=''
+while :; do
+  expect_request admin GET "/api/admin/approvals?status=pending&limit=200$before" 200 'read pending approvals for stale checks'
+  pending_page="$body"
+  jq -e 'type == "array"' <<< "$pending_page" >/dev/null || stop "approval list is not an array; inspect the API contract"
+  stale_ids="$(jq -r '.[] | select(.action == "stage.check") | .id' <<< "$pending_page")"
+  while IFS= read -r stale_id; do
+    [[ -n "$stale_id" ]] || continue
+    uuid "$stale_id" || stop "approval response has an invalid id; inspect the API contract"
+    expect_request admin POST "/api/admin/approvals/$stale_id/decision" 200 'reject stale stage check' '{"approved":false,"note":"stale stage check"}'
+  done <<< "$stale_ids"
+  [[ "$(jq 'length' <<< "$pending_page")" == 200 ]] || break
+  cursor="$(jq -er 'last | .created_at + "," + .id' <<< "$pending_page")"
+  next_before="&before=$(printf '%s' "$cursor" | form_encode)"
+  [[ "$next_before" != "$before" ]] || stop "approval paging did not advance; inspect the API contract"
+  before="$next_before"
+done
+result 0 'stale pending stage checks rejected' ''
 
 correlation_id="$(cat /proc/sys/kernel/random/uuid)"
 event_id="$(cat /proc/sys/kernel/random/uuid)"
@@ -347,7 +395,9 @@ for audit_check in grant model decision slides; do
       elif $check == "model" then .detail.after.model_entry_id == $model
       else true end)] | first | select(. != null)
   ' <<< "$body")" || { result 1 "$audit_check audit row exists" 'expected matching audit row; inspect the write transaction'; stop "audit query did not find the expected row"; }
-  audit_rows="$(printf '%s\n%s\n' "$audit_rows" "$row" | jq -cs '.[0] + [.[1]]')"
+  if [[ "$audit_check" != slides || "$slides_created" == true ]]; then
+    audit_rows="$(printf '%s\n%s\n' "$audit_rows" "$row" | jq -cs '.[0] + [.[1]]')"
+  fi
   result 0 "$audit_check audit row exists" ''
 done
 audit_correlations="$(jq -r '[.[].correlation_id] | unique | join("|")' <<< "$audit_rows")"
@@ -364,7 +414,7 @@ while ((SECONDS < deadline)); do
 done
 rc=0
 [[ "$found" == true ]] || rc=1
-require "$rc" 'matching grant, model, decision and Slides audit events published' 'inspect the outbox, audit.events and retention; matching audit messages must be present'
+require "$rc" 'matching audit events from this run published' 'inspect the outbox, audit.events and retention; matching audit messages must be present'
 rc=0
 audit_protection || rc=1
 require "$rc" 'audit protection checks completed with rollback' 'check PostgreSQL pod access and audit rows, then review migration protections'

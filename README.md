@@ -4,12 +4,10 @@
 
 Only Aziz runs the deployment and live-check scripts. Use the Shell tile, plain
 shell, for every command below. None of these scripts asks for a password.
-Before the Parts are merged, only the database setup is run from
-`~/projects/worktrees/stage-1-part-b`. After both Parts pass static checks and
-review, Codex merges them into `~/projects/worktrees/stage-1`. The push of that
-merged branch builds the image. Run secrets, deployment and live checks from
-that merged worktree, using its exact 12-character commit tag. On a fresh server,
-finish the Stage 0 setup below first; the apply/check order is
+Everyday work uses `~/projects/open-office-harness` on `main`. Until Stage 1 is
+accepted, only first-deploy steps 4–6 use the merged `stage-1` worktree. Pushing
+that merged branch builds the image with its exact 12-character commit tag.
+On a fresh server, finish the Stage 0 setup below first; the apply/check order is
 **30 → 59 → 60 → 61 → 40 → 62**.
 
 1. **Install the .NET SDK once.** Type this in your harness terminal, Shell
@@ -37,7 +35,7 @@ finish the Stage 0 setup below first; the apply/check order is
    meet their condition, private test settings are saved, then `DONE`.
 
    ```bash
-   cd ~/projects/worktrees/stage-1-part-b
+   cd ~/projects/open-office-harness
    install/59-control-centre-databases.sh
    ```
 
@@ -57,7 +55,8 @@ finish the Stage 0 setup below first; the apply/check order is
    tile, plain shell. This creates the two Kafka users and copies database and
    Kafka credentials into the apps namespace. No password. Good result:
    `Created` or `Already exists` for each application secret, then `DONE`.
-   A repeat run never overwrites an existing secret.
+   A repeat run never overwrites an existing secret. It compares the saved Kafka
+   password with Strimzi and stops if they differ, without displaying either.
 
    ```bash
    cd ~/projects/worktrees/stage-1
@@ -96,56 +95,69 @@ finish the Stage 0 setup below first; the apply/check order is
    Check data uses a new random user id on each run. Grants and model entries
    are removed by setting their removal date; the generated tier right and
    Slides registration remain. Approvals and audit records remain. Temporary
-   Kafka check pods remove themselves. Database protection checks always roll
+   Kafka check pods remove themselves. Before this run's writes, the check sets
+   its reserved consumer group to the newest offsets on audit.events and
+   approvals.decided; it never scans old topic history. Run only one copy of the
+   check at a time. Slides must have an audit row from any run; a matching Kafka
+   message is required only when this run created that row (HTTP 201).
+   Pending approvals for action `stage.check` from interrupted runs are rejected
+   through the API with note `stale stage check`; other actions are untouched.
+   Database protection checks always roll
    back, including when a protection check unexpectedly succeeds.
 
 7. **Everyday status and logs.** Type this in your harness terminal, Shell
-   tile, plain shell. The folder does not matter. This shows readiness and
+   tile, plain shell. Use the main clone. This shows readiness and
    the exact running image. No password. Good result: `1/1` Ready and the
    intended image tag.
 
    ```bash
+   cd ~/projects/open-office-harness
    kubectl -n ooh-apps get deployment control-centre
    kubectl -n ooh-apps get deployment control-centre -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
    ```
 
-   Type this in your harness terminal, Shell tile, plain shell. The folder
-   does not matter. This shows the app's recent logs. No password. Do not paste
+   Type this in your harness terminal, Shell tile, plain shell. Use the main
+   clone. This shows the app's recent logs. No password. Do not paste
    private log content into chat.
 
    ```bash
+   cd ~/projects/open-office-harness
    kubectl -n ooh-apps logs deployment/control-centre -c control-centre --tail=100
    ```
 
-   Type this in your harness terminal, Shell tile, plain shell. The folder
-   does not matter. This shows the migration logs if startup failed. No password.
+   Type this in your harness terminal, Shell tile, plain shell. Use the main
+   clone. This shows the migration logs if startup failed. No password.
 
    ```bash
+   cd ~/projects/open-office-harness
    kubectl -n ooh-apps logs deployment/control-centre -c migrate --tail=100
    ```
 
-   Type this in your harness terminal, Shell tile, plain shell. The folder
-   does not matter. This restarts the Control Centre. No password. Good result:
+   Type this in your harness terminal, Shell tile, plain shell. Use the main
+   clone. This restarts the Control Centre. No password. Good result:
    rollout succeeds; migrations run again and keep existing data.
 
    ```bash
+   cd ~/projects/open-office-harness
    kubectl -n ooh-apps rollout restart deployment/control-centre
    kubectl -n ooh-apps rollout status deployment/control-centre --timeout=600s
    ```
 
-   Type this in your harness terminal, Shell tile, plain shell. The folder
-   does not matter. This stops the app while keeping all data. No password.
+   Type this in your harness terminal, Shell tile, plain shell. Use the main
+   clone. This stops the app while keeping all data. No password.
    Good result: deployment scaled.
 
    ```bash
+   cd ~/projects/open-office-harness
    kubectl -n ooh-apps scale deployment/control-centre --replicas=0
    ```
 
-   Type this in your harness terminal, Shell tile, plain shell. The folder
-   does not matter. This starts the app again. No password. Good result: rollout
+   Type this in your harness terminal, Shell tile, plain shell. Use the main
+   clone. This starts the app again. No password. Good result: rollout
    succeeds.
 
    ```bash
+   cd ~/projects/open-office-harness
    kubectl -n ooh-apps scale deployment/control-centre --replicas=1
    kubectl -n ooh-apps rollout status deployment/control-centre --timeout=600s
    ```
@@ -157,18 +169,18 @@ finish the Stage 0 setup below first; the apply/check order is
    finish with `DONE` and no `FAIL` lines.
 
    ```bash
-   cd ~/projects/worktrees/stage-1
+   cd ~/projects/open-office-harness
    install/40-check-platform.sh
    install/62-check-control-centre.sh
    ```
 
-9. **Builder checks (after the merge).** Type this in your harness terminal,
+9. **Builder checks (after acceptance).** Type this in your harness terminal,
    plain shell. This formats, builds and tests the code, including the test
    database. No password. Good result: all checks pass. Part A also documents
    local migrations and its pinned EF tool in `services/control-centre/README.md`.
 
    ```bash
-   cd ~/projects/worktrees/stage-1/services/control-centre
+   cd ~/projects/open-office-harness/services/control-centre
    dotnet format --verify-no-changes
    dotnet build -warnaserror
    dotnet test
@@ -181,6 +193,7 @@ finish the Stage 0 setup below first; the apply/check order is
     | Message | What to do |
     |---|---|
     | Missing tool | Finish server setup; for .NET use step 1 above. |
+    | Invalid deployment value | Correct DOMAIN, PLATFORM_NAMESPACE and APPS_NAMESPACE in deploy/values/do.env. |
     | Usage or invalid image tag | Use the command above with exactly the 12-character image tag. |
     | Namespace missing | Finish platform setup and application before database setup. |
     | PostgreSQL not Ready, missing ClusterIP, database resources not ready | Inspect platform pods and Database/DatabaseRole status; repeat database setup once PostgreSQL is healthy. |
@@ -188,14 +201,20 @@ finish the Stage 0 setup below first; the apply/check order is
     | Database setup failed | Check PostgreSQL readiness, fix the failing step and repeat 59. |
     | Live database not ready | Run 59 first. |
     | Kafka user not Ready or password missing | Inspect Strimzi and KafkaUser status, wait for Ready and repeat 60. |
+    | Kafka password changed in Strimzi | Ask the maintainer before replacing control-centre-kafka; the script preserves the existing Secret. |
     | Secret setup failed or application secret missing | Check platform readiness and run 60 again. Existing secrets are kept. |
     | Image not built yet | Run the workflow for the code commit; wait for a green tick and make the package public. |
+    | Image exists but is not public | Switch the ooh-control-centre package to Public on GitHub, as in step 3. |
+    | Registry unreachable or registry check failed | Check ghcr.io availability and retry. |
     | Registry returned an invalid token | Retry; inspect ghcr.io availability if it continues. |
     | Unexpected admin certificate issuer | Inspect the existing admin Ingress; keep the certificate managed by that Ingress. |
     | Deployment, revision or migrations not Ready | Read migration and pod logs above. Check the public package and exact tag. Never edit an applied migration. |
     | Keycloak CLI login or client secret unavailable | Inspect Keycloak readiness and bootstrap access privately; the named existing client must exist. |
     | Device sign-in unavailable | Run `install/35-realm-sync.sh`, then repeat 62. This updates existing clients only. |
     | Device sign-in refused, expired, invalid timing or missing refresh token | Retry and sign in promptly as an administrator; inspect Keycloak client settings if it repeats. |
+    | Account is not an administrator | Repeat the check and sign in with the ooh-admin account. |
+    | Start Kafka check at newest offsets FAIL | Check Kafka access, ensure no other ooh-stage-check consumer is running and retry. |
+    | Approval list is not an array, paging did not advance or invalid response id | Inspect the API contract and response handling before retrying. |
     | HTTP sign-in, audience or registry access FAIL | Check the expected HTTP status printed with the check and the realm audience mappers. |
     | Rights, model or skill FAIL | Check fixed rights rules, grants and the API contract; everyone grants may affect the empty-user check. |
     | Approval or Kafka event FAIL | Inspect Control Centre consumer/outbox logs, Kafka users and topics; repeat after the cause is fixed. |

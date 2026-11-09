@@ -3,7 +3,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: control-centre
-  namespace: ooh-apps
+  namespace: ${APPS_NAMESPACE}
   labels:
     app: control-centre
 spec:
@@ -86,9 +86,8 @@ spec:
             port: http
           periodSeconds: 10
         livenessProbe:
-          httpGet:
-            path: /health
-            port: http
+          tcpSocket:
+            port: 8080
           initialDelaySeconds: 30
           periodSeconds: 20
         securityContext:

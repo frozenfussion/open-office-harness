@@ -3,7 +3,7 @@ apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: ooh-stage-check
-  namespace: ooh-platform
+  namespace: ${PLATFORM_NAMESPACE}
   labels:
     strimzi.io/cluster: ooh-kafka
 spec:

@@ -3,9 +3,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: control-centre
-  namespace: ooh-apps
+  namespace: ${APPS_NAMESPACE}
 data:
-  CC_KAFKA_BOOTSTRAP: ooh-kafka-kafka-bootstrap.ooh-platform.svc:9092
+  CC_KAFKA_BOOTSTRAP: ooh-kafka-kafka-bootstrap.${PLATFORM_NAMESPACE}.svc:9092
   CC_KAFKA_USERNAME: control-centre
-  CC_OIDC_ISSUER: https://auth.faysalaziz.com/realms/ooh
+  CC_OIDC_ISSUER: https://auth.${DOMAIN}/realms/ooh
   CC_OIDC_AUDIENCE: ooh-control-centre
