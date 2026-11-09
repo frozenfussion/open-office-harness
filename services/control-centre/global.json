@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+{
+  "sdk": {
+    "version": "10.0.403",
+    "rollForward": "disable"
+  },
+  "test": {
+    "runner": "Microsoft.Testing.Platform"
+  }
+}
