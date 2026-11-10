@@ -112,10 +112,10 @@ Each service, worker, consumer and app is its own package with its own lock file
 4. When its Part is complete and all checks pass, Codex commits on its branch and writes its report (section 7).
 5. Opus reviews each Part. Codex fixes findings on the same branch. Opus re-reviews.
 6. Codex merges the Parts into `stage-N` (made from the base commit) and runs all checks again on a clean worktree of `stage-N`.
-7. Aziz deploys with the stage's script in `install/` and tests the spec's "Done when" list.
+7. The stage's scripts in `install/` deploy it (Aziz runs the `sudo` ones; from Stage 2 Claude runs the non-sudo ones in Aziz's shell tile while he watches), and Aziz tests the spec's "Done when" list.
 8. When Aziz says the stage is accepted, Codex commits "Stage N: accepted", merges `stage-N` into `main`, pushes, and creates the stage's tag: `git tag -a <tag> -m "Stage N accepted" && git push origin main <tag>`.
 
-Aziz's command-line work is kept to the minimum. Codex runs every git step. Aziz types only what an agent may not do: `sudo` lines, deploys to the cluster, passwords, and steps in the DigitalOcean control panel or on his own PC.
+Aziz's command-line work is kept to the minimum. Codex runs every git step. Aziz types only what an agent may not do: `sudo` lines, passwords, and steps in the DigitalOcean control panel, on GitHub's package settings or on his own PC. From Stage 2 Claude runs the non-sudo deploy and check scripts in his shell tile while he watches.
 
 ## 6. Documentation rule (instructions come first)
 

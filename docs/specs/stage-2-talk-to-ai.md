@@ -57,16 +57,15 @@ Not in this stage (section 13): skill jobs on Kafka, uploads and files, classifi
 | Web app images | build: `node:26` slim image pinned by the builder to an exact tag and reported; run: `nginxinc/nginx-unprivileged:1.28.0-alpine` (already proven in Stage 0), port 8080, read-only root with `/tmp` and nginx cache as `emptyDir` | Static files; same server as the placeholders |
 | Web app settings | each app reads `/config.json` at start (issuer, client id, API base `/api`) served from a ConfigMap; nothing about the domain is compiled in | Same image on Droplet and AWS |
 | Design | `apps/design-system/` (tokens, component CSS, WordRain script, fonts, OFL licences) is copied into each app at build time; screens follow `docs/design/screens/Main.html`, `SignIn.html`, `AdminModels.html`. Both are spec-author files: the Parts read them, never change them | Global rules: design tokens from the Open Office Harness design system only |
-| Connection types (`api_type`) | exactly three are supported by the Gateway: `openai_chat_completions`, `openai_responses`, `anthropic_messages`. Any other value in the registry is skipped by the Gateway (logged as "unsupported connection type"). The Control Centre keeps `api_type` a free string so the Stage 1 check data (`stage-check`) still works; the Admin Console offers only the three | Aziz 13:32: OpenAI format and Anthropic format; DeepSeek speaks both; OpenAI's reasoning models refuse function tools in chat completions (found in HOORA AI, 22 Oct), so OpenAI Responses is needed for tools |
+| Connection types (`api_type`) | exactly three are supported by the Gateway: `openai_chat_completions`, `openai_responses`, `anthropic_messages`. Any other value in the registry is skipped by the Gateway (logged as "unsupported connection type"). The Control Centre keeps `api_type` a free string so the Stage 1 check data (`stage-check`) still works; the Admin Console offers only the three | Aziz 13:32: OpenAI format and Anthropic format; DeepSeek speaks both; OpenAI's newest models need Responses for tool calls, while chat completions stays for every other OpenAI-compatible service; the admin picks per entry |
 | Provider keys | typed in the Admin Console form; the Control Centre encrypts them with AES-256-GCM (.NET's built-in `AesGcm`), the 32-byte encryption key from Secret `control-centre-keys` (key `encryption-key`, made by `63`); stored as `v1:<nonce>:<ciphertext>:<tag>` in base64; never returned to admins (`has_key` only); only the Gateway service account may read a decrypted key, through `GET /api/models/{id}/key`, inside the cluster | Aziz's approved form; replaces the Stage 0 "secret_ref = Kubernetes Secret name" choice; one owner of registry data |
 | Who calls what (all with Keycloak service-account tokens, client credentials) | Harness → Control Centre (aud `ooh-control-centre`) and → Gateway (aud `ooh-model-gateway`); Gateway → Control Centre (aud `ooh-control-centre`). These audiences already exist in the realm | No realm audience change |
-| In-cluster addresses | Control Centre `http://control-centre.ooh-apps.svc:8080`, Gateway `http://model-gateway.ooh-apps.svc:8080` (no Ingress for the Gateway). The Control Centre already serves `/api/...` paths on its own port | Gateway has no public name (fixed) |
+| In-cluster addresses | Control Centre `http://control-centre.ooh-apps.svc:8081` for the Gateway-only routes (registry, key) and `:8080` for everything else, Gateway `http://model-gateway.ooh-apps.svc:8080` (no Ingress for the Gateway). The Control Centre already serves `/api/...` paths on its own port | Gateway has no public name (fixed) |
 | Rate limit | per model entry and per user: the Gateway counts this user's usage rows for that entry in the last 60 s; at `rate_limit_per_minute` the entry is skipped for this call | Approved form ("rate limit per user") |
 | Daily budget | per model entry: the sum of today's cost (UTC day) from the Gateway's usage rows; at or above `daily_budget` the entry is skipped. `daily_budget` 0 = no limit | Approved form; 0 keeps the Stage 1 check data valid |
 | Cost | `input_tokens × input_price_per_million / 1 000 000 + output_tokens × output_price_per_million / 1 000 000`, prices typed per model entry in USD; 0 when the prices are 0 (on-prem) | Prices are data, never code |
 | Failover | entries for the purpose and tier are tried main first, then backup; a failure **before the first output** (connection error, timeout, non-2xx) moves to the next entry; after the first output a failure ends the answer with a `failed` event (no gluing of half answers) | Proven in HOORA AI |
 | Budget fallback (Harness) | if every entry of tier N > 1 is over budget, the Harness answers with the lowest tier the user may use and says so in the meta line ("tier 2 is over its daily budget; answered with tier 1") | Approved form: "Over budget: tier 2 falls back to tier 1" |
-| Health | the Gateway reports `ok` or `down` for an entry after a call when it changed since its last report (`PUT /api/models/{id}/health`, no audit row, like `last_seen_at`) | No audit flood (HOORA AI lesson) |
 | Skills as tools | the Harness offers the model only the skills the user may use (`GET /api/skills?user_id=`), each as a tool whose input schema is the skill's `input.schema.json` (copied into the Harness package, a test checks the copy equals `contracts/skills/<skill>/input.schema.json`). If the model calls a tool, the Harness answers with the fixed sentence `I would use the <title> skill for this. Skills are switched on in the next stage.` | Skills run on Kafka in Stage 3; the tool offer and rights work now |
 | Conversation memory | the last 20 messages of the conversation go to the model; title = the first 60 characters of the first question | Simple; an AI-written title can come later |
 | Streaming format | Server-Sent Events on both Harness `POST /api/conversations/{id}/messages` and Gateway `POST /v1/call` with `stream: true`: `event` lines are not used; each `data:` line is one JSON object with `type` (section 6). Headers `Content-Type: text/event-stream`, `Cache-Control: no-store`, `X-Accel-Buffering: no` | Contract already says SSE |
@@ -100,7 +99,7 @@ Not in this stage (section 13): skill jobs on Kafka, uploads and files, classifi
   - `anthropic_messages`: `POST {endpoint_url}/v1/messages`, headers `x-api-key: <key>`, `anthropic-version: 2023-06-01`; `system` = the system message; `max_tokens` from `request_settings.max_tokens`, else 4096; tools `{name, description, input_schema}`; streaming events `content_block_delta`, `message_delta`, `message_stop`. Examples: `https://api.anthropic.com`, `https://api.deepseek.com/anthropic`.
   - `request_settings`: its top-level fields are merged into the provider's request body after the adapter builds it; a value `null` removes that field (the escape hatch when a provider refuses a field).
   - The builder checks every field name above against the provider's official reference on the day and reports any difference; the behaviour does not change.
-- Registry: `GET {CC}/api/models?purpose=&tier=` (cached 30 s), key `GET {CC}/api/models/{id}/key` (cached 5 min; dropped on a 401/403 from the provider and fetched once more). Service token cached until 30 s before expiry.
+- Registry: `GET {CC}/api/models?purpose=&tier=` on port 8081 (cached 30 s), key `GET {CC}/api/models/{id}/key` on port 8081 (cached 60 s, no retry rule). Service token cached until 30 s before expiry.
 
 ### Harness API (`contracts/http/harness-api.openapi.yaml`, Part B updates it)
 - `GET /health`.
@@ -112,8 +111,7 @@ Not in this stage (section 13): skill jobs on Kafka, uploads and files, classifi
 
 ### Control Centre additions (`contracts/http/control-centre.openapi.yaml`, Part D updates it)
 - `ModelInput` gains optional `title`, `api_key` (write-only, 1–4096 characters; an empty string removes the key), `input_price_per_million`, `output_price_per_million`, `timeout_seconds`, `request_settings`; `secret_ref` becomes optional. `ModelEntry` (admin and Gateway views) gains `title`, `has_key`, the two prices, `timeout_seconds`, `request_settings`; **never** the key.
-- `GET /api/models/{id}/key` (Gateway only) → `{api_key}`; 404 when the entry has no key. Not audited per read; logged without the value.
-- `PUT /api/models/{id}/health` (Gateway only) body `{health: ok|down|unknown}` → 200; no audit row.
+- `GET /api/models/{id}/key` (Gateway only, port 8081 only) → `{api_key}`; 404 when the entry has no key. Not audited per read; logged without the value. `GET /api/models` (Gateway registry) also moves to port 8081 only.
 - Existing grant routes are used by the Admin Console for "who may use this tier" (`subject_type` `everyone` or a `user_id`).
 
 ## 7. Parallel Parts
@@ -134,7 +132,7 @@ install/64-model-gateway-setup.sh                (database role Secrets, databas
 install/65-model-gateway-deploy.sh               (<12-character tag>; image check as 61; apply; wait for the new revision and migrations; DONE)
 ```
 Checks: `uv run ruff check`, `uv run ruff format --check`, `uv run pytest` in `services/model-gateway` (database tests included once 64 has run); `uv run --project contracts/check pytest`; `bash -n` + `shellcheck` on its scripts; `kubeconform -strict` on its manifests.
-Tests must cover: each adapter's request and streamed answer (respx fakes), tools in and tool calls out per adapter, `request_settings` merge and null removal, main → backup before first output, no failover after first output, rate limit skip, budget skip, cost maths, `daily_budget` 0 = no limit, unsupported `api_type` skipped, wrong caller 403, the key never logged (a test captures logs), registry and key caching, health reported only on change, append-only `usage` (database test as owner and as app role, rolled back).
+Tests must cover: each adapter's request and streamed answer (respx fakes), tools in and tool calls out per adapter, `request_settings` merge and null removal, main → backup before first output, no failover after first output, rate limit skip, budget skip, cost maths, `daily_budget` 0 = no limit, unsupported `api_type` skipped, wrong caller 403, the key never logged (a test captures logs), registry and key caching, append-only `usage` (database test as owner and as app role, rolled back).
 
 ### Part B — Harness API (branch `stage-2-part-b`, Codex B, tile 1)
 Files (only these):
@@ -179,11 +177,15 @@ contracts/examples/index.control-centre.json     (new Control Centre examples on
 apps/admin-console/**
 .github/workflows/admin-console-image.yml
 deploy/apps/admin-console/*.yaml                 (Deployment named admin-console, label app: admin-console, Service admin-console:8080, ConfigMap admin-console-config; the existing admin Ingress already sends / to it)
-deploy/apps/control-centre/deployment.yaml       (CC_KEY_ENCRYPTION_KEY from Secret control-centre-keys key encryption-key)
+deploy/apps/control-centre/deployment.yaml       (CC_KEY_ENCRYPTION_KEY from Secret control-centre-keys key encryption-key; container port 8081 named internal)
+deploy/apps/control-centre/service.yaml          (adds port internal 8081; the Ingress keeps 8080)
+contracts/identity.md                            (section 15)
+install/61-control-centre-deploy.sh              (section 15)
+install/62-check-control-centre.sh               (section 15)
 install/63-control-centre-keys.sh                (creates Secret control-centre-keys with 32 random bytes, only if missing; never prints; DONE)
 install/69-admin-console-deploy.sh               (image check, apply, wait, delete the leftover placeholder ConfigMap admin-console)
 ```
-Control Centre: section 5 and section 6 additions; the app refuses to start without a valid `CC_KEY_ENCRYPTION_KEY` (32 bytes, base64) with a clear log line; a wrong key never leaks in errors. Tests: encryption round trip, tamper detected, key never in any admin response, audit detail or log; the Gateway-only routes refuse admins and the Harness; health update writes no audit row; the new fields' validation; old rows without key still listed.
+Control Centre: section 5 and section 6 additions; the app refuses to start without a valid `CC_KEY_ENCRYPTION_KEY` (32 bytes, base64) with a clear log line; a wrong key never leaks in errors. Tests: encryption round trip, tamper detected, key never in any admin response, audit detail or log; the Gateway-only routes refuse admins and the Harness and answer 404 on port 8080; the new fields' validation; old rows without key still listed.
 Admin Console: sign-in page (as the Workspace, client `ooh-admin-console`); a signed-in person without realm role `ooh-admin` sees "This console is for administrators." and a sign-out button; Models & tiers screen (AdminModels screen): cards per purpose and tier, the table (purpose · tier, main, backup, where, rate limit, cost-today shown as "—" in Stage 2), "Add model" and "Edit" open the form with the approved fields (name = `title`, purpose, tier for chat only, role, where it runs, connection type with the three options and one help line each with the example endpoints of section 6, endpoint, model ID, API key "Saved · type to replace" — never pre-filled, rate limit per user, daily budget USD with help "0 = no limit", input and output price per million tokens USD, time limit seconds, extra request settings as JSON with validation); "Switch off" removes the entry (asks to confirm); per chat tier a "Who may use this tier" row: "Everyone" toggle (grant/remove an `everyone` grant) and an "Add person by user ID" field (a user grant). No "Test connection" button in Stage 2 (Stage 3). Other nav items are not shown in Stage 2.
 Checks: `dotnet format --verify-no-changes`, `dotnet build -warnaserror`, `dotnet test` (database tests included), `dotnet ef migrations has-pending-model-changes`; `npx ng build`, `npx ng test`; contract check; scripts and manifests as the others.
 
@@ -196,7 +198,7 @@ Codex makes branch `stage-2` from `stage-2-base` in a new worktree `~/projects/w
 |---|---|
 | Ports | every service and app container listens on 8080; probes: readiness `GET /health` (services) or `GET /` (apps); liveness TCP 8080 |
 | Images | `ghcr.io/frozenfussion/ooh-<model-gateway, harness-api, workspace, admin-console>:<first 12 characters of the commit hash>`; init container args `["migrate"]` for the two Python services |
-| Gateway environment | `GW_DB_CONNECTION` (Secret `model-gateway-db` key `connection`), `GW_DB_MIGRATE_CONNECTION` (same Secret, key `migrate-connection`, init container only), `GW_OIDC_ISSUER` `https://auth.${DOMAIN}/realms/ooh`, `GW_OIDC_AUDIENCE` `ooh-model-gateway`, `GW_CLIENT_ID` `ooh-model-gateway`, `GW_CLIENT_SECRET` (Secret `model-gateway-oidc` key `client-secret`), `GW_CONTROL_CENTRE_URL` `http://control-centre.${APPS_NAMESPACE}.svc:8080` |
+| Gateway environment | `GW_DB_CONNECTION` (Secret `model-gateway-db` key `connection`), `GW_DB_MIGRATE_CONNECTION` (same Secret, key `migrate-connection`, init container only), `GW_OIDC_ISSUER` `https://auth.${DOMAIN}/realms/ooh`, `GW_OIDC_AUDIENCE` `ooh-model-gateway`, `GW_CLIENT_ID` `ooh-model-gateway`, `GW_CLIENT_SECRET` (Secret `model-gateway-oidc` key `client-secret`), `GW_CONTROL_CENTRE_URL` `http://control-centre.${APPS_NAMESPACE}.svc:8081` |
 | Harness environment | `HA_DB_CONNECTION`, `HA_DB_MIGRATE_CONNECTION` (Secret `harness-api-db`), `HA_OIDC_ISSUER`, `HA_OIDC_AUDIENCE` `ooh-harness-api`, `HA_CLIENT_ID` `ooh-harness-api`, `HA_CLIENT_SECRET` (Secret `harness-api-oidc` key `client-secret`), `HA_CONTROL_CENTRE_URL`, `HA_GATEWAY_URL` `http://model-gateway.${APPS_NAMESPACE}.svc:8080` |
 | Control Centre environment (new) | `CC_KEY_ENCRYPTION_KEY` (Secret `control-centre-keys` key `encryption-key`) |
 | Test settings files (accepted exception, test databases only, mode 600) | `~/.config/ooh/model-gateway-test.env` (`GW_TEST_DB_MIGRATE_CONNECTION`, `GW_TEST_DB_CONNECTION`), `~/.config/ooh/harness-api-test.env` (`HA_TEST_DB_MIGRATE_CONNECTION`, `HA_TEST_DB_CONNECTION`) |
@@ -248,7 +250,8 @@ Skill jobs on Kafka and the Slides worker, uploads, files and job events, the st
 
 | # | Change | Who / when |
 |---|---|---|
-| 1 | Spec review by Claude Code before the builders started (38 findings, `reviews/stage-2-spec-review` in the course folder): every finding is resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 10 Nov 14:05 |
+| 1 | Spec review by Claude Code before the builders started (38 findings, `reviews/stage-2-spec-review` in the course folder): every finding is resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 10 Nov 14:00 |
+| 2 | Spec re-review (37 of 38 fixed, 8 new small findings, `reviews/stage-2-spec-rereview`): the earlier sections edited in place to agree with section 15; section 15 gains "Re-review additions" | Spec author, 10 Nov 14:07 |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees)
 
@@ -326,3 +329,12 @@ A failure after the stream started is a `failed` event with the same codes and t
 - The reason we need OpenAI Responses: OpenAI's newest models need it for tool calls; chat completions stays for every other OpenAI-compatible service. Neither type is forced on all OpenAI models: the admin picks per entry.
 
 **Kept simple.** The key cache is 60 s, with no retry rule. Health reporting from the Gateway moves to Stage 3 with Test connection: no health route, no health state in Stage 2 (the `health` field keeps its value). The budget fallback stays (Aziz's approved form). `request_settings` must be a JSON object (the Admin Console and the Control Centre both refuse anything else).
+
+**Re-review additions.**
+- `70` (and the tier-99 calls in `62`) use a new `stage-check-<uuid>` per call, so the check never hits its own rate limit; an entry skipped for its budget prints `FAIL <entry title>: over its daily budget today`.
+- A pinned `model_entry_id` must be one of the active entries of the given purpose and tier, else 404 `no_model`; rate limit and budget still apply to a pinned call.
+- A user message is stored with outcome `completed`. The history window is read **before** the new user message is stored, then the new message is appended once.
+- With the unique index gone, Part D removes the duplicate-entry 409 for model entries from the contract, its example and its test, and drops the matching unique `HasIndex` in the EF model (`has-pending-model-changes` must say no changes).
+- The Admin Console builds its tier cards and "Who may use this tier" rows from **active chat model entries**, never from rights (so the Stage 1 check's tier 99 never shows).
+- GitHub packages: Claude opens each package's settings page (`https://github.com/users/frozenfussion/packages/container/<name>/settings`) in a new tab of Aziz's built-in browser on his PC; Aziz clicks Change visibility → Public.
+- Every `kubectl port-forward` in `62` and `70` is started by the script on a fixed local port (`62`: 18081; `70`: 18080 for the Gateway, 18081 for the Control Centre), stopped by a trap on exit, and a busy port is `STOP: local port <n> is busy; stop the old port-forward (pkill -f "port-forward.*<n>") and re-run`.
