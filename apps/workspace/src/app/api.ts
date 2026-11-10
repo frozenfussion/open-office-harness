@@ -36,7 +36,7 @@ export class Api {
     return (await this.request('/conversations?limit=50' + (before ? '&before=' + encodeURIComponent(before) : ''))).json();
   }
   async create(): Promise<{ id: string }> {
-    return (await this.request('/conversations', { method: 'POST' })).json();
+    return (await this.request('/conversations', { method: 'POST', body: '{}' })).json();
   }
   async conversation(id: string): Promise<{id: string; title: string; messages: Message[]}> {
     return (await this.request('/conversations/' + encodeURIComponent(id))).json();

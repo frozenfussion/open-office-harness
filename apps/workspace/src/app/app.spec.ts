@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App, metaLine } from './app';
 import { Api, ApiError } from './api';
 import { readStream, SseParser } from './sse';
-import { readConfig } from './config';
+import { CONFIG, readConfig } from './config';
 import { appConfig } from './app.config';
 
 describe('Workspace', () => {
@@ -77,6 +77,20 @@ describe('Workspace', () => {
     finish(); await sending; view.detectChanges();
     expect(view.nativeElement.querySelector('.ooh-cursor')).toBeNull();
     expect(view.nativeElement.querySelector('.ooh-msg__meta').textContent).toContain('tier 1 · Test entry · 2 in / 4 out tokens');
+  });
+  it('creates a conversation with the required empty JSON body', async () => {
+    const fetchRequest = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({id: 'test-conversation'}), {
+      status: 201, headers: {'Content-Type': 'application/json'},
+    }));
+    TestBed.configureTestingModule({providers: [
+      {provide: CONFIG, useValue: {apiBase: '/api'}},
+      {provide: OidcSecurityService, useValue: {getAccessToken: () => of('test-token')}},
+    ]});
+    expect(await TestBed.inject(Api).create()).toEqual({id: 'test-conversation'});
+    expect(fetchRequest).toHaveBeenCalledExactlyOnceWith('/api/conversations', {
+      method: 'POST', body: '{}', cache: 'no-store',
+      headers: {Authorization: 'Bearer test-token', 'Content-Type': 'application/json'},
+    });
   });
   it('constructs the real OIDC client with the application providers', () => {
     TestBed.configureTestingModule(appConfig({issuer: 'https://identity.invalid/realms/test', clientId: 'ooh-workspace', apiBase: '/api'}));

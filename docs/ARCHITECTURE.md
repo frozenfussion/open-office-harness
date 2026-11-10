@@ -13,9 +13,9 @@ database rather than shared tables.
 |---|---|---|
 | Workspace (Angular 22) | Sign-in, allowed tiers, conversations and streamed chat; uploads and approvals later | Contact Kafka, models or the Control Centre database |
 | Admin Console (Angular 22) | Models & tiers, encrypted key entry and tier grants; other screens later | Contact the Harness directly |
-| Control Centre (.NET 10 modular monolith) | Deterministic rights, model and skill registries, approval rules, its own append-only change log and audit query | Call AI models |
+| Control Centre (.NET 10 modular monolith) | Deterministic rights, model and skill registries, encrypted provider keys, approval rules, its own append-only change log and audit query | Call AI models |
 | Harness API (Python 3.14) | Conversations, last 20 completed messages, rights checks, allowed tools and streaming; classifier later | Decide rights or store secrets |
-| Model Gateway (Python 3.14) | Purpose/tier routing, credentials, rate limits, cost and failover | Know who the user is beyond user_id for cost |
+| Model Gateway (Python 3.14) | Purpose/tier routing, rate limits, cost and failover; uses per-call keys read from the Control Centre, which holds them encrypted | Know who the user is beyond user_id for cost |
 | Skill workers (Python 3.14) | One skill each; requests, files and results | Check rights after a job is published |
 | Audit writer | Append-only audit store | Change upstream business state or publish jobs |
 | Safety watcher | Read events and raise approval flags | Publish skill jobs or grant rights |
@@ -120,7 +120,7 @@ its /api share admin.faysalaziz.com; Keycloak uses auth.faysalaziz.com. Gateway,
 Kafka and PostgreSQL have no public hostname.
 
 Stage 6 moves to AWS EKS with the same manifests and different values, and S3
-storage. AWS infrastructure uses Terraform; Aziz performs deployments. Secrets
+storage. AWS infrastructure uses Terraform; Aziz performs Stage 6 deployments. Secrets
 are Kubernetes Secrets created by setup scripts, never repository values.
 Admins type provider keys once in the Admin Console. The Control Centre stores
 them encrypted with AES-256-GCM using a Kubernetes encryption-key Secret and the

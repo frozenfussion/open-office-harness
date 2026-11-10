@@ -16,7 +16,7 @@ export function appConfig(config: Config): ApplicationConfig {
       redirectUrl: window.location.origin + '/',
       postLogoutRedirectUri: window.location.origin + '/',
       responseType: 'code',
-      scope: 'openid profile offline_access',
+      scope: 'openid profile',
       silentRenew: true,
       useRefreshToken: true,
       logLevel: LogLevel.None,

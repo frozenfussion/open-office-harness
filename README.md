@@ -174,8 +174,10 @@ The existing Control Centre test database is reused.
 
 ## Stage 1 — Control Centre
 
-Only Aziz runs the deployment and live-check scripts. Use the Shell tile, plain
-shell, for every command below. None of these scripts asks for a password.
+From Stage 2, Claude runs deployment and live-check scripts that need no sudo
+in the Shell tile while Aziz watches. Aziz runs every sudo command himself.
+Use the Shell tile, plain shell, for every command below. None of these scripts
+asks for a password.
 After acceptance, everyday work uses `~/projects/open-office-harness` on `main`.
 During the build and testing, use the folder shown for your phase below. Pushing
 the merged `stage-1` branch builds the image with its exact 12-character commit tag.
