@@ -60,7 +60,7 @@
    kubectl -n ooh-apps logs deployment/harness-api -c harness-api --tail=100
    ```
 
-   Logs identify failures with fixed event names and codes (and a tier for stream failures or budget fallback). They contain no prompts, answers, user IDs or credentials. Access logs are disabled.
+   Logs identify API failures with fixed event names and codes (and a tier for stream failures or budget fallback). Server log lines keep the logger name, a fixed message category and the exception type when available; exception messages and traceback text are excluded. They contain no prompts, answers, user IDs or credentials. Access logs are disabled.
 
 6. **Read migration logs if deployment stops.**
 
