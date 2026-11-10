@@ -5,6 +5,7 @@
    ```bash
    cd "$(git rev-parse --show-toplevel)/services/control-centre"
    dotnet build -warnaserror
+   dotnet build-server shutdown
    ```
 
 2. **Run the tests.** Type this in your harness terminal, in the plain shell. No password is needed. Start in your worktree's `services/control-centre` folder. This runs the real HTTP routes in memory with signed test tokens and fake Kafka. Good result: all tests pass. If the database settings file is absent, only the database tests are skipped; Part A is ready only after those pass too.
@@ -12,6 +13,7 @@
    ```bash
    cd "$(git rev-parse --show-toplevel)/services/control-centre"
    dotnet test
+   dotnet build-server shutdown
    ```
 
    Aziz makes the test database by following Part B's README step for `install/59-control-centre-databases.sh`. That writes `~/.config/ooh/control-centre-test.env` with mode 600. Tests read it without printing it, migrate as `controlcentre_test`, then run as `controlcentre_test_app`. Only the owner-trigger checks use the owner. Tests never use the live database and never erase data. Each uses unique records or rolls a transaction back.
@@ -21,6 +23,7 @@
    ```bash
    cd "$(git rev-parse --show-toplevel)/services/control-centre"
    dotnet format --verify-no-changes
+   dotnet build-server shutdown
    ```
 
 4. **Run the contract checks.** Type this in your harness terminal, in the plain shell. No password is needed. Start in your worktree's root folder. This checks the schemas and every HTTP example. Good result: all tests pass.
@@ -36,9 +39,11 @@
    cd "$(git rev-parse --show-toplevel)/services/control-centre"
    (
      set -euo pipefail
+     trap 'dotnet build-server shutdown' EXIT
      . "$HOME/.config/ooh/control-centre-test.env"
      export CC_DB_MIGRATE_CONNECTION="$CC_TEST_DB_MIGRATE_CONNECTION"
      dotnet run --project ControlCentre -- migrate
+     dotnet build-server shutdown
    )
    ```
 
@@ -106,10 +111,12 @@ changes. This command does not apply a migration or change the cluster.
 cd ~/projects/worktrees/stage-2-part-d/services/control-centre
 (
   set -euo pipefail
+  trap 'dotnet build-server shutdown' EXIT
   dotnet tool restore
   . "$HOME/.config/ooh/control-centre-test.env"
   export CC_DB_MIGRATE_CONNECTION="$CC_TEST_DB_MIGRATE_CONNECTION"
   dotnet ef migrations has-pending-model-changes --project ControlCentre
+  dotnet build-server shutdown
 )
 ```
 
@@ -136,3 +143,7 @@ deploy script and retype all saved provider keys in the Admin Console.
 A wrong encryption key returns a generic key-unavailable error without the key
 or ciphertext. The app cannot recognize a wrong-but-valid 32-byte key at startup;
 it detects authentication failure when a saved provider key is read.
+
+Builder check sessions end with `dotnet build-server shutdown` so automatic MSBuild and compiler daemons do not remain running.
+
+The follow-up `EnforceModelSettings` migration enforces priority 1–1000, timeout 10–900 and object-shaped request settings in PostgreSQL. It keeps the previously tested model-field migration unchanged. Invalid encryption settings produce one JSON error line and a non-zero exit before the application binds a port.

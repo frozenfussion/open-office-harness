@@ -2,7 +2,7 @@
 import { Component, DestroyRef, ElementRef, afterNextRender, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, of, switchMap } from 'rxjs';
 import { Grant, ModelEntry, modelPayload, tierRows } from './models';
 
 export interface AppConfig { issuer: string; clientId: string; apiBase: string; }
@@ -26,9 +26,12 @@ export class App {
       const canvas = this.element.nativeElement.querySelector('canvas');
       if (canvas) { const rain = window.OpenOfficeHarness?.WordRain.mount(canvas); this.destroy.onDestroy(() => rain?.stop()); }
     });
-    this.auth.checkAuth().subscribe({ next: result => {
+    this.auth.checkAuth().pipe(switchMap(result => {
       this.signedIn.set(result.isAuthenticated);
-      this.admin.set(result.userData?.realm_access?.roles?.includes('ooh-admin') === true);
+      return result.isAuthenticated ? this.auth.getPayloadFromAccessToken() : of(null);
+    })).subscribe({ next: payload => {
+      const roles: unknown = payload?.realm_access?.roles;
+      this.admin.set(Array.isArray(roles) && roles.includes('ooh-admin'));
       this.ready.set(true);
       if (this.admin()) void this.load();
     }, error: () => { this.ready.set(true); this.error.set('Sign-in could not finish. Try signing in again.'); } });

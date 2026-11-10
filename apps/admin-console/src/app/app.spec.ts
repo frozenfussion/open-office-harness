@@ -24,13 +24,26 @@ describe('Model settings and rights', () => {
   });
 });
 describe('Admin console', () => {
-  async function create(admin: boolean, authenticated = true) {
-    const auth = { checkAuth: () => of({ isAuthenticated: authenticated, userData: { realm_access: { roles: admin ? ['ooh-admin'] : [] } } }), authorize: vi.fn(), logoff: () => of({}), getAccessToken: () => of('synthetic-token') };
+  async function create(admin: boolean, authenticated = true, userData: object = {}) {
+    const auth = { checkAuth: () => of({ isAuthenticated: authenticated, userData }), authorize: vi.fn(), logoff: () => of({}), getAccessToken: () => of('synthetic-token'), getPayloadFromAccessToken: vi.fn(() => of({ realm_access: { roles: admin ? ['ooh-admin'] : ['ooh-user'] } })) };
     window.oohConfig = { apiBase: '/api', issuer: 'https://issuer.invalid', clientId: 'ooh-admin-console' };
     vi.spyOn(App.prototype, 'load').mockResolvedValue();
     await TestBed.configureTestingModule({ imports: [App], providers: [{ provide: OidcSecurityService, useValue: auth }] }).compileComponents();
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); return { fixture, auth };
   }
+  it('opens the console for an access-token administrator without userinfo roles', async () => {
+    const { fixture, auth } = await create(true);
+    expect(auth.getPayloadFromAccessToken).toHaveBeenCalled();
+    expect(fixture.componentInstance.admin()).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain('Add model');
+    expect(fixture.nativeElement.textContent).not.toContain('This console is for administrators.');
+    expect(App.prototype.load).toHaveBeenCalled();
+  });
+  it('ignores administrator roles in userinfo when the access token has none', async () => {
+    const { fixture } = await create(false, true, { realm_access: { roles: ['ooh-admin'] } });
+    expect(fixture.componentInstance.admin()).toBe(false);
+    expect(App.prototype.load).not.toHaveBeenCalled();
+  });
   it('shows the administrator refusal and sign-out', async () => {
     const { fixture } = await create(false);
     expect(fixture.nativeElement.textContent).toContain('This console is for administrators.');

@@ -10,7 +10,7 @@ async function start(): Promise<void> {
   const config = window.oohConfig;
   await bootstrapApplication(App, { providers: [provideHttpClient(), provideAuth({ config: {
     authority: config.issuer, clientId: config.clientId, redirectUrl: window.location.origin,
-    postLogoutRedirectUri: window.location.origin, responseType: 'code', scope: 'openid profile email offline_access',
+    postLogoutRedirectUri: window.location.origin, responseType: 'code', scope: 'openid profile email',
     silentRenew: true, useRefreshToken: true, renewTimeBeforeTokenExpiresInSeconds: 30
   } })] });
 }

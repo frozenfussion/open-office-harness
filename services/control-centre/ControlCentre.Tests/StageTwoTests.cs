@@ -45,7 +45,7 @@ public sealed class StageTwoTests
     using var host = new Host();
     foreach (var role in new[] { "admin", "harness", "gateway" })
     {
-      using var client = host.Client(role);
+      using var client = host.Client(role, port: 8081);
       Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("http://localhost:8080" + path, TestContext.Current.CancellationToken)).StatusCode);
       if (role != "gateway") Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync(path, TestContext.Current.CancellationToken)).StatusCode);
     }
@@ -73,7 +73,7 @@ public sealed class StageTwoTests
   public async Task KeysNeverInViewsOrAuditAndFollowTheirAddress()
   {
     await using (var owner = Database(true)) await owner.Database.MigrateAsync();
-    using var host = new Host(true); using var admin = host.Client(); using var gateway = host.Client("gateway");
+    using var host = new Host(true); using var admin = host.Client(); using var gateway = host.Client("gateway", port: 8081);
     var input = Input(); var key = "synthetic-key-" + Guid.NewGuid(); input["api_key"] = key;
     var response = await admin.PostAsJsonAsync("/api/admin/models", input);
     Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -130,6 +130,40 @@ public sealed class StageTwoTests
       Assert.Equal(120, result["timeout_seconds"]!.GetValue<int>());
       Assert.Equal(100, result["priority"]!.GetValue<int>());
     }
+  }
+  [DatabaseFact]
+  public async Task DatabaseEnforcesModelRangesForOwnerAndApplication()
+  {
+    await using (var owner = Database(true)) await owner.Database.MigrateAsync();
+    foreach (var owner in new[] { false, true })
+      foreach (var invalid in new[] { "priority-low", "priority-high", "timeout-low", "timeout-high", "settings-array", "settings-null", "settings-scalar" })
+      {
+        await using var db = Database(owner);
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        var row = new ModelEntry { Purpose = "synthetic-constraint", Role = "main", Location = "cloud", ApiType = "synthetic", EndpointUrl = "https://synthetic.invalid", ModelId = "synthetic", RateLimitPerMinute = 1 };
+        db.Models.Add(row);
+        await db.SaveChangesAsync();
+        switch (invalid)
+        {
+          case "priority-low": row.Priority = 0; break;
+          case "priority-high": row.Priority = 1001; break;
+          case "timeout-low": row.TimeoutSeconds = 9; break;
+          case "timeout-high": row.TimeoutSeconds = 901; break;
+          case "settings-array": row.RequestSettings = "[]"; break;
+          case "settings-null": row.RequestSettings = "null"; break;
+          case "settings-scalar": row.RequestSettings = "42"; break;
+        }
+        // Direct SQL must exercise zero values rather than EF's generated default sentinel.
+        var postgres = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => invalid.StartsWith("priority", StringComparison.Ordinal)
+          ? db.Database.ExecuteSqlInterpolatedAsync($"UPDATE model_entries SET priority = {row.Priority} WHERE id = {row.Id}")
+          : invalid.StartsWith("timeout", StringComparison.Ordinal)
+            ? db.Database.ExecuteSqlInterpolatedAsync($"UPDATE model_entries SET timeout_seconds = {row.TimeoutSeconds} WHERE id = {row.Id}")
+            : db.Database.ExecuteSqlInterpolatedAsync($"UPDATE model_entries SET request_settings = CAST({row.RequestSettings} AS jsonb) WHERE id = {row.Id}"));
+        Assert.Equal("23514", postgres.SqlState);
+        var field = invalid.StartsWith("priority", StringComparison.Ordinal) ? "priority" : invalid.StartsWith("timeout", StringComparison.Ordinal) ? "timeout_seconds" : "request_settings";
+        Assert.Equal("model_entries_" + field + "_check", postgres.ConstraintName);
+        await transaction.RollbackAsync();
+      }
   }
   [DatabaseFact]
   public async Task AdminModelsCursorPreservesExistingOrder()

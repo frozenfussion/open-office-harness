@@ -46,7 +46,7 @@ public sealed class DatabaseTests
   {
     await Migrate();
     using var host = new Host(true);
-    using var admin = host.Client(); using var harness = host.Client("harness"); using var gateway = host.Client("gateway");
+    using var admin = host.Client(); using var harness = host.Client("harness"); using var gateway = host.Client("gateway", port: 8081);
     var user = "test-" + Guid.NewGuid();
     var tier = Random.Shared.Next(100000, int.MaxValue);
     Assert.Equal(HttpStatusCode.OK, (await host.CreateClient().GetAsync("/health")).StatusCode);
@@ -55,7 +55,7 @@ public sealed class DatabaseTests
     await Object(await admin.GetAsync("/api/admin/models/" + modelId));
     Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/api/admin/models", Model(tier))).StatusCode);
     Assert.NotEmpty((await gateway.GetFromJsonAsync<JsonArray>($"/api/models?purpose=chat&tier={tier}"))!);
-    Assert.Equal(HttpStatusCode.Forbidden, (await harness.GetAsync("/api/models?purpose=classification")).StatusCode);
+    Assert.Equal(HttpStatusCode.Forbidden, (await harness.GetAsync("http://localhost:8081/api/models?purpose=classification")).StatusCode);
     var changed = Model(tier); changed["daily_budget"] = 1;
     await Object(await admin.PutAsJsonAsync("/api/admin/models/" + modelId, changed));
     var right = "chat.tier." + tier;

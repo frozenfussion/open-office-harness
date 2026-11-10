@@ -96,10 +96,10 @@ public sealed class Host : WebApplicationFactory<Program>
           });
     });
   }
-  public HttpClient Client(string role = "admin", string? subject = null, string audience = "ooh-control-centre", bool expired = false, bool wrongSignature = false, string email = "synthetic-user@test.invalid", string name = "Synthetic User")
+  public HttpClient Client(string role = "admin", string? subject = null, string audience = "ooh-control-centre", bool expired = false, bool wrongSignature = false, string email = "synthetic-user@test.invalid", string name = "Synthetic User", int port = 8080)
   {
     var client = CreateClient();
-    client.BaseAddress = new Uri("http://localhost:8081");
+    client.BaseAddress = new Uri($"http://localhost:{port}");
     var claims = new List<Claim> { new("sub", subject ?? "test-" + Guid.NewGuid()), new("azp", role switch { "harness" => "ooh-harness-api", "gateway" => "ooh-model-gateway", "self" => "ooh-admin-console", _ => "ooh-control-centre" }) };
     if (role == "self")
     {

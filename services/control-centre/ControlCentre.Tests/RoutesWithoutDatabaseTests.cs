@@ -24,7 +24,6 @@ public sealed class RoutesWithoutDatabaseTests
   {
     using var host = new Host();
     using var anonymous = host.CreateClient();
-    anonymous.BaseAddress = new Uri("http://localhost:8081");
     using var wrongAudience = host.Client(audience: "other-api");
     using var expired = host.Client(expired: true);
     using var wrongSignature = host.Client(wrongSignature: true);
@@ -84,7 +83,7 @@ public sealed class RoutesWithoutDatabaseTests
   public async Task InvalidQueries(string path)
   {
     using var host = new Host(); using var client = host.Client(path.StartsWith("/api/models", StringComparison.Ordinal) ? "gateway" : "admin");
-    Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync(path, TestContext.Current.CancellationToken)).StatusCode);
+    Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync(path.StartsWith("/api/models", StringComparison.Ordinal) ? "http://localhost:8081" + path : path, TestContext.Current.CancellationToken)).StatusCode);
   }
   [Fact]
   public async Task InternalRightsFailureReturnsUnavailable()
@@ -156,5 +155,5 @@ public sealed class RoutesWithoutDatabaseTests
     { ["action"] = "stage.check", ["details"] = new JsonObject(), ["risk"] = "low", ["requested_by"] = "synthetic-requester" }
   };
   public static Task<HttpResponseMessage> Send(HttpClient client, string method, string path, string body = "{}") =>
-      client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
+      client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path.StartsWith("/api/models", StringComparison.Ordinal) ? "http://localhost:8081" + path : path) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
 }

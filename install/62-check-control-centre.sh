@@ -284,8 +284,6 @@ fi'
   fi
   kubectl -n "$PLATFORM_NAMESPACE" delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null || rc=1
   check_pod=''
-forward_pid=''
-forward_dir=''
   [[ "$rc" == 0 ]] || return 1
   printf '%s' "$output"
 )

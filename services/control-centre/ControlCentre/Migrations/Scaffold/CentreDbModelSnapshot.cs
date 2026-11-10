@@ -362,9 +362,15 @@ namespace ControlCentre.Migrations.Scaffold
 
                             t.HasCheckConstraint("model_entries_location_check", "location IN ('on_prem','cloud')");
 
+                            t.HasCheckConstraint("model_entries_priority_check", "priority BETWEEN 1 AND 1000");
+
                             t.HasCheckConstraint("model_entries_rate_limit_per_minute_check", "rate_limit_per_minute > 0");
 
+                            t.HasCheckConstraint("model_entries_request_settings_check", "jsonb_typeof(request_settings) = 'object'");
+
                             t.HasCheckConstraint("model_entries_role_check", "role IN ('main','backup')");
+
+                            t.HasCheckConstraint("model_entries_timeout_seconds_check", "timeout_seconds BETWEEN 10 AND 900");
                         });
                 });
 

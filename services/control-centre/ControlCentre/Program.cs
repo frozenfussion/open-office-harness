@@ -31,7 +31,13 @@ if (migrate)
   await scope.ServiceProvider.GetRequiredService<CentreDb>().Database.MigrateAsync();
   return;
 }
-builder.Services.AddSingleton(new ModelKeys(Environment.GetEnvironmentVariable("CC_KEY_ENCRYPTION_KEY")));
+try { builder.Services.AddSingleton(new ModelKeys(Environment.GetEnvironmentVariable("CC_KEY_ENCRYPTION_KEY"))); }
+catch (InvalidOperationException)
+{
+  Console.WriteLine(JsonSerializer.Serialize(new { level = "error", message = "CC_KEY_ENCRYPTION_KEY must contain 32 bytes encoded as base64" }));
+  Environment.ExitCode = 1;
+  return;
+}
 if (string.IsNullOrEmpty(builder.Configuration["HTTP_PORTS"]) && string.IsNullOrEmpty(builder.Configuration["URLS"]))
   builder.Configuration["HTTP_PORTS"] = "8080;8081";
 builder.Services.ConfigureHttpJsonOptions(o =>
