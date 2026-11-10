@@ -6,10 +6,11 @@
     <app-rain />
     <section class="sign-in-card">
       <span class="ooh-label brand">Open Office Harness</span>
-      <h1>Good morning.</h1>
+      <h1>{{ greeting() }}</h1>
       <p>Sign in to your workspace to chat.</p>
       @if (notice()) { <p class="notice" role="alert">{{ notice() }}</p> }
       <button class="ooh-btn ooh-btn--primary" (click)="signIn()">Sign in with company account</button>
+      <button class="ooh-btn ooh-btn--secondary" (click)="requestAccess()">Request access</button>
       <span class="ooh-help">Your company account keeps your conversations private.</span>
     </section>
   </main>
@@ -63,7 +64,7 @@
         }
         @for (message of messages(); track message) {
           <article class="ooh-msg" [class.ooh-msg--user]="message.role === 'user'" [class.ooh-msg--assistant]="message.role === 'assistant'">
-            <app-message-content [content]="message.content" [role]="message.role" [createdAt]="message.created_at"
+            <app-message-content [content]="message.content" [thinking]="message.thinking ?? null" [role]="message.role" [createdAt]="message.created_at"
               [streaming]="streaming() && $last && message.role === 'assistant'" (rendered)="scrollMessages()" />
             @if (message.role === 'assistant') {
               <div class="ooh-msg__meta">{{ metaLine(message) }}@if (message.outcome === 'failed') { · Answer interrupted }</div>

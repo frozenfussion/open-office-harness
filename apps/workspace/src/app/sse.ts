@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 export interface Usage { input_tokens: number; output_tokens: number }
 export type ChatEvent =
+  | { type: 'thinking'; text: string }
   | { type: 'delta'; text: string }
   | { type: 'completed'; message_id: string; tier: number; model_title: string; usage: Usage; note: string | null; thinking_applied: boolean }
   | { type: 'title'; conversation_id: string; title: string }
@@ -29,7 +30,7 @@ export class SseParser {
       if (this.data.length) {
         const value = JSON.parse(this.data.join('\n')) as ChatEvent;
         this.data = [];
-        if (value.type !== 'delta' && value.type !== 'completed' && value.type !== 'failed' && value.type !== 'title') {
+        if (value.type !== 'delta' && value.type !== 'completed' && value.type !== 'failed' && value.type !== 'title' && value.type !== 'thinking') {
           throw new Error('Unexpected stream event');
         }
         this.receive(value);

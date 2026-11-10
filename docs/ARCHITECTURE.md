@@ -111,7 +111,9 @@ small panel using requestable_tiers from the Harness. Requests go through the
 Harness as the verified person; the Control Centre enforces approved access,
 excludes granted tiers and tier 99, prevents duplicate pending requests, caps
 pending requests at 20 and enforces seven days after rejection before retry.
-Reasons are plain text and never logged. It sends a question to its own Harness API. The Harness
+The sign-in card offers Request access through its configured OIDC client with
+prompt=create, opening Keycloak registration with the same code + PKCE flow.
+Its greeting uses the browser's local hour. Reasons are plain text and never logged. It sends a question to its own Harness API. The Harness
 checks the conversation owner and asks the Control Centre for `chat.tier` with
 the selected tier. Missing policy fails closed. A refused tier is a 403 with a
 plain message; it is not sent to a model. The browser reads the POST answer using fetch and SSE. User messages stay
@@ -124,7 +126,14 @@ HTML/MathML/SVG is sanitized separately. Code remains literal and incomplete
 maths stays text. CSS, fonts and licences ship locally. Every message shows
 browser-local date/time and a Copy button for original source; code blocks have
 a separate copy control. Stored timestamps survive reload, while new messages
-use send/completion times.
+use send/completion times. Optional provider thinking arrives in separate
+thinking events and is concatenated on the assistant message; the Harness
+stores it in its own database and includes it in conversation history, never
+in subsequent model context. Workspace displays it as plain text in a collapsed
+Thinking disclosure above the answer, with a live Thinking… label while the
+answer streams. Its own copy control copies thinking; the message copy remains
+answer-only. Thinking text is never logged or passed through the Markdown
+renderer.
 
 The Harness sends the last 20 completed, nonempty conversation messages,
 starting with a user message, then the new question. Part B's HA_SYSTEM_PROMPT

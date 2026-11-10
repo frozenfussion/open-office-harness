@@ -8,11 +8,15 @@ import { Rain } from './rain';
 import { MessageContent } from './message-content';
 import { ChatModels } from './chat-models';
 
+export function greeting(date = new Date()): string {
+  const hour = date.getHours();
+  return hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
+}
 export function metaLine(message: Message): string {
   if (!message.model_title || message.tier == null) return '';
   return `tier ${message.tier} · ${message.model_title} · ${message.input_tokens ?? 0} in / ${message.output_tokens ?? 0} out tokens` +
     (message.note ? ` · ${message.note}` : '') +
-    (message.thinking === false && message.thinking_applied === false ? ' · thinking off not supported by this model' : '');
+    (message.thinkingRequested === false && message.thinking_applied === false ? ' · thinking off not supported by this model' : '');
 }
 @Component({ selector: 'app-root', imports: [FormsModule, Rain, MessageContent, ChatModels], templateUrl: './app.html', styleUrl: './app.css' })
 export class App implements OnInit, OnDestroy {
@@ -40,6 +44,7 @@ export class App implements OnInit, OnDestroy {
   tier: number | null = null;
   draft = '';
   metaLine = metaLine;
+  greeting = greeting;
   constructor() {
     afterRenderEffect(() => {
       this.messages();
@@ -68,6 +73,7 @@ export class App implements OnInit, OnDestroy {
   }
   ngOnDestroy(): void { this.subscription.unsubscribe(); this.streams.forEach(stream => stream.abort()); }
   signIn(): void { this.auth.authorize(); }
+  requestAccess(): void { this.auth.authorize(undefined, {customParams: {prompt: 'create'}}); }
   signOut(): void { this.streams.forEach(stream => stream.abort()); this.auth.logoff().subscribe(); }
   async copyId(): Promise<void> {
     try { await navigator.clipboard.writeText(this.me()?.user_id || ''); this.copied.set(true); }
@@ -171,7 +177,7 @@ export class App implements OnInit, OnDestroy {
     };
     try {
       if (!id) { id = (await this.api.create()).id; this.setCurrent(id); this.title.set(content.slice(0, 60)); }
-      assistant = { role: 'assistant', content: '', created_at: sentAt, thinking };
+      assistant = { role: 'assistant', content: '', created_at: sentAt, thinkingRequested: thinking, thinking: null };
       this.messages.update(old => [...old, {role: 'user', content, created_at: sentAt}, assistant!]);
       this.draft = '';
       await this.api.send(id, content, tier, controller.signal, event => {
@@ -183,7 +189,8 @@ export class App implements OnInit, OnDestroy {
           return;
         }
         if (ended) throw new Error('Stream continued after completion');
-        if (event.type === 'delta') assistant!.content += event.text;
+        if (event.type === 'thinking') assistant!.thinking = (assistant!.thinking ?? '') + event.text;
+        else if (event.type === 'delta') assistant!.content += event.text;
         else if (event.type === 'completed') {
           Object.assign(assistant!, {created_at: new Date().toISOString(), id: event.message_id, tier: event.tier, model_title: event.model_title,
             input_tokens: event.usage.input_tokens, output_tokens: event.usage.output_tokens, note: event.note, thinking_applied: event.thinking_applied, outcome: 'completed'});
@@ -207,7 +214,7 @@ export class App implements OnInit, OnDestroy {
       if (assistant) {
         assistant.outcome = 'failed';
         assistant.created_at = new Date().toISOString();
-        this.messages.update(old => assistant!.content ? [...old] : old.filter(message => message !== assistant));
+        this.messages.update(old => assistant!.content || assistant!.thinking ? [...old] : old.filter(message => message !== assistant));
       }
       this.failure(error);
     } finally {
