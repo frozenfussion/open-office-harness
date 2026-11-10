@@ -1,0 +1,8 @@
+{
+  "type": "tool_call",
+  "id": "fake-call",
+  "name": "fake_tool",
+  "arguments": {
+    "x": 1
+  }
+}

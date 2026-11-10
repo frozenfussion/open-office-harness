@@ -28,6 +28,7 @@ spec:
       - https://harness.${DOMAIN}
       attributes:
         pkce.code.challenge.method: S256
+        post.logout.redirect.uris: "+"
       protocolMappers:
       - name: audience-ooh-harness-api
         protocol: openid-connect
@@ -48,6 +49,7 @@ spec:
       - https://admin.${DOMAIN}
       attributes:
         pkce.code.challenge.method: S256
+        post.logout.redirect.uris: "+"
         oauth2.device.authorization.grant.enabled: 'true'
       protocolMappers:
       - name: audience-ooh-control-centre

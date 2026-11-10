@@ -2,18 +2,20 @@
 
 ![Modules and synchronous/asynchronous flows](images/architecture-v0.2.png)
 
-Stage 0 defines boundaries and contracts. Product services arrive in later stages.
+Stage 2 implements direct streamed chat: the Workspace, Harness API and Model
+Gateway, plus Models & tiers in the Admin Console and the Control Centre registry.
+The skill workers and read-only consumers below arrive in Stage 3.
 The fixed stage specifications and global rules take precedence over the planning
 image: deployment uses plain Kubernetes manifests, and each service has its own
 database rather than shared tables.
 
 | Module | Owns | Never does |
 |---|---|---|
-| Workspace (Angular 22) | Chat, uploads, outputs, approval inbox | Contact Kafka, models or the Control Centre database |
-| Admin Console (Angular 22) | Rights, tiers, registry, skills, approvals and audit screens | Contact the Harness directly |
-| Control Centre (.NET 10 modular monolith) | Deterministic rights, model and skill registries, approval rules, its own append-only change log and audit query | Call AI models |
-| Harness API (Python 3.14) | Conversations, agent loop, context, classifier routing, allowed tools, streaming | Decide rights or store secrets |
-| Model Gateway (Python 3.14) | Purpose/tier routing, credentials, rate limits, cost and failover | Know who the user is beyond user_id for cost |
+| Workspace (Angular 22) | Sign-in, allowed tiers, conversations and streamed chat; uploads and approvals later | Contact Kafka, models or the Control Centre database |
+| Admin Console (Angular 22) | Models & tiers, encrypted key entry and tier grants; other screens later | Contact the Harness directly |
+| Control Centre (.NET 10 modular monolith) | Deterministic rights, model and skill registries, encrypted provider keys, approval rules, its own append-only change log and audit query | Call AI models |
+| Harness API (Python 3.14) | Conversations, last 20 completed messages, rights checks, allowed tools and streaming; classifier later | Decide rights or store secrets |
+| Model Gateway (Python 3.14) | Purpose/tier routing, rate limits, cost and failover; uses per-call keys read from the Control Centre, which holds them encrypted | Know who the user is beyond user_id for cost |
 | Skill workers (Python 3.14) | One skill each; requests, files and results | Check rights after a job is published |
 | Audit writer | Append-only audit store | Change upstream business state or publish jobs |
 | Safety watcher | Read events and raise approval flags | Publish skill jobs or grant rights |
@@ -50,21 +52,45 @@ database rather than shared tables.
 
 ## Flows
 
-**Normal skill:** Workspace sends a request to the Harness. The Harness asks the
+**Normal skill (Stage 3):** Workspace sends a request to the Harness. The Harness asks the
 classifier for suggestions, checks rights with the Control Centre, publishes to
 skill.requests.slides, and shows queued. The worker writes an output to storage
 and publishes skill.result. The Harness sends job.completed to the Workspace.
 
-**Approval:** before publishing a job, the Harness publishes approval.requested.
+**Approval (Stage 3):** before publishing a job, the Harness publishes approval.requested.
 The Control Centre handles the admin's decision through the Admin Console and
 publishes approval.decided. Only an approved request with valid rights proceeds;
 a rejected request never becomes a skill job. The UI shows awaiting approval.
 
-**Tier routing:** a classifier score may suggest a higher tier. The Harness
-checks chat.tier for that tier before calling the Gateway. A denial falls back
-to separately allowed tier 1 plus a note: "an admin can give you the advanced
-model". Unavailable policy fails closed.
-The Gateway reads the Control Centre registry to resolve purpose and tier.
+**Chat (Stage 2):** both apps sign in through Keycloak with code + PKCE S256
+and session storage. Each reads its issuer, client ID and same-host API path from
+`/config.json`. Workspace shows only allowed chat tiers and the user's ID with a
+copy button for grants. It sends a question to its own Harness API. The Harness
+checks the conversation owner and asks the Control Centre for `chat.tier` with
+the selected tier. Missing policy fails closed. A refused tier is a 403 with a
+plain message; it is not sent to a model. The browser renders all chat text as
+plain text with line breaks and reads the POST answer using fetch and SSE.
+
+The Harness sends the last 20 completed, nonempty conversation messages,
+starting with a user message, then the new question, with no system message.
+Only allowed skills are offered as tools. A tool request produces a fixed
+sentence saying skills arrive in the next stage; it runs no job. Conversations
+belong to the Harness database, and messages cannot be updated or deleted.
+
+The Gateway resolves purpose and tier from the Control Centre registry on
+internal port 8081. It tries main entries before backup entries, then priority
+and creation time. A failure before output may try the next entry; a failure
+after output ends the stream. Per-entry, per-user rate limits use the last 60
+seconds of completed/failed usage. Per-entry budgets use the UTC day's cost.
+When every entry is over budget, the Harness can fall back to the lowest allowed
+tier and includes a note. Usage and calculated cost live in the Gateway's own
+append-only database; no Kafka messages are produced for chat in Stage 2.
+
+**Tier routing (Stage 3):** a classifier score may suggest a higher tier. The
+Harness will check `chat.tier` before using it. The planned classifier fallback
+to a separately allowed lower tier with a note belongs to that routing flow;
+it does not override Stage 2's refusal of an explicitly requested forbidden tier.
+Unavailable policy always fails closed.
 
 **Worker down:** Kafka retains queued jobs. The worker catches up when it returns,
 with duplicate-event handling. Chat remains a direct HTTP stream and continues
@@ -79,8 +105,12 @@ transaction; an outbox publisher sends the events to Kafka. The Audit writer
 (Stage 3) keeps the full trail across services by consuming audit.events.
 Other modules use contracts and never query those tables directly. Business
 records use deleted_at; audit records are append-only with database enforcement.
-Stage 0 creates only Keycloak's database. All stored times are UTC; the initial
+Stage 0 creates Keycloak's database; Stage 1 adds the Control Centre database,
+and Stage 2 adds separate Harness and Gateway databases. All stored times are UTC; the initial
 display setting is Asia/Kuala_Lumpur. User-facing text is English.
+
+The Stage 2 services and both apps run in ooh-apps. The following storage
+paragraph is retained pending the Stage 3 storage contract rewrite.
 
 The rehearsal runs on the DigitalOcean Droplet harness: single-server k3s,
 Traefik ingress, cert-manager, Strimzi Kafka, CloudNativePG PostgreSQL and
@@ -90,7 +120,17 @@ its /api share admin.faysalaziz.com; Keycloak uses auth.faysalaziz.com. Gateway,
 Kafka and PostgreSQL have no public hostname.
 
 Stage 6 moves to AWS EKS with the same manifests and different values, and S3
-storage. AWS infrastructure uses Terraform; Aziz performs deployments. Secrets
-are Kubernetes Secrets created by Aziz's scripts, never repository values.
+storage. AWS infrastructure uses Terraform; Aziz performs Stage 6 deployments. Secrets
+are Kubernetes Secrets created by setup scripts, never repository values.
+Admins type provider keys once in the Admin Console. The Control Centre stores
+them encrypted with AES-256-GCM using a Kubernetes encryption-key Secret and the
+entry ID as associated data. Admin responses expose only `has_key`. Only the
+Gateway service account may retrieve a decrypted key, on internal port 8081;
+registry and key routes return 404 on public port 8080. Keys follow their endpoint
+and connection type: changing either clears the saved key unless replaced.
+The Gateway caches registry data for 30 seconds and keys for 60 seconds.
+Its three adapters implement the connection formats chosen per registry entry;
+provider addresses, models and prices are registry data, never compiled settings.
 Kafka is used for slow work, fan-out, outage survival and replay; chat and policy
-checks use direct HTTP. Stage 0 builds no product implementation.
+checks use direct HTTP. Stage 2 deploy/check scripts run in Claude's shell tile while Aziz watches;
+Aziz retains sudo, browser sign-ins, package visibility switches and acceptance.

@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: harness
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: harness
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: harness-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: harness-app
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: harness_app
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: harness-app-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: harness-test
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: harness_test
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: harness-test-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: harness-test-app
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: harness_test_app
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: harness-test-app-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: harness
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: harness
+  owner: harness
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: harness-test
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: harness_test
+  owner: harness_test
+  databaseReclaimPolicy: retain

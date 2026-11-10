@@ -37,12 +37,31 @@ if [[ -n "$control_centre" ]]; then
   admin_api="https://admin.$DOMAIN/api/rights/me?user_id=x"
   admin_expected=401
 fi
-for url in "https://harness.$DOMAIN/" "https://harness.$DOMAIN/api/" "https://admin.$DOMAIN/" "$admin_api"; do
+real_app() {
+  local deployment
+  deployment="$(kubectl -n "$APPS_NAMESPACE" get deployment "$1" --ignore-not-found -o json)" || return 1
+  [[ -n "$deployment" ]] && jq -e '.spec.template.metadata.labels["ooh/app"] == "real"' <<< "$deployment" >/dev/null
+}
+harness_api="https://harness.$DOMAIN/api/"
+harness_expected=200
+if real_app harness-api; then
+  harness_api="https://harness.$DOMAIN/api/conversations"
+  harness_expected=401
+fi
+for url in "https://harness.$DOMAIN/" "$harness_api" "https://admin.$DOMAIN/" "$admin_api"; do
   expected=200
   [[ "$url" != "$admin_api" ]] || expected="$admin_expected"
-  status="$(curl --connect-timeout 10 --max-time 30 -sS -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true)"
+  [[ "$url" != "$harness_api" ]] || expected="$harness_expected"
+  reply="$(curl --connect-timeout 10 --max-time 30 -sS -w '\n%{http_code}' "$url" 2>/dev/null || true)"
+  status="${reply##*$'\n'}"
+  body="${reply%$'\n'*}"
   rc=0; [[ "$status" == "$expected" ]] || rc=1
-  result "$rc" "HTTPS $url" "expected HTTP $expected with trusted TLS; check ingress, certificate and deployment"
+  if [[ "$url" == "https://harness.$DOMAIN/" ]] && real_app workspace; then
+    [[ "$body" == *'<app-root'* ]] || rc=1
+  elif [[ "$url" == "https://admin.$DOMAIN/" ]] && real_app admin-console; then
+    [[ "$body" == *'<app-root'* ]] || rc=1
+  fi
+  result "$rc" "HTTPS $url" "expected HTTP $expected with trusted TLS and the app root for real apps; check ingress, certificate and deployment"
 done
 issuer="https://auth.$DOMAIN/realms/ooh"
 rc=0
