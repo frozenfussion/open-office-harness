@@ -209,3 +209,66 @@ kubectl -n ooh-apps rollout restart deployment/control-centre
 The model tests use a fake Gateway and token endpoint; the builder makes no
 paid calls. Follow the Quick Guide's .NET checks and finish with
 `dotnet build-server shutdown`.
+
+
+# Request access (section 17)
+
+The new `AccessRequests` migration creates `access_requests`, its unique user-ID
+key and status constraint, paging index, application grants and no-removal
+trigger. The app role has SELECT/INSERT/UPDATE only; both owner and app role are
+blocked from hard deletion and truncation. `deleted_at` is unused in Stage 2.
+No earlier migration was edited.
+
+The backfill approves people first seen before the migration transaction and
+active user grants created before it. It waits for existing people/grant writes,
+uses a stable transaction timestamp cutoff and writes one privacy-limited
+`access.approved` audit plus the normal `audit.events` outbox entry per new row.
+`decided_by` is `migration`. Everyone alone does not grandfather an unknown user.
+
+`POST /api/access/observe` is Harness-service-only. It requires the exact
+verified user `sub` as `user_id` and verified `is_admin`; optional name/email/
+organisation/access_reason may be null. Strings are trimmed, then validated at
+200/320/100/300 characters respectively. User IDs are never trimmed or folded.
+A missing row becomes pending unless there are already 100 pending rows, when
+it returns `closed` without creating or auditing a row. A repeat is idempotent;
+profile changes are copied and audited only while pending. Non-admin observation
+cannot change an approved or rejected status. Verified admins are automatically
+approved with `decided_by system:admin-role`; human admin observation in
+`People.Observe` has the same effect, including after a revoke.
+
+All three rights paths check approved access before grants: Decision, rights/me
+and skills. Missing, pending, rejected and soft-removed access rows receive
+nothing, including Everyone. Adding a user grant approves access in the same
+transaction and can reapprove a rejected person. An existing active user grant
+is reused with HTTP 200; a new grant returns 201. Everyone duplicates still
+return 409. No Keycloak lookup is performed.
+
+Admin access-request routes provide newest-first filtering/paging, pending-only
+counts, Approve, Reject and Revoke. The list/count hide `stage-check-` identities.
+Approve requires an existing positive chat-tier right, creates no duplicate
+grant and conflicts if already approved. Reject acts on pending requests;
+Revoke acts on approved requests and records `access.revoked`. Both set rejected
+status. Rejected requests can be approved later. Existing grants are retained
+and gated by status, rather than removed by rejection/revocation.
+
+A transaction-scoped PostgreSQL advisory lock serializes admission changes,
+including the pending-cap check, automatic/manual approval and grants. Status
+changes and audit/outbox writes commit together. Access audit detail contains
+only user_id, status, decided_by and approved_tier, never profile fields,
+passwords or tokens. Pending profile changes use `access.requested` as well.
+
+The admin screen and operator steps are described in the Admin Console README.
+The combined deployment order is 61 → 67 → 35 → 68 → 69 → 62 → 70. Builders do
+not run these deployment/check scripts. Check 62 reuses `stage-check-access`,
+creates or reuses an Everyone grant on reserved tier 99, proves that pending
+users get nothing and approved users get tier 99, then removes the grant.
+Reserved check requests are hidden from the list/count but remain protected
+business rows. The waiting cap counts all pending rows, including check rows.
+If the check user cannot remain pending, inspect the waiting cap and reserved
+identity before retrying; never delete requests or audit rows.
+
+Run the existing .NET and contract checks from the Quick Guide. The database
+suite includes backfill boundary checks, atomic concurrent admission at the
+100-request boundary, status/grant behavior, audit privacy and owner/app-role
+no-removal checks. Test requests left pending are rejected through audited
+cleanup; no test data is deleted. End checks with `dotnet build-server shutdown`.

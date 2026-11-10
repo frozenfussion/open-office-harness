@@ -591,7 +591,9 @@ paths:
       operationId: post_api_admin_grants
       security:
       - bearerAuth: []
-      description: Administrator only. Unknown input fields are refused.
+      description: Administrator only. Unknown input fields are refused. A user grant
+        also approves access atomically; a matching active user grant is reused with
+        HTTP 200. Everyone duplicates remain 409.
       responses:
         '201':
           description: Success
@@ -629,6 +631,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '200':
+          description: Existing user grant reused and access approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Grant'
       requestBody:
         required: true
         content:
@@ -1580,6 +1588,381 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/access/observe:
+    post:
+      description: Harness service account only. Creates or refreshes a pending request,
+        approves verified admins, preserves decided states for other users. With 100
+        waiting requests a new non-admin receives closed and no row is created. Access
+        audit contains only user_id, status, decided_by and approved_tier.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessObserveInput'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    enum:
+                    - pending
+                    - approved
+                    - rejected
+                    - closed
+                required:
+                - status
+                additionalProperties: false
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: post__api_access_observe
+      security:
+      - bearerAuth: []
+  /api/admin/access-requests:
+    get:
+      description: Administrator only. Active requests, newest requested_at then id
+        descending. Hides user IDs starting stage-check-.
+      parameters:
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - pending
+          - approved
+          - rejected
+          default: pending
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 50
+      - name: after
+        in: query
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AccessRequest'
+        '404':
+          description: Cursor not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: get__api_admin_access-requests
+      security:
+      - bearerAuth: []
+  /api/admin/access-requests/count:
+    get:
+      description: Administrator only. Counts pending requests, excluding stage-check-
+        user IDs.
+      parameters:
+      - name: status
+        in: query
+        required: true
+        schema:
+          const: pending
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    minimum: 0
+                required:
+                - count
+                additionalProperties: false
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: get__api_admin_access-requests_count
+      security:
+      - bearerAuth: []
+  /api/admin/access-requests/{id}/approve:
+    post:
+      description: Approve a pending or rejected request and create its selected tier
+        grant if absent, atomically. The tier right must exist. Appends a privacy-limited
+        access audit and normal audit.events message.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tier:
+                  type: integer
+                  minimum: 1
+              required:
+              - tier
+              additionalProperties: false
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequest'
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Request state changed or action already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: post__api_admin_access-requests_id_approve
+      security:
+      - bearerAuth: []
+  /api/admin/access-requests/{id}/reject:
+    post:
+      description: Reject a pending request. Appends a privacy-limited access audit
+        and normal audit.events message.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequest'
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Request state changed or action already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: post__api_admin_access-requests_id_reject
+      security:
+      - bearerAuth: []
+  /api/admin/access-requests/{id}/revoke:
+    post:
+      description: Revoke an approved request; access is rejected and all rights,
+        including Everyone, are gated without deleting grants. Appends a privacy-limited
+        access audit and normal audit.events message.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequest'
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Request state changed or action already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: post__api_admin_access-requests_id_revoke
+      security:
+      - bearerAuth: []
 components:
   securitySchemes:
     bearerAuth:
@@ -2109,3 +2492,111 @@ components:
         - provider_status
         - provider_message
         additionalProperties: false
+    AccessRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          minLength: 1
+        status:
+          type: string
+          enum:
+          - pending
+          - approved
+          - rejected
+        requested_at:
+          type: string
+          format: date-time
+        name:
+          type:
+          - string
+          - 'null'
+        email:
+          type:
+          - string
+          - 'null'
+        organisation:
+          type:
+          - string
+          - 'null'
+        reason:
+          type:
+          - string
+          - 'null'
+        decided_by:
+          type:
+          - string
+          - 'null'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        updated_by:
+          type: string
+        decided_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        deleted_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        approved_tier:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+      required:
+      - id
+      - user_id
+      - status
+      - requested_at
+      - created_at
+      - updated_at
+      - created_by
+      - updated_by
+      additionalProperties: false
+    AccessObserveInput:
+      type: object
+      properties:
+        user_id:
+          type: string
+          minLength: 1
+          description: Exact verified user sub; no trimming, case folding or identifier
+            normalization.
+        is_admin:
+          type: boolean
+          description: From verified end-user access-token realm roles.
+        name:
+          type:
+          - string
+          - 'null'
+          description: Trimmed before validation; at most 200 characters after trimming.
+        email:
+          type:
+          - string
+          - 'null'
+          description: Trimmed before validation; at most 320 characters after trimming.
+        organisation:
+          type:
+          - string
+          - 'null'
+          description: Trimmed before validation; at most 100 characters after trimming.
+        access_reason:
+          type:
+          - string
+          - 'null'
+          description: Trimmed before validation; at most 300 characters after trimming.
+      required:
+      - user_id
+      - is_admin
+      additionalProperties: false

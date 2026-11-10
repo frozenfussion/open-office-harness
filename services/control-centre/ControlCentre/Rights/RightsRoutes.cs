@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 using ControlCentre.Platform;
+using ControlCentre.Access;
 using Microsoft.EntityFrameworkCore;
 
 namespace ControlCentre.Rights;
@@ -10,6 +11,7 @@ public static class RightsRoutes
 {
   public static async Task<string> Decision(CentreDb db, string userId, string key)
   {
+    if (!await AccessPolicy.Approved(db, userId)) return "no-grant";
     if (!await db.Rights.AnyAsync(x => x.Key == key && x.DeletedAt == null)) return "no-grant";
     var grants = db.Grants.Where(x => x.DeletedAt == null && x.RightKey == key);
     if (await grants.AnyAsync(x => x.SubjectType == "user" && x.SubjectId == userId)) return "grant:user";
@@ -55,6 +57,7 @@ public static class RightsRoutes
       Api.Query(c, "user_id");
       var user = Api.Q(c, "user_id");
       Api.Authorize(c, user);
+      if (!await AccessPolicy.Approved(db, user)) return Results.Ok(new { chat_tiers = Array.Empty<int>(), skills = Array.Empty<string>(), image = false });
       var keys = await db.Grants.Where(x => x.DeletedAt == null && (x.SubjectType == "everyone" || x.SubjectId == user))
               .Select(x => x.RightKey).Distinct().ToListAsync();
       var active = await db.Rights.Where(x => x.DeletedAt == null && keys.Contains(x.Key)).Select(x => x.Key).ToListAsync();
@@ -68,6 +71,7 @@ public static class RightsRoutes
       var user = Api.Q(c, "user_id");
       Api.Authorize(c, user);
       var result = new List<JsonNode>();
+      if (!await AccessPolicy.Approved(db, user)) return Results.Ok(result);
       foreach (var skill in await db.Skills.Where(x => x.DeletedAt == null).ToListAsync())
       {
         var manifest = JsonNode.Parse(skill.Manifest)!;
@@ -128,7 +132,16 @@ public static class RightsRoutes
       Api.Require(type != "everyone" || b["subject_id"] is null);
       Api.Require(await db.Rights.AnyAsync(x => x.Key == key && x.DeletedAt == null), "Unknown right");
       await using var transaction = await db.Database.BeginTransactionAsync();
-      if (subject is not null) await People.Ensure(db, subject, Api.Actor(c), Api.Correlation(c));
+      await AccessPolicy.Lock(db);
+      if (subject is not null)
+      {
+        await People.Ensure(db, subject, Api.Actor(c), Api.Correlation(c));
+        int? tier = key.StartsWith("chat.tier.", StringComparison.Ordinal) && int.TryParse(key[10..], out var number) ? number : null;
+        await AccessPolicy.Approve(db, subject, Api.Actor(c), Api.Actor(c), Api.Correlation(c), tier);
+        var existing = await db.Grants.SingleOrDefaultAsync(x => x.RightKey == key && x.SubjectType == "user" && x.SubjectId == subject && x.DeletedAt == null);
+        if (existing is not null)
+        { await db.SaveChangesAsync(); await transaction.CommitAsync(); return Results.Ok(existing); }
+      }
       var row = new Grant { RightKey = key, SubjectType = type, SubjectId = subject };
       Api.Stamp(row, Api.Actor(c), true);
       db.Grants.Add(row);

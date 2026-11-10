@@ -24,9 +24,9 @@ describe('Model settings and rights', () => {
   });
 });
 describe('Admin console', () => {
-  async function create(admin: boolean, authenticated = true, userData: object = {}) {
+  async function create(admin: boolean, authenticated = true, userData: object = {}, issuer = 'https://issuer.invalid') {
     const auth = { checkAuth: () => of({ isAuthenticated: authenticated, userData }), authorize: vi.fn(), logoff: () => of({}), getAccessToken: () => of('synthetic-token'), getPayloadFromAccessToken: vi.fn(() => of({ realm_access: { roles: admin ? ['ooh-admin'] : ['ooh-user'] } })) };
-    window.oohConfig = { apiBase: '/api', issuer: 'https://issuer.invalid', clientId: 'ooh-admin-console' };
+    window.oohConfig = { apiBase: '/api', issuer, clientId: 'ooh-admin-console' };
     vi.spyOn(App.prototype, 'load').mockResolvedValue();
     await TestBed.configureTestingModule({ imports: [App], providers: [{ provide: OidcSecurityService, useValue: auth }] }).compileComponents();
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); return { fixture, auth };
@@ -68,7 +68,7 @@ describe('Admin console', () => {
     vi.mocked(App.prototype.load).mockRestore();
     const first = Array.from({ length: 200 }, (_, i) => ({ ...model, model_entry_id: 'synthetic-' + i, purpose: 'z-purpose' }));
     const request = vi.spyOn(app, 'request').mockResolvedValueOnce(first)
-      .mockResolvedValueOnce([{ ...model, purpose: 'a-purpose' }]).mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([{ ...model, purpose: 'a-purpose' }]).mockResolvedValueOnce([]).mockResolvedValueOnce({ count: 0 });
     await app.load();
     expect(request).toHaveBeenNthCalledWith(2, '/admin/models?limit=200&after=synthetic-199');
     expect(app.models()).toHaveLength(201); expect(app.models()[0].purpose).toBe('a-purpose');
@@ -117,6 +117,43 @@ describe('Admin console', () => {
     await vi.advanceTimersByTimeAsync(1); await test;
     expect(app.testResults()[model.model_entry_id]).toEqual({ ok: false, reason: 'took longer than its time limit', provider_status: null, provider_message: null });
     expect(app.testing().size).toBe(0);
+  });
+
+  const accessRow = { id: 'request-synthetic', user_id: 'user-synthetic', name: '<img src=x>', email: 'synthetic@example.invalid', organisation: 'Synthetic team', reason: '<script>test</script>', status: 'pending' as const, requested_at: '2026-11-10T00:00:00Z' };
+  it('links non-admins to the configured Workspace', async () => {
+    const { fixture } = await create(false, true, {}, 'https://auth.synthetic.invalid/realms/ooh');
+    expect(fixture.nativeElement.querySelector('a').href).toBe('https://harness.synthetic.invalid/');
+  });
+  it('loads each access filter and hides the zero count badge', async () => {
+    const { fixture } = await create(true); const app = fixture.componentInstance;
+    const request = vi.spyOn(app, 'request');
+    for (const status of ['pending', 'approved', 'rejected'] as const) {
+      app.accessFilter.set(status); request.mockResolvedValueOnce([{ ...accessRow, status }]).mockResolvedValueOnce({ count: 0 });
+      await app.openAccessRequests(); fixture.detectChanges();
+      expect(request).toHaveBeenCalledWith('/admin/access-requests?status=' + status + '&limit=200');
+      expect(fixture.nativeElement.querySelector('.ooh-nav__count')).toBeNull();
+      expect(fixture.nativeElement.textContent).toContain('not verified');
+      expect(fixture.nativeElement.textContent).toContain('<img src=x>');
+      expect(fixture.nativeElement.querySelector('img')).toBeNull();
+    }
+    app.pendingCount.set(3); fixture.detectChanges(); expect(fixture.nativeElement.querySelector('.ooh-nav__count').textContent).toBe('3');
+  });
+  it('requires a tier and sends approve, reject and revoke actions', async () => {
+    const { fixture } = await create(true); const app = fixture.componentInstance;
+    app.screen.set('access'); app.models.set([model, { ...model, tier: 99 }]); app.grants.set([{ id: 'grant', right_key: 'chat.tier.4', subject_type: 'everyone' }]); app.accessRequests.set([accessRow]); fixture.detectChanges();
+    const approve = [...fixture.nativeElement.querySelectorAll('button')].find((b: unknown) => (b as HTMLButtonElement).textContent?.trim() === 'Approve') as HTMLButtonElement;
+    expect(approve.disabled).toBe(true);
+    const options = fixture.nativeElement.querySelectorAll('select[aria-label="Chat tier"] option');
+    expect([...options].map((o: unknown) => (o as HTMLOptionElement).textContent)).toEqual(['Choose a tier', 'Tier 1', 'Tier 4']);
+    vi.spyOn(app, 'loadAccessRequests').mockResolvedValue();
+    const request = vi.spyOn(app, 'request');
+    for (const action of ['approve', 'reject', 'revoke'] as const) {
+      app.accessRequests.set([accessRow]); app.selectedTiers[accessRow.id] = 4;
+      request.mockResolvedValueOnce({ ...accessRow, status: action === 'approve' ? 'approved' : 'rejected' });
+      await app.decideAccess(accessRow, action);
+      expect(request).toHaveBeenLastCalledWith('/admin/access-requests/' + accessRow.id + '/' + action, 'POST', action === 'approve' ? { tier: 4 } : {});
+      expect(app.accessRequests()).toEqual([]);
+    }
   });
 
 });

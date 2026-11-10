@@ -54,6 +54,14 @@ For the new Test button, the deployment order is realm sync → 71 → the new G
 
 6. **Give access to a tier.** Do this in the same browser screen. In **Who may use this tier**, turn **Everyone** on or enter the user's ID and choose **Add person**. The user can copy their ID from the Workspace's About me line. Remove individual grants with **Remove access**. A tier with grants and no model stays visible as **No model yet**. The reserved installation-check tier 99 is hidden from these tier rows. Good result: the grant stays after reloading.
 
+**Review requests for access.** Do this in your PC browser in the Admin Console. Open **Access requests**; the badge shows waiting requests and disappears at zero. Waiting is shown first. Each email is labelled **not verified**. Choose a chat tier, then **Approve**; no tier is selected for you. **Reject** refuses a waiting request. Use the Rejected filter to approve one later. Use the Approved filter and **Revoke** to stop access; this blocks Everyone too. The existing grants remain stored and are usable again only if access is approved.
+
+Adding a person by user ID under Models & tiers also approves their access, including a previously rejected person. It does not look up Keycloak. Repeating an existing user grant reuses it without adding a second grant. The approval tier list uses active model/grant tiers and hides reserved tier 99.
+
+**How a newcomer requests access.** Do this in the Workspace browser. Choose **Sign in with company account**, then Keycloak's **Request access** link. The password is entered only in Keycloak. The Workspace shows a waiting message until an admin approves the request. A non-admin signing in to this console gets a link to the Workspace, because only the Workspace creates requests. Existing users known to the Control Centre before the migration are approved automatically. Users who previously had only Everyone and were not known must request access once.
+
+At most 100 requests may wait. New requests beyond that return closed without creating a row. If spam appears, Claude can turn registration off using the root README's instructions for `install/35-realm-sync.sh --registration off`. No email verification or password-reset mail is sent.
+
 7. **Check the running image and status.** Type this in your harness terminal, in the plain shell. No password is needed. The folder does not matter. This shows image names and readiness; the console should have one Ready replica.
 
    ```bash
@@ -120,3 +128,18 @@ The build copies `apps/design-system` into `public/ds` using Node's built-in fil
 | `This console is for administrators.` | Sign out and use an account with realm role `ooh-admin`. |
 
 Lost encryption Secret: saved provider keys cannot be recovered; after a replacement Secret is created with 63, retype each provider key in the console. Never commit or paste the Secret into chat. The Control Centre README describes an optional private backup.
+
+
+# Request access deployment
+
+After the combined section 17 changes are reviewed and merged, Claude runs the
+non-sudo scripts in the shell tile in this order: 61 → 67 → 35 → 68 → 69 → 62 →
+70. The Control Centre admission rule and Harness observe call must exist before
+registration is opened. The root Quick Guide supplies the exact commands.
+
+If check 62 says the reserved check user is not pending, requests may be closed
+at the waiting cap or that reserved identity may have been approved manually.
+Review waiting requests and the check identity's status before retrying. Check
+62 reuses `stage-check-access`, verifies the Everyone gate on tier 99, and removes
+the temporary Everyone grant. Reserved check identities are hidden from the
+admin request list and count.

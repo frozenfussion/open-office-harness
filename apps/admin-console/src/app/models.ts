@@ -37,3 +37,8 @@ export function connectionSummary(result: ConnectionResult): string {
   return `Failed · ${result.reason}` + (result.provider_status === null ? '' : ` (provider answered ${result.provider_status})`)
     + (result.provider_message ? ` · ${result.provider_message}` : '');
 }
+export type AccessStatus = 'pending' | 'approved' | 'rejected';
+export interface AccessRequest {
+  id: string; user_id: string; name?: string; email?: string; organisation?: string; reason?: string;
+  status: AccessStatus; requested_at: string; approved_tier?: number;
+}

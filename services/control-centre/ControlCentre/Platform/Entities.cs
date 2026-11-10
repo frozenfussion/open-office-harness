@@ -12,6 +12,19 @@ public abstract class BusinessRow
   public string CreatedBy { get; set; } = "system";
   public string UpdatedBy { get; set; } = "system";
 }
+public sealed class AccessRequest : BusinessRow
+{
+  public string UserId { get; set; } = "";
+  public string? Name { get; set; }
+  public string? Email { get; set; }
+  public string? Organisation { get; set; }
+  public string? Reason { get; set; }
+  public string Status { get; set; } = "pending";
+  public DateTimeOffset RequestedAt { get; set; } = DateTimeOffset.UtcNow;
+  public DateTimeOffset? DecidedAt { get; set; }
+  public string? DecidedBy { get; set; }
+  public int? ApprovedTier { get; set; }
+}
 public sealed class Person : BusinessRow
 {
   public string UserId { get; set; } = "";
@@ -104,6 +117,7 @@ public sealed class AuditRow
 
 public sealed class CentreDb(DbContextOptions<CentreDb> options) : DbContext(options)
 {
+  public DbSet<AccessRequest> AccessRequests => Set<AccessRequest>();
   public DbSet<Person> People => Set<Person>();
   public DbSet<Right> Rights => Set<Right>();
   public DbSet<Grant> Grants => Set<Grant>();
@@ -116,6 +130,9 @@ public sealed class CentreDb(DbContextOptions<CentreDb> options) : DbContext(opt
 
   protected override void OnModelCreating(ModelBuilder b)
   {
+    b.Entity<AccessRequest>().ToTable("access_requests").HasAlternateKey(x => x.UserId);
+    b.Entity<AccessRequest>().ToTable(t => t.HasCheckConstraint("access_requests_status_check", "status IN ('pending','approved','rejected')"));
+    b.Entity<AccessRequest>().HasIndex(x => new { x.RequestedAt, x.Id }).IsDescending().HasDatabaseName("access_requests_paging");
     b.Entity<Person>().ToTable("people").HasAlternateKey(x => x.UserId);
     b.Entity<Right>().ToTable("rights").HasAlternateKey(x => x.Key);
     b.Entity<Grant>().ToTable("grants");

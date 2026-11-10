@@ -12,7 +12,7 @@ public sealed class RoutesWithoutDatabaseTests
 {
   public static TheoryData<string, string> Routes => new()
     {
-        { "POST", "/api/rights/check" }, { "GET", "/api/rights/me?user_id=test" }, { "GET", "/api/skills?user_id=test" },
+        { "POST", "/api/access/observe" }, { "GET", "/api/admin/access-requests" }, { "GET", "/api/admin/access-requests/count?status=pending" }, { "POST", "/api/admin/access-requests/bad/approve" }, { "POST", "/api/admin/access-requests/bad/reject" }, { "POST", "/api/admin/access-requests/bad/revoke" }, { "POST", "/api/rights/check" }, { "GET", "/api/rights/me?user_id=test" }, { "GET", "/api/skills?user_id=test" },
         { "GET", "/api/models?purpose=classification" }, { "GET", "/api/admin/people" }, { "GET", "/api/admin/people/test" },
         { "GET", "/api/admin/grants" }, { "GET", "/api/models/bad/key" }, { "GET", "/api/admin/rights" }, { "POST", "/api/admin/grants" }, { "DELETE", "/api/admin/grants/bad" },
         { "GET", "/api/admin/models" }, { "POST", "/api/admin/models/bad/test" }, { "POST", "/api/admin/models" }, { "GET", "/api/admin/models/bad" }, { "PUT", "/api/admin/models/bad" }, { "DELETE", "/api/admin/models/bad" },
@@ -46,7 +46,7 @@ public sealed class RoutesWithoutDatabaseTests
   public async Task EveryRouteRejectsUnknownInput(string method, string path)
   {
     using var host = new Host();
-    using var client = host.Client(path.StartsWith("/api/models", StringComparison.Ordinal) ? "gateway" : "admin");
+    using var client = host.Client(path == "/api/access/observe" ? "harness" : path.StartsWith("/api/models", StringComparison.Ordinal) ? "gateway" : "admin");
     var response = await Send(client, method, path + (path.Contains('?') ? "&" : "?") + "unknown=x");
     Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
   }
@@ -82,7 +82,7 @@ public sealed class RoutesWithoutDatabaseTests
   [InlineData("/api/admin/rights?limit=0")]
   public async Task InvalidQueries(string path)
   {
-    using var host = new Host(); using var client = host.Client(path.StartsWith("/api/models", StringComparison.Ordinal) ? "gateway" : "admin");
+    using var host = new Host(); using var client = host.Client(path == "/api/access/observe" ? "harness" : path.StartsWith("/api/models", StringComparison.Ordinal) ? "gateway" : "admin");
     Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync(path.StartsWith("/api/models", StringComparison.Ordinal) ? "http://localhost:8081" + path : path, TestContext.Current.CancellationToken)).StatusCode);
   }
   [Fact]

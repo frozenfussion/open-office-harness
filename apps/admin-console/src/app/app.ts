@@ -3,7 +3,7 @@ import { Component, DestroyRef, ElementRef, afterNextRender, inject, signal } fr
 import { FormsModule } from '@angular/forms';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { firstValueFrom, of, switchMap } from 'rxjs';
-import { ConnectionResult, connectionSummary, Grant, ModelEntry, modelPayload, tierRows } from './models';
+import { AccessRequest, AccessStatus, ConnectionResult, connectionSummary, Grant, ModelEntry, modelPayload, tierRows } from './models';
 
 export interface AppConfig { issuer: string; clientId: string; apiBase: string; }
 declare global { interface Window { oohConfig: AppConfig; OpenOfficeHarness?: { WordRain: { mount(el: HTMLCanvasElement): { stop(): void } } }; } }
@@ -14,6 +14,11 @@ export class App {
   private destroy = inject(DestroyRef);
   signedIn = signal(false); admin = signal(false); ready = signal(false);
   models = signal<ModelEntry[]>([]); grants = signal<Grant[]>([]);
+  screen = signal<'models' | 'access'>('models');
+  accessFilter = signal<AccessStatus>('pending');
+  accessRequests = signal<AccessRequest[]>([]);
+  pendingCount = signal(0); accessBusy = signal(false);
+  selectedTiers: Record<string, number | undefined> = {};
   error = signal(''); busy = signal(false); editing = signal<ModelEntry | null>(null);
   testing = signal<Set<string>>(new Set());
   testResults = signal<Record<string, ConnectionResult>>({});
@@ -73,7 +78,37 @@ export class App {
         grants.push(...page); after = page.length === 200 ? page[page.length - 1].id : '';
       } while (after);
       this.models.set(models); this.grants.set(grants);
+      await this.loadAccessCount();
     } catch (e) { this.failure(e); }
+  }
+  workspaceUrl(): string { return 'https://harness.' + new URL(window.oohConfig.issuer).hostname.replace(/^auth\./, ''); }
+  async loadAccessCount(): Promise<void> {
+    try { this.pendingCount.set((await this.request<{ count: number }>('/admin/access-requests/count?status=pending')).count); }
+    catch (error) { this.failure(error); }
+  }
+  async openAccessRequests(): Promise<void> { this.screen.set('access'); await this.loadAccessRequests(); }
+  async loadAccessRequests(): Promise<void> {
+    this.error.set(''); this.selectedTiers = {}; this.accessRequests.set([]);
+    const filter = this.accessFilter();
+    try {
+      const rows: AccessRequest[] = []; let after = '';
+      do {
+        const page = await this.request<AccessRequest[]>('/admin/access-requests?status=' + filter + '&limit=200' + (after ? '&after=' + encodeURIComponent(after) : ''));
+        rows.push(...page); after = page.length === 200 ? page[page.length - 1].id : '';
+      } while (after);
+      if (filter === this.accessFilter()) this.accessRequests.set(rows);
+      await this.loadAccessCount();
+    } catch (error) { this.failure(error); }
+  }
+  async decideAccess(row: AccessRequest, action: 'approve' | 'reject' | 'revoke'): Promise<void> {
+    const tier = this.selectedTiers[row.id];
+    if (this.accessBusy() || action === 'approve' && !tier) return;
+    this.accessBusy.set(true); this.error.set('');
+    try {
+      const updated = await this.request<AccessRequest>('/admin/access-requests/' + encodeURIComponent(row.id) + '/' + action, 'POST', action === 'approve' ? { tier } : {});
+      this.accessRequests.update(rows => rows.flatMap(item => item.id !== row.id ? [item] : updated.status === this.accessFilter() ? [updated] : []));
+      await this.load(); await this.loadAccessRequests();
+    } catch (error) { this.failure(error); } finally { this.accessBusy.set(false); }
   }
   edit(model?: ModelEntry): void {
     this.error.set(''); this.key = ''; this.removeKey = false;
