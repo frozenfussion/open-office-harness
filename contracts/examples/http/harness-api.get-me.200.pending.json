@@ -3,5 +3,6 @@
   "name": "Example user",
   "chat_tiers": [],
   "skills": [],
-  "access": "pending"
+  "access": "pending",
+  "chat_tier_titles": {}
 }

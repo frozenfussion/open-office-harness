@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from conftest import Harness
+from conftest import SETTINGS, Harness
 
 pytestmark = pytest.mark.anyio
 
@@ -72,6 +72,7 @@ async def test_me_and_own_conversations(h: Harness) -> None:
         "name": "Test user",
         "access": "approved",
         "chat_tiers": [1, 2, 3],
+        "chat_tier_titles": {"1": "Example model"},
         "skills": [{"name": "slides", "title": "Example skill"}],
     }
     first = await h.conversation()
@@ -155,7 +156,10 @@ async def test_stream_and_history(h: Harness) -> None:
     assert stream[-1]["usage"] == {"input_tokens": 4, "output_tokens": 2}
     request = json.loads(h.gateway.calls[0].request.content)
     assert request["user_id"] == "test-user"
-    assert request["messages"] == [{"role": "user", "content": text}]
+    assert request["messages"] == [
+        {"role": "system", "content": SETTINGS.system_prompt},
+        {"role": "user", "content": text},
+    ]
     check = json.loads(h.check.calls[0].request.content)
     assert check == {"user_id": "test-user", "action": "chat.tier", "target": "1"}
     row = (await h.client.get(f"/api/conversations/{identifier}")).json()
@@ -166,7 +170,7 @@ async def test_stream_and_history(h: Harness) -> None:
     ]
     assert row["messages"][1]["content"] == "Hello"
     await h.send(identifier)
-    assert len(json.loads(h.gateway.calls[-1].request.content)["messages"]) == 3
+    assert len(json.loads(h.gateway.calls[-1].request.content)["messages"]) == 4
 
 
 @pytest.mark.parametrize("failure", ["timeout", "denied", "bad_body", "http"])
@@ -241,7 +245,7 @@ async def test_tools_and_fixed_sentence(h: Harness) -> None:
     await h.send(identifier)
     request = json.loads(h.gateway.calls[-1].request.content)
     assert request["tools"] == []
-    assert all(message["role"] == "user" for message in request["messages"])
+    assert all(message["role"] == "user" for message in request["messages"][1:])
 
 
 def test_schema_copy() -> None:

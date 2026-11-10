@@ -10,5 +10,8 @@
       "title": "Presentation (.pptx)"
     }
   ],
-  "access": "approved"
+  "access": "approved",
+  "chat_tier_titles": {
+    "1": "Example model"
+  }
 }

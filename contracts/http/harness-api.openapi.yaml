@@ -226,7 +226,10 @@ paths:
         then completed or failed. Rights are checked before storing the user message.
         Gateway errors before the first event are JSON. Headers: Cache-Control: no-store,
         X-Accel-Buffering: no. Only user tokens with audience ooh-harness-api are
-        accepted. No caller-supplied user_id.'
+        accepted. No caller-supplied user_id. Every Gateway call prepends one system
+        message from HA_SYSTEM_PROMPT, including budget fallback; an empty setting
+        omits it. The default asks the assistant to reply in the language of the latest
+        user message. The system prompt is never logged or stored in history.'
       parameters:
       - name: id
         in: path
@@ -519,12 +522,20 @@ paths:
                     - pending
                     - rejected
                     - closed
+                  chat_tier_titles:
+                    type: object
+                    additionalProperties:
+                      type: string
+                    description: Tier-to-title map from the Control Centre, with string
+                      tier keys. The title comes from the active main entry with lowest
+                      priority, then created_at; a missing entry has no map value.
                 required:
                 - user_id
                 - name
                 - chat_tiers
                 - skills
                 - access
+                - chat_tier_titles
                 additionalProperties: false
         '400':
           description: Request could not be completed
@@ -549,7 +560,8 @@ paths:
         Missing/non-string profile claims become null; strings are trimmed then limited:
         name 200, email 320, organisation 100, access_reason 300. The exact sub is
         preserved. Then read rights and skills. Observe or rights failure returns
-        503 rights_unavailable. Closed means new requests are temporarily full.'
+        503 rights_unavailable. Closed means new requests are temporarily full. Pass
+        chat_tier_titles through from the Control Centre.'
   /api/conversations/{id}:
     get:
       operationId: get_api_conversations_id

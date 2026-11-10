@@ -135,7 +135,11 @@ class Harness:
             json={"status": "approved"}
         )
         self.rights = router.get("http://centre.test/api/rights/me").respond(
-            json={"chat_tiers": [3, 1, 2], "skills": ["slides"]}
+            json={
+                "chat_tiers": [3, 1, 2],
+                "skills": ["slides"],
+                "chat_tier_titles": {"1": "Example model"},
+            }
         )
         self.skills = router.get("http://centre.test/api/skills").respond(
             json=[

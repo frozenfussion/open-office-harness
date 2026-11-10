@@ -20,6 +20,7 @@ class AccessStatus(BaseModel):
 class Rights(BaseModel):
     chat_tiers: list[Annotated[StrictInt, Field(gt=0)]]
     skills: list[str]
+    chat_tier_titles: dict[str, str] = Field(default_factory=dict)
 
 
 class Skill(BaseModel):
@@ -140,7 +141,9 @@ class Upstream:
         except httpx.HTTPError, ValueError, KeyError, TypeError:
             raise self.rights_error() from None
 
-    async def permissions(self, user: str) -> tuple[list[int], list[Skill]]:
+    async def permissions(
+        self, user: str
+    ) -> tuple[list[int], list[Skill], dict[str, str]]:
         try:
             headers = await self.headers()
             rights = await self.client.get(
@@ -161,7 +164,7 @@ class Upstream:
                 for skill in SKILLS.validate_python(skills.json())
                 if skill.name in body.skills
             ]
-            return sorted(set(body.chat_tiers)), allowed
+            return sorted(set(body.chat_tiers)), allowed, body.chat_tier_titles
         except httpx.HTTPError, ValueError, KeyError, TypeError:
             raise self.rights_error() from None
 
@@ -222,7 +225,12 @@ class Upstream:
                     "purpose": "chat",
                     "tier": tier,
                     "user_id": user,
-                    "messages": messages,
+                    "messages": (
+                        [{"role": "system", "content": self.settings.system_prompt}]
+                        if self.settings.system_prompt
+                        else []
+                    )
+                    + messages,
                     "tools": tools,
                     "stream": True,
                 },

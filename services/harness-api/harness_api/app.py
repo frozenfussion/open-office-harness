@@ -168,13 +168,14 @@ def create_app(
     async def me(request: Request, claims: User) -> dict[str, Any]:
         query(request)
         access = await upstream.observe(claims)
-        tiers, skills = await upstream.permissions(claims["sub"])
+        tiers, skills, tier_titles = await upstream.permissions(claims["sub"])
         name = claims.get("name", "")
         return {
             "user_id": claims["sub"],
             "access": access,
             "name": name if isinstance(name, str) else "",
             "chat_tiers": tiers,
+            "chat_tier_titles": tier_titles,
             "skills": [{"name": skill.name, "title": skill.title} for skill in skills],
         }
 
@@ -308,7 +309,7 @@ def create_app(
         query(request)
         user_id = claims["sub"]
         await database.conversation(id, user_id)
-        tiers, skills = await upstream.permissions(user_id)
+        tiers, skills, _ = await upstream.permissions(user_id)
         if body.tier is None and not tiers:
             raise ApiError(
                 403, "no_tier", "You have no chat tier yet. An admin can grant one."
