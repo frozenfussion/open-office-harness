@@ -253,7 +253,7 @@ Skill jobs on Kafka and the Slides worker, uploads, files and job events, the st
 |---|---|---|
 | 1 | Spec review by Claude Code before the builders started (38 findings, `reviews/stage-2-spec-review` in the course folder): every finding is resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 10 Nov 14:00 |
 | 2 | Spec re-review (37 of 38 fixed, 8 new small findings, `reviews/stage-2-spec-rereview`): the earlier sections edited in place to agree with section 15; section 15 gains "Re-review additions" | Spec author, 10 Nov 14:04 |
-| 3 | Final check (`reviews/stage-2-spec-final`): section 9 rewritten to match section 15; port 8081 in the Ports row; 62 keeps one check user; tiers with grants but no model stay visible | Spec author, 10 Nov 14:08 |
+| 3 | Final check (`reviews/stage-2-spec-final`): section 9 rewritten to match section 15; port 8081 in the Ports row; 62 keeps one check user; tiers with grants but no model stay visible | Spec author, 10 Nov 14:06 |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees)
 
