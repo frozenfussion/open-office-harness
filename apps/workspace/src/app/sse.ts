@@ -3,6 +3,7 @@ export interface Usage { input_tokens: number; output_tokens: number }
 export type ChatEvent =
   | { type: 'delta'; text: string }
   | { type: 'completed'; message_id: string; tier: number; model_title: string; usage: Usage; note: string | null }
+  | { type: 'title'; conversation_id: string; title: string }
   | { type: 'failed'; error: { code: string; message: string } };
 
 export class SseParser {
@@ -28,7 +29,7 @@ export class SseParser {
       if (this.data.length) {
         const value = JSON.parse(this.data.join('\n')) as ChatEvent;
         this.data = [];
-        if (value.type !== 'delta' && value.type !== 'completed' && value.type !== 'failed') {
+        if (value.type !== 'delta' && value.type !== 'completed' && value.type !== 'failed' && value.type !== 'title') {
           throw new Error('Unexpected stream event');
         }
         this.receive(value);

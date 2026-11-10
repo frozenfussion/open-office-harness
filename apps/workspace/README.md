@@ -38,7 +38,10 @@
    **Copy** copies the original message, including Markdown and maths delimiters;
    **Copied** appears for two seconds. Code blocks have their own **Copy code**
    button. The line beneath the answer shows tier, model title and token counts. Pick a recent conversation to reopen it;
-   reloading keeps the selected conversation. **New chat** starts another one.
+   reloading keeps the selected conversation. After the first completed answer,
+   its AI title updates the heading and recent list when available. You can send
+   again as soon as the answer finishes; title generation may take another
+   20 seconds. If it fails, the first words of your question remain the title. **New chat** starts another one.
    Under your name, find **About me · Your user ID** and click **Copy user ID**
    to give an admin your ID. **Sign out** ends the Keycloak session.
 

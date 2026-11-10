@@ -19,6 +19,7 @@ export class App implements OnInit, OnDestroy {
   private readonly subscription = new Subscription();
   readonly history = viewChild<ElementRef<HTMLElement>>('history');
   private abort?: AbortController;
+  private readonly streams = new Set<AbortController>();
   readonly ready = signal(false);
   readonly signedIn = signal(false);
   readonly me = signal<Me | null>(null);
@@ -49,7 +50,7 @@ export class App implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.subscription.add(this.auth.isAuthenticated$.subscribe(({isAuthenticated}) => {
       this.signedIn.set(isAuthenticated);
-      if (!isAuthenticated) { this.abort?.abort(); this.messages.set([]); this.me.set(null); }
+      if (!isAuthenticated) { this.streams.forEach(stream => stream.abort()); this.messages.set([]); this.me.set(null); }
     }));
     this.subscription.add(this.auth.checkAuth().subscribe({
       next: (result) => {
@@ -62,9 +63,9 @@ export class App implements OnInit, OnDestroy {
       error: () => { this.ready.set(true); this.notice.set('Sign-in could not finish. Try signing in again.'); },
     }));
   }
-  ngOnDestroy(): void { this.subscription.unsubscribe(); this.abort?.abort(); }
+  ngOnDestroy(): void { this.subscription.unsubscribe(); this.streams.forEach(stream => stream.abort()); }
   signIn(): void { this.auth.authorize(); }
-  signOut(): void { this.abort?.abort(); this.auth.logoff().subscribe(); }
+  signOut(): void { this.streams.forEach(stream => stream.abort()); this.auth.logoff().subscribe(); }
   async copyId(): Promise<void> {
     try { await navigator.clipboard.writeText(this.me()?.user_id || ''); this.copied.set(true); }
     catch { this.notice.set('Copy did not work. Select and copy your user ID.'); }
@@ -154,22 +155,44 @@ export class App implements OnInit, OnDestroy {
     const sentAt = new Date().toISOString();
     const tier = this.tier;
     this.streaming.set(true); this.notice.set(''); this.forbidden.set(false);
-    this.abort = new AbortController();
+    const controller = new AbortController();
+    this.abort = controller;
+    this.streams.add(controller);
     let assistant: Message | undefined;
     let ended = false;
+    let completed = false;
+    let listRefresh: Promise<void> | undefined;
+    let generatedTitle: string | undefined;
+    let id = this.currentId();
+    const applyTitle = (): void => {
+      if (generatedTitle === undefined || controller.signal.aborted) return;
+      this.conversations.update(rows => rows.map(row => row.id === id ? {...row, title: generatedTitle!} : row));
+      if (this.currentId() === id) this.title.set(generatedTitle);
+    };
     try {
-      let id = this.currentId();
       if (!id) { id = (await this.api.create()).id; this.setCurrent(id); this.title.set(content.slice(0, 60)); }
       assistant = { role: 'assistant', content: '', created_at: sentAt };
       this.messages.update(old => [...old, {role: 'user', content, created_at: sentAt}, assistant!]);
       this.draft = '';
-      await this.api.send(id, content, tier, this.abort.signal, event => {
+      await this.api.send(id, content, tier, controller.signal, event => {
+        if (controller.signal.aborted) return;
+        if (event.type === 'title') {
+          if (!completed || event.conversation_id !== id) throw new Error('Unexpected conversation title');
+          generatedTitle = event.title;
+          applyTitle();
+          return;
+        }
         if (ended) throw new Error('Stream continued after completion');
         if (event.type === 'delta') assistant!.content += event.text;
         else if (event.type === 'completed') {
           Object.assign(assistant!, {created_at: new Date().toISOString(), id: event.message_id, tier: event.tier, model_title: event.model_title,
             input_tokens: event.usage.input_tokens, output_tokens: event.usage.output_tokens, note: event.note, outcome: 'completed'});
           ended = true;
+          completed = true;
+          this.streaming.set(false);
+          listRefresh = this.refreshList().then(applyTitle).catch(error => {
+            if (!this.notice()) this.failure(error);
+          });
         } else {
           ended = true;
           assistant!.outcome = 'failed';
@@ -180,6 +203,7 @@ export class App implements OnInit, OnDestroy {
       });
       if (!ended) throw new Error('Stream ended early');
     } catch (error) {
+      if (completed || controller.signal.aborted) return;
       if (assistant) {
         assistant.outcome = 'failed';
         assistant.created_at = new Date().toISOString();
@@ -187,8 +211,14 @@ export class App implements OnInit, OnDestroy {
       }
       this.failure(error);
     } finally {
-      this.streaming.set(false); this.abort = undefined;
-      try { await this.refreshList(); } catch (error) { if (!this.notice()) this.failure(error); }
+      this.streams.delete(controller);
+      if (this.abort === controller) {
+        this.streaming.set(false); this.abort = undefined;
+      }
+      if (listRefresh) await listRefresh;
+      else {
+        try { await this.refreshList(); } catch (error) { if (!this.notice()) this.failure(error); }
+      }
     }
   }
 }

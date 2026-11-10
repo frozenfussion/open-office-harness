@@ -5,7 +5,7 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App, metaLine } from './app';
 import { Api, ApiError } from './api';
-import { readStream, SseParser } from './sse';
+import { ChatEvent, readStream, SseParser } from './sse';
 import { CONFIG, readConfig } from './config';
 import { appConfig } from './app.config';
 
@@ -23,6 +23,18 @@ describe('Workspace', () => {
     parser.push(': keepalive\ndata: {"type":"delta",\n');
     parser.push('data: "text":"end"}', true);
     expect(events.at(-1)).toEqual({type: 'delta', text: 'end'});
+  });
+  it('parses a late title after completed across split SSE chunks', async () => {
+    const events: ChatEvent[] = [];
+    const wire = 'data: {"type":"completed","message_id":"m","tier":1,"model_title":"Test entry","usage":{"input_tokens":2,"output_tokens":4},"note":null}\n\n' +
+      'data: {"type":"title","conversation_id":"test-conversation","title":"A short conversation title"}\n\n';
+    const bytes = new TextEncoder().encode(wire);
+    await readStream(new ReadableStream({start(controller) {
+      for (const byte of bytes) controller.enqueue(new Uint8Array([byte]));
+      controller.close();
+    }}), event => events.push(event));
+    expect(events.map(event => event.type)).toEqual(['completed', 'title']);
+    expect(events[1]).toEqual({type: 'title', conversation_id: 'test-conversation', title: 'A short conversation title'});
   });
   it('formats the meta line and budget note', () => {
     expect(metaLine({role: 'assistant', content: '', created_at: '2026-11-10T08:00:00Z', tier: 2, model_title: 'Test entry', input_tokens: 12, output_tokens: 24}))
@@ -93,6 +105,128 @@ describe('Workspace', () => {
     expect(view.nativeElement.querySelector('.messages').textContent).toContain('tier 1 · Test entry · 2 in / 4 out tokens');
     expect(view.nativeElement.querySelectorAll('time').length).toBe(2);
     expect(view.componentInstance.messages().every(message => !Number.isNaN(Date.parse(message.created_at)))).toBe(true);
+  });
+  const completion = {type: 'completed', message_id: 'message', tier: 1, model_title: 'Test entry',
+    usage: {input_tokens: 2, output_tokens: 4}, note: null} as const;
+  it('enables the composer at completed and applies a later title immediately without reordering', async () => {
+    let receive!: (event: ChatEvent) => void;
+    let finish!: () => void;
+    const send = vi.fn(async (_id, _content, _tier, _signal, callback) => {
+      receive = callback;
+      callback({type: 'delta', text: 'Answer'});
+      await new Promise<void>(resolve => {finish = resolve;});
+    });
+    const view = await fixture(send);
+    const app = view.componentInstance;
+    let resolveList!: (rows: {id: string; title: string; updated_at: string}[]) => void;
+    vi.spyOn(TestBed.inject(Api), 'list').mockImplementation(() => new Promise(resolve => {resolveList = resolve;}));
+    app.draft = 'Question';
+    const sending = app.send();
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    receive(completion);
+    // The list response can finish after the title event.
+    receive({type: 'title', conversation_id: 'test-conversation', title: '<b>Short title</b>'});
+    expect(app.title()).toBe('<b>Short title</b>');
+    resolveList([
+      {id: 'other', title: 'Other', updated_at: '2026-11-10T09:00:00Z'},
+      {id: 'test-conversation', title: 'Question', updated_at: '2026-11-10T08:00:00Z'},
+    ]);
+    await vi.waitFor(() => expect(app.conversations()[1]?.title).toBe('<b>Short title</b>'));
+    view.detectChanges();
+    await view.whenStable();
+    const composer = view.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+    expect(composer.disabled).toBe(false);
+    composer.value = 'Next question';
+    composer.dispatchEvent(new Event('input'));
+    view.detectChanges();
+    expect(view.nativeElement.querySelector('button[type="submit"]').disabled).toBe(false);
+    expect(view.nativeElement.querySelector('.ooh-cursor')).toBeNull();
+    expect(view.nativeElement.querySelector('h1').textContent).toBe('<b>Short title</b>');
+    expect(view.nativeElement.querySelector('h1 b')).toBeNull();
+    expect(app.conversations()).toEqual([
+      {id: 'other', title: 'Other', updated_at: '2026-11-10T09:00:00Z'},
+      {id: 'test-conversation', title: '<b>Short title</b>', updated_at: '2026-11-10T08:00:00Z'},
+    ]);
+    finish(); await sending;
+    expect(app.messages().at(-1)?.outcome).toBe('completed');
+    expect(app.notice()).toBe('');
+  });
+  it('keeps an old stream title with its conversation and does not unlock a newer answer', async () => {
+    const callbacks: ((event: ChatEvent) => void)[] = [];
+    const finishes: (() => void)[] = [];
+    const send = vi.fn(async (_id, _content, _tier, _signal, receive) => {
+      callbacks.push(receive);
+      await new Promise<void>(resolve => {finishes.push(resolve);});
+    });
+    const view = await fixture(send);
+    const app = view.componentInstance;
+    vi.spyOn(TestBed.inject(Api), 'create').mockResolvedValueOnce({id: 'test-conversation'}).mockResolvedValueOnce({id: 'second-conversation'});
+    app.draft = 'First';
+    const first = app.send();
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    callbacks[0](completion);
+    await Promise.resolve();
+    app.newChat();
+    app.conversations.set([{id: 'test-conversation', title: 'First', updated_at: 'unchanged'}]);
+    callbacks[0]({type: 'title', conversation_id: 'test-conversation', title: 'First conversation title'});
+    expect(app.title()).toBe('New chat');
+    expect(app.conversations()[0].title).toBe('First conversation title');
+    app.draft = 'Second';
+    const second = app.send();
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    finishes[0](); await first;
+    expect(app.streaming()).toBe(true);
+    callbacks[1](completion);
+    finishes[1](); await second;
+    expect(app.streaming()).toBe(false);
+  });
+  it('cancels every pending title stream on destruction', async () => {
+    const callbacks: ((event: ChatEvent) => void)[] = [];
+    const signals: AbortSignal[] = [];
+    const finishes: (() => void)[] = [];
+    const send = vi.fn(async (_id, _content, _tier, signal, receive) => {
+      signals.push(signal);
+      callbacks.push(receive);
+      await new Promise<void>(resolve => {finishes.push(resolve);});
+    });
+    const view = await fixture(send);
+    const app = view.componentInstance;
+    app.draft = 'First';
+    const first = app.send();
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    callbacks[0](completion);
+    app.draft = 'Second';
+    const second = app.send();
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    callbacks[1](completion);
+    view.destroy();
+    expect(signals.every(signal => signal.aborted)).toBe(true);
+    callbacks[0]({type: 'title', conversation_id: 'test-conversation', title: 'Late title'});
+    expect(app.title()).toBe('First');
+    finishes.forEach(finish => finish());
+    await Promise.all([first, second]);
+  });
+  it('keeps a completed answer when the optional title stream breaks', async () => {
+    const view = await fixture(vi.fn(async (_id, _content, _tier, _signal, receive) => {
+      receive({type: 'delta', text: 'Answer'});
+      receive(completion);
+      throw new Error('Title transport broke');
+    }));
+    view.componentInstance.draft = 'Default title';
+    await view.componentInstance.send();
+    expect(view.componentInstance.messages().at(-1)?.outcome).toBe('completed');
+    expect(view.componentInstance.title()).toBe('Default title');
+    expect(view.componentInstance.notice()).toBe('');
+  });
+  it('retains the default title when no title event arrives', async () => {
+    const view = await fixture(vi.fn(async (_id, _content, _tier, _signal, receive) => {
+      receive({type: 'delta', text: 'Answer'});
+      receive(completion);
+    }));
+    view.componentInstance.draft = 'Default title';
+    await view.componentInstance.send();
+    expect(view.componentInstance.title()).toBe('Default title');
+    expect(view.componentInstance.notice()).toBe('');
   });
   async function accessFixture(access: 'approved' | 'pending' | 'rejected' | 'closed' | 'unavailable') {
     const api = {
