@@ -19,7 +19,7 @@
     </tbody></table></div>
     @for (tier of tiers(); track tier) {<section class="card"><h2>Tier {{ tier }} · Who may use this tier</h2>@if (!tierModels(tier).length) {<p>No model yet</p>}
       <label><input type="checkbox" [checked]="everyone(tier)" [disabled]="busy()" (change)="toggleEveryone(tier)"> Everyone</label>
-      <form (ngSubmit)="addPerson(tier)"><label class="ooh-field"><span class="ooh-label">Add person by user ID</span><input class="ooh-input" [name]="'person-' + tier" [(ngModel)]="people[tier]" required></label><button class="ooh-btn ooh-btn--secondary" [disabled]="busy()">Add person</button></form>
+      <form class="person-form" (ngSubmit)="addPerson(tier)"><label class="ooh-field"><span class="ooh-label">Add person by user ID</span><input class="ooh-input" [name]="'person-' + tier" [(ngModel)]="people[tier]" required></label><button class="ooh-btn ooh-btn--secondary" [disabled]="busy()">Add person</button></form>
       @for (g of tierGrants(tier); track g.id) { @if (g.subject_type === 'user') {<p class="ooh-mono">{{ g.subject_id }} <button class="ooh-btn ooh-btn--danger ooh-btn--sm" [disabled]="busy()" (click)="removeGrant(g)">Remove access</button></p>}}
     </section>}
     @if (editing(); as m) {<section class="card"><h2>{{ m.model_entry_id ? 'Edit model' : 'Add model' }}</h2><form #modelForm="ngForm" (ngSubmit)="save()" class="model-form">
@@ -40,7 +40,7 @@
       <label class="ooh-field"><span class="ooh-label">Output price / million tokens USD</span><input class="ooh-input" type="number" name="outputPrice" [(ngModel)]="m.output_price_per_million" required min="0" step="0.000001"></label>
       <label class="ooh-field"><span class="ooh-label">Time limit seconds</span><input class="ooh-input" type="number" name="timeout" [(ngModel)]="m.timeout_seconds" required min="10" max="900" step="1"></label>
       <label class="ooh-field wide"><span class="ooh-label">Extra request settings (JSON object)</span><textarea class="ooh-textarea" name="settings" [(ngModel)]="settings" required rows="6"></textarea></label>
-      <div class="wide"><button class="ooh-btn ooh-btn--primary" [disabled]="busy() || modelForm.invalid">{{ busy() ? 'Saving…' : 'Save model' }}</button><button type="button" class="ooh-btn ooh-btn--ghost" (click)="editing.set(null); key = ''">Cancel</button></div>
+      <div class="wide form-actions"><button class="ooh-btn ooh-btn--primary" [disabled]="busy() || modelForm.invalid">{{ busy() ? 'Saving…' : 'Save model' }}</button><button type="button" class="ooh-btn ooh-btn--ghost" (click)="editing.set(null); key = ''">Cancel</button></div>
     </form></section>}
   </main></div>
 }
