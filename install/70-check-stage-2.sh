@@ -221,7 +221,7 @@ fi
 [[ "$(jq length <<< "$entries")" != 0 ]] || stop "no chat entry with a saved key in tiers 1 to 20; add models in the Admin Console first"
 call_entry() {
   local entry="$1" stream="$2" id title tier payload user rc=0
-  local prompt='Reply with the single word OK.' events reason delta_count last_event http_status
+  local prompt='Reply with the single word OK.' events reason delta_count thinking_count last_event http_status
   local budget_exceeded=false
   [[ "$stream" != true ]] || prompt='Count from 1 to 20, separated by spaces.'
   id="$(jq -er '.model_entry_id' <<< "$entry")"
@@ -254,18 +254,19 @@ call_entry() {
       ([.[] | select(.type == "delta")] | length >= 2) and
       last.type == "completed" and last.model_entry_id == $id and
       ([.[] | select(.type == "completed")] | length == 1) and
-      all(.[0:-1][]; .type == "delta")' <<< "$events" >/dev/null 2>&1 || rc=1
-    reason='expected at least two deltas then completed; inspect stream buffering and provider settings'
+      all(.[0:-1][]; .type == "delta" or .type == "thinking")' <<< "$events" >/dev/null 2>&1 || rc=1
+    reason='expected optional thinking, at least two deltas and one final completed; inspect stream buffering and provider settings'
     [[ "$budget_exceeded" != true ]] || reason='over its daily budget today'
     if [[ "$rc" != 0 ]]; then
       delta_count="$(jq -sr '[.[] | select(.type == "delta")] | length' <<< "$events" 2>/dev/null)" || delta_count=0
+      thinking_count="$(jq -sr '[.[] | select(.type == "thinking")] | length' <<< "$events" 2>/dev/null)" || thinking_count=0
       last_event="$(jq -sr '
         if length == 0 then "none"
-        elif (last.type == "delta" or last.type == "completed" or last.type == "failed" or last.type == "tool_call") then last.type
+        elif (last.type == "thinking" or last.type == "delta" or last.type == "completed" or last.type == "failed" or last.type == "tool_call") then last.type
         else "unknown" end' <<< "$events" 2>/dev/null)" || last_event=invalid
       http_status="${status:-000}"
       [[ "$http_status" =~ ^[0-9]{3}$ ]] || http_status=000
-      reason+=" ($delta_count deltas, last event $last_event, HTTP $http_status)"
+      reason+=" ($delta_count deltas, $thinking_count thinking, last event $last_event, HTTP $http_status)"
     fi
     result "$rc" "$title streamed answer" "$reason"
   fi
