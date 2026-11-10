@@ -1,0 +1,47 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+@if (!signedIn()) {
+  <div class="signin"><canvas aria-hidden="true"></canvas><section class="signin-card">
+    <span class="ooh-label">Open Office Harness · Admin Console</span><h1>Good morning.</h1>
+    <p>Sign in to manage models and tiers.</p>
+    <button class="ooh-btn ooh-btn--primary" [disabled]="!ready()" (click)="signIn()">Sign in with company account</button>
+  </section></div>
+} @else if (!admin()) {
+  <main><p>This console is for administrators.</p><button class="ooh-btn ooh-btn--secondary" (click)="signOut()">Sign out</button></main>
+} @else {
+  <div class="layout"><nav class="ooh-nav" aria-label="Admin Console"><div class="ooh-nav__brand">Open Office Harness<span>Admin Console</span></div>
+    <a class="ooh-nav__item" href="/" aria-current="page">Models &amp; tiers</a>
+    <button class="ooh-btn ooh-btn--ghost" (click)="signOut()">Sign out</button>
+  </nav><main>
+    <header><div><span class="ooh-label">Model gateway</span><h1>Models &amp; tiers</h1><p>Choose which model serves each purpose, on-prem or cloud.</p></div><button class="ooh-btn ooh-btn--primary" (click)="edit()">Add model</button></header>
+    <div class="cards">@for (group of groups(); track group) {<section class="card"><span class="ooh-label">{{ group }}</span>@for (m of groupModels(group); track m.model_entry_id) {<p>{{ m.title || m.model_id }} <span class="ooh-mono">{{ m.role }} · order {{ m.priority }} · {{ m.has_key ? 'key saved' : 'no key' }}</span></p>}</section>}</div>
+    <div class="ooh-table-wrap"><table class="ooh-table"><thead><tr><th>Purpose · tier</th><th>Main</th><th>Backup</th><th>Where</th><th>Rate limit</th><th>Cost today</th><th>Actions</th></tr></thead><tbody>
+    @for (m of models(); track m.model_entry_id) {<tr><td>{{ label(m) }}</td><td>{{ m.role === 'main' ? (m.title || m.model_id) : '—' }}</td><td>{{ m.role === 'backup' ? (m.title || m.model_id) : '—' }}</td><td>{{ m.location === 'cloud' ? 'Cloud' : 'On-prem' }}</td><td>{{ m.rate_limit_per_minute }} / minute / user</td><td>—</td><td><button class="ooh-btn ooh-btn--ghost ooh-btn--sm" (click)="edit(m)">Edit</button><button class="ooh-btn ooh-btn--danger ooh-btn--sm" [disabled]="busy()" (click)="switchOff(m)">Switch off</button></td></tr>}
+    </tbody></table></div>
+    @for (tier of tiers(); track tier) {<section class="card"><h2>Tier {{ tier }} · Who may use this tier</h2>@if (!tierModels(tier).length) {<p>No model yet</p>}
+      <label><input type="checkbox" [checked]="everyone(tier)" [disabled]="busy()" (change)="toggleEveryone(tier)"> Everyone</label>
+      <form (ngSubmit)="addPerson(tier)"><label class="ooh-field"><span class="ooh-label">Add person by user ID</span><input class="ooh-input" [name]="'person-' + tier" [(ngModel)]="people[tier]" required></label><button class="ooh-btn ooh-btn--secondary" [disabled]="busy()">Add person</button></form>
+      @for (g of tierGrants(tier); track g.id) { @if (g.subject_type === 'user') {<p class="ooh-mono">{{ g.subject_id }} <button class="ooh-btn ooh-btn--danger ooh-btn--sm" [disabled]="busy()" (click)="removeGrant(g)">Remove access</button></p>}}
+    </section>}
+    @if (editing(); as m) {<section class="card"><h2>{{ m.model_entry_id ? 'Edit model' : 'Add model' }}</h2><form #modelForm="ngForm" (ngSubmit)="save()" class="model-form">
+      <label class="ooh-field"><span class="ooh-label">Name</span><input class="ooh-input" name="title" [(ngModel)]="m.title" required></label>
+      <label class="ooh-field"><span class="ooh-label">Purpose</span><input class="ooh-input" name="purpose" [(ngModel)]="m.purpose" required list="purposes"><datalist id="purposes"><option value="chat"><option value="classification"><option value="image"></datalist></label>
+      @if (m.purpose === 'chat') {<label class="ooh-field"><span class="ooh-label">Tier</span><input class="ooh-input" type="number" name="tier" [(ngModel)]="m.tier" required min="1" step="1"><span class="ooh-help">A new tier creates its right.</span></label>}
+      <label class="ooh-field"><span class="ooh-label">Role</span><select class="ooh-select" name="role" [(ngModel)]="m.role"><option value="main">Main</option><option value="backup">Backup</option></select></label>
+      <label class="ooh-field"><span class="ooh-label">Where it runs</span><select class="ooh-select" name="location" [(ngModel)]="m.location"><option value="cloud">Cloud</option><option value="on_prem">On-prem</option></select></label>
+      <label class="ooh-field"><span class="ooh-label">Connection type</span><select class="ooh-select" name="api_type" [(ngModel)]="m.api_type">@for (type of types; track type.value) {<option [value]="type.value">{{ type.title }}</option>}</select>@for (type of types; track type.value) {@if (m.api_type === type.value) {<span class="ooh-help">{{ type.help }}</span>}}</label>
+      <label class="ooh-field"><span class="ooh-label">Endpoint</span><input class="ooh-input" name="endpoint" type="url" [(ngModel)]="m.endpoint_url" required></label>
+      <label class="ooh-field"><span class="ooh-label">Model ID at provider</span><input class="ooh-input" name="model" [(ngModel)]="m.model_id" required></label>
+      <label class="ooh-field"><span class="ooh-label">API key</span><input class="ooh-input" type="password" name="key" [(ngModel)]="key" maxlength="4096" autocomplete="new-password" [placeholder]="m.has_key ? 'Saved · type to replace' : 'Type a key'"><span class="ooh-help">Stored encrypted. Changing the endpoint or connection type removes the saved key unless you type a new key.</span></label>
+      <label><input type="checkbox" name="removeKey" [(ngModel)]="removeKey"> Remove saved key</label>
+      <label class="ooh-field"><span class="ooh-label">Priority</span><input class="ooh-input" type="number" name="priority" [(ngModel)]="m.priority" required min="1" max="1000" step="1"><span class="ooh-help">Order within the tier, lowest first</span></label>
+      <label class="ooh-field"><span class="ooh-label">Rate limit per user / minute</span><input class="ooh-input" type="number" name="rate" [(ngModel)]="m.rate_limit_per_minute" required min="1" step="1"></label>
+      <label class="ooh-field"><span class="ooh-label">Daily budget USD</span><input class="ooh-input" type="number" name="budget" [(ngModel)]="m.daily_budget" required min="0" step="0.000001"><span class="ooh-help">0 = no limit</span></label>
+      <label class="ooh-field"><span class="ooh-label">Input price / million tokens USD</span><input class="ooh-input" type="number" name="inputPrice" [(ngModel)]="m.input_price_per_million" required min="0" step="0.000001"></label>
+      <label class="ooh-field"><span class="ooh-label">Output price / million tokens USD</span><input class="ooh-input" type="number" name="outputPrice" [(ngModel)]="m.output_price_per_million" required min="0" step="0.000001"></label>
+      <label class="ooh-field"><span class="ooh-label">Time limit seconds</span><input class="ooh-input" type="number" name="timeout" [(ngModel)]="m.timeout_seconds" required min="10" max="900" step="1"></label>
+      <label class="ooh-field wide"><span class="ooh-label">Extra request settings (JSON object)</span><textarea class="ooh-textarea" name="settings" [(ngModel)]="settings" required rows="6"></textarea></label>
+      <div class="wide"><button class="ooh-btn ooh-btn--primary" [disabled]="busy() || modelForm.invalid">{{ busy() ? 'Saving…' : 'Save model' }}</button><button type="button" class="ooh-btn ooh-btn--ghost" (click)="editing.set(null); key = ''">Cancel</button></div>
+    </form></section>}
+  </main></div>
+}
+@if (error()) {<p class="error" role="alert">{{ error() }}</p>}

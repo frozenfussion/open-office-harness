@@ -34,6 +34,14 @@ public sealed class Grant : BusinessRow
 }
 public sealed class ModelEntry : BusinessRow
 {
+  public string Title { get; set; } = "";
+  [System.Text.Json.Serialization.JsonIgnore]
+  public string? ApiKeyEncrypted { get; set; }
+  public decimal InputPricePerMillion { get; set; }
+  public decimal OutputPricePerMillion { get; set; }
+  public int TimeoutSeconds { get; set; } = 120;
+  public int Priority { get; set; } = 100;
+  public string RequestSettings { get; set; } = "{}";
   public string Purpose { get; set; } = "";
   public int? Tier { get; set; }
   public string Role { get; set; } = "";
@@ -145,7 +153,11 @@ public sealed class CentreDb(DbContextOptions<CentreDb> options) : DbContext(opt
         property.SetColumnName(System.Text.Json.JsonNamingPolicy.SnakeCaseLower.ConvertName(property.Name));
     b.Entity<Grant>().HasIndex(x => new { x.RightKey, x.SubjectType, x.SubjectId })
         .IsUnique().AreNullsDistinct(false).HasFilter("deleted_at IS NULL");
-    b.Entity<ModelEntry>().HasIndex(x => new { x.Purpose, x.Tier, x.Role })
-        .IsUnique().AreNullsDistinct(false).HasFilter("deleted_at IS NULL");
+    b.Entity<ModelEntry>().Property(x => x.RequestSettings).HasColumnType("jsonb").HasDefaultValue("{}");
+    b.Entity<ModelEntry>().Property(x => x.Title).HasDefaultValue("");
+    b.Entity<ModelEntry>().Property(x => x.Priority).HasDefaultValue(100);
+    b.Entity<ModelEntry>().Property(x => x.TimeoutSeconds).HasDefaultValue(120);
+    b.Entity<ModelEntry>().Property(x => x.InputPricePerMillion).HasPrecision(14, 6).HasDefaultValue(0m);
+    b.Entity<ModelEntry>().Property(x => x.OutputPricePerMillion).HasPrecision(14, 6).HasDefaultValue(0m);
   }
 }

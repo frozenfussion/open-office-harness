@@ -11,7 +11,7 @@ public static class Diagnostics
     var cause = error.GetBaseException();
     var message = cause is PostgresException postgres ? postgres.MessageText : cause.Message;
     var secrets = new List<string>(sensitive ?? []);
-    foreach (var setting in new[] { "CC_DB_CONNECTION", "CC_DB_MIGRATE_CONNECTION", "CC_KAFKA_PASSWORD" })
+    foreach (var setting in new[] { "CC_DB_CONNECTION", "CC_DB_MIGRATE_CONNECTION", "CC_KAFKA_PASSWORD", "CC_KEY_ENCRYPTION_KEY" })
     {
       var value = Environment.GetEnvironmentVariable(setting);
       if (string.IsNullOrEmpty(value)) continue;

@@ -53,7 +53,7 @@ public sealed class DatabaseTests
     var created = await Object(await admin.PostAsJsonAsync("/api/admin/models", Model(tier)), HttpStatusCode.Created);
     var modelId = created["model_entry_id"]!.GetValue<string>();
     await Object(await admin.GetAsync("/api/admin/models/" + modelId));
-    Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync("/api/admin/models", Model(tier))).StatusCode);
+    Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/api/admin/models", Model(tier))).StatusCode);
     Assert.NotEmpty((await gateway.GetFromJsonAsync<JsonArray>($"/api/models?purpose=chat&tier={tier}"))!);
     Assert.Equal(HttpStatusCode.Forbidden, (await harness.GetAsync("/api/models?purpose=classification")).StatusCode);
     var changed = Model(tier); changed["daily_budget"] = 1;
