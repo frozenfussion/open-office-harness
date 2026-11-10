@@ -263,6 +263,8 @@ Skill jobs on Kafka and the Slides worker, uploads, files and job events, the st
 | 10 | Harness API checks only `aud` `ooh-harness-api` (the extra `azp` check is removed). The Harness image workflow keeps its read-only runtime check before publishing (agreed deviation) | Spec author, 10 Nov 14:33 (review of B) |
 | 11 | Every builder that uses `dotnet` ends its checks with `dotnet build-server shutdown`, so no .NET build daemon outlives a check (global rule: nothing left running in the background) | Spec author, 10 Nov 14:36 (review of D) |
 | 12 | Test connection button moved from Stage 3 into Stage 2 (section 16): Admin Console → Control Centre → Gateway pinned call; Gateway also accepts the Control Centre's service token for pinned, non-streamed calls only, and returns the provider's status and short message on failure | Aziz, 10 Nov 15:38 |
+| 13 | Request access (section 17): newcomers register themselves with name, email, organisation, reason and their own password; the Workspace shows "waiting for approval" until an admin approves them with a tier on the new Access requests screen; only approved people get grants, Everyone included | Aziz, 10 Nov 16:21–16:26 |
+| 14 | `70` streamed calls send "Count from 1 to 20, separated by spaces." (a one-word reply can arrive as one delta, so "Reply with the single word OK." cannot prove streaming); a FAIL line adds safe counts only: delta count, last event type, HTTP status | Spec author, 10 Nov 16:33 (found on the live run) |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees)
 
@@ -415,3 +417,89 @@ While a test runs the button shows "Testing…" and is disabled. No key is ever 
 12. **Audit:** `action` `model.tested`, `target` = the entry's `model_id` (as other model rows), detail `{model_entry_id, ok, reason, duration_ms}`; one row for success and for failure, plus the usual `audit.events` message.
 13. **Time limits:** the Admin Console stops waiting at `timeout_seconds` + 15 s and shows "took longer than its time limit". When the Control Centre's own limit fires it answers 200 `{ok:false, reason:"took longer than its time limit", provider_status:null, provider_message:null}`.
 14. **70 positive check:** the Control Centre's service token, pinned to an entry with a key, the fixed test message, `stream` false → 200 with non-empty content (one paid call, skipped with a note when no keyed entry exists). Plus the refusals: unpinned → 403, streamed → 403, other messages → 403.
+
+## 17. Request access (added during the build; binding)
+
+**Aziz's words (10 Nov 16:21–16:26):** "they'll try to log in, or if they don't have a username password, they're going to request access, where they're going to enter their name, email address ... And then in the admin, I'm going to get a request to approve." Agreed at 16:26 ("go"): they choose their own password when they request access; Aziz only presses Approve (with a tier) or Reject; no mail server.
+
+This overrides section 13 for "ordinary users' name and email in the Control Centre": the Control Centre now stores name, email, organisation and reason for people who request access.
+
+**What a newcomer sees.** The sign-in page (harness and admin) shows "Need access? **Request access**". The form asks: first name, last name, work email (also the username), organisation or team (required), why you need access (optional, at most 300 characters), password and confirm password. After sending it they are signed in to the Workspace, which shows only: "Thanks, <first name>. Your request is waiting for approval." and Sign out. A rejected person sees "Your request was not approved. Please contact your administrator." and Sign out. An approved person sees the normal Workspace.
+
+**What the admin sees.** A new nav item **Access requests** in the Admin Console with the number waiting (hidden when 0). The screen lists requests with filters Waiting / Approved / Rejected (Waiting first, newest first): name, email, organisation, reason, requested at. Each waiting row has a tier list (the chat tiers that exist) and **Approve**, and **Reject**. A rejected row has **Approve** (with a tier). Approving or rejecting shows the new state at once.
+
+**Who may use the Workspace (the rule, enforced in the Control Centre, fail closed).** A person is *approved* when their access row says `approved`. Only approved people get any grant, including **Everyone**. Rows become approved by: Approve on this screen; an admin adding them by user ID on a tier (adding a person approves them); being an admin (a person with realm role `ooh-admin` seen by the Control Centre is approved automatically); or the migration backfill (every user already in `people` or in an active user grant when the migration runs is approved, so nobody loses access).
+
+### 17.1 Keycloak realm (Part C)
+- `deploy/platform/keycloak/realm-ooh.yaml`: `registrationAllowed: true`, `registrationEmailAsUsername: true`, `loginWithEmailAllowed: true`, `duplicateEmailsAllowed: false`, `verifyEmail: false`, `resetPasswordAllowed: false` (no mail server); `bruteForceProtected` stays true.
+- User profile: two extra attributes shown on registration, editable by the user only at registration: `organisation` (required, 1–100 characters) and `access_reason` (optional, 0–300 characters), with display names "Organisation or team" and "Why do you need access?". The builder checks the exact realm-import shape for the declarative user profile against the Keycloak version in use (`deploy/platform/keycloak`) and reports it.
+- Realm texts (localization, English): `noAccount` = "Need access?", `doRegister` = "Request access", `registerTitle` = "Request access".
+- `ooh-workspace` client: user-attribute mappers `organisation` and `access_reason` into the **access token** only (the standard `name`, `email`, `given_name` claims come from the default scopes).
+- `install/35-realm-sync.sh` applies all of the above to an existing realm (realm settings, user profile, texts, mappers) and stays re-runnable.
+
+### 17.2 Harness API (Part B)
+- `GET /api/me` first calls the Control Centre `POST /api/access/observe` (Harness service token) with `{user_id: sub, name, email, organisation, access_reason}` taken from the user's token (missing claims → null; strings trimmed and cut to the limits above), then the rights call as today. It adds `access`: `approved` | `pending` | `rejected` to its answer. When the observe call fails, `/api/me` answers 503 `rights_unavailable` (fail closed), as the rights call does.
+- No other Harness route changes: rights checks already fail closed, and the Control Centre now returns no grants for people who are not approved.
+- Contract: `access` in the `/api/me` answer, with examples. Tests: claims passed through, limits applied, observe failure → 503, `access` returned.
+
+### 17.3 Control Centre (Part D)
+- New table `access_requests`: `id` uuid, `user_id` text unique, `name`, `email`, `organisation`, `reason` (text, nullable), `status` (`pending`, `approved`, `rejected`, CHECK), `requested_at`, `decided_at` (nullable), `decided_by` (nullable), `approved_tier` int nullable, plus the standard `created_at/updated_at/created_by/updated_by`. A business table: every insert and status change writes an audit row (`access.requested`, `access.approved`, `access.rejected`) and the usual `audit.events` message, with no password (there is none) and no token.
+- Migration backfill: an `approved` row (decided_by `migration`) for every `people.user_id` and every user subject of an active user grant at migration time. Forward migration only.
+- `POST /api/access/observe` (caller must be the Harness service account, `azp` `ooh-harness-api`; anyone else 403): creates a `pending` row if none exists (audited); while `pending`, updates name/email/organisation/reason if they changed (audited); never changes an `approved` or `rejected` row's status. Answers `{status}`.
+- `People.Observe`: a person whose token has realm role `ooh-admin` gets an `approved` row if they have none or theirs is not approved (audited, decided_by `system:admin-role`).
+- Grants: `POST /api/admin/grants` for a `user` subject also sets that user's row to `approved` (creating it if missing; audited) in the same transaction.
+- Rights: `Decision`, `/api/rights/me` and `/api/skills` give **nothing** to a user whose row is missing or not `approved` (Everyone included). One test per path.
+- Admin routes (role `ooh-admin`): `GET /api/admin/access-requests?status=&limit=&after=` (default `pending`, newest first, limit default 50, max 200, `after=<id>`); `GET /api/admin/access-requests/count?status=pending` → `{count}`; `POST /api/admin/access-requests/{id}/approve` `{tier}` → the tier's right must exist (else 400); sets `approved`, `approved_tier`, `decided_at`, `decided_by`, and creates the user grant for `chat.tier.<tier>` if not already there, all in one transaction; `POST /api/admin/access-requests/{id}/reject` → `rejected`. Approve on an approved row → 409; reject on a rejected row → 409.
+- Contract: all routes with examples in `index.control-centre.json`; `contracts/identity.md` gains the Harness → Control Centre observe call.
+- Tests: observe create/update/no status change; non-Harness caller 403; backfill; admin auto-approve; grant-approves; rights give nothing to pending, rejected and unknown users (including Everyone); approve creates the grant; 409s; audit rows on each change.
+
+### 17.4 Admin Console (Part D)
+The Access requests screen and nav count as above, using the design system (same table, buttons, select and spacing as Models & tiers). Names, emails, organisation and reason are shown as plain text only. Tests: list per filter, approve with a tier, reject, count badge hidden at 0.
+
+### 17.5 Workspace (Part C)
+`/api/me.access` decides: `pending` and `rejected` show only the messages above with Sign out (no conversation list, no composer, no other API calls); `approved` shows the Workspace as today. Tests for all three.
+
+### 17.6 Stage check (Part C, `install/70-check-stage-2.sh`)
+- Keycloak's registration page for `ooh-workspace` answers 200 and shows "Request access" and the two extra fields.
+- As the Harness service account through the Control Centre: `POST /api/access/observe` for a new `stage-check-<uuid>` user → `pending`; `GET /api/rights/me` for that user → no tiers and no skills even when a tier has Everyone.
+- No person is created in Keycloak by 70.
+
+### 17.7 Files per Part
+- Part B: `services/harness-api/**`, `contracts/http/harness-api.openapi.yaml`, its examples, `index.harness-api.json`.
+- Part C: `deploy/platform/keycloak/realm-ooh.yaml`, `install/35-realm-sync.sh`, `install/70-check-stage-2.sh`, `apps/workspace/**`, `README.md` (Quick Guide: how a newcomer requests access and how the admin approves), `docs/ARCHITECTURE.md`.
+- Part D: `services/control-centre/**`, `apps/admin-console/**`, `contracts/http/control-centre.openapi.yaml`, its examples, `index.control-centre.json`, `contracts/identity.md`.
+- Each Part merges `origin/stage-2-access-requests` into its own branch first; Claude Code reviews each Part; Claude merges into `stage-2`.
+
+**Order to deploy.** 35 → 61 → 67 → 68 → 69 → 70.
+
+**Out of scope here:** email verification and password-reset emails (need a mail server), notifying the admin outside the console, deleting requests.
+
+### 17.8 Review decisions for section 17 (Claude Code review `reviews/stage-2-access-spec-review`; binding, override section 17 where they differ)
+
+Defaults chosen by the spec author where the review asked Aziz; Aziz may change any of them.
+1. **Existing users who only had Everyone** request access once and Aziz approves them (in practice only test accounts). No special migration path. README says so.
+2. **Deploy order:** 61 → 67 → 35 → 68 → 69 → 62 → 70 (the rule and observe exist before registration opens). Backfill takes only `people` rows with `first_seen_at` before the migration time and user grants created before it.
+3. **User profile:** `organisation` and `access_reason` are user-editable (Keycloak 26 has no "registration only"; harmless, because the Control Centre copies them only while a request is pending). `organisation`: `required {roles:[user]}`, validator `length` max 100; `access_reason`: validator `length` max 300; both `permissions {view:[admin,user], edit:[admin,user]}`. 35 **reads** the current profile (`GET /admin/realms/ooh/users/profile`), adds or updates only these two attributes, keeps every other attribute and `unmanagedAttributePolicy`, writes it back, and reads it again to verify. Fresh install: the realm's `components` entry `org.keycloak.userprofile.UserProfileProvider` with `kc.user.profile.config` holding the full JSON (defaults plus the two attributes).
+4. **Exact mechanics for 35:** `kcadm update realms/ooh -s registrationAllowed=true -s registrationEmailAsUsername=true -s loginWithEmailAllowed=true -s duplicateEmailsAllowed=false -s editUsernameAllowed=false -s verifyEmail=false -s resetPasswordAllowed=false -s internationalizationEnabled=true -s 'supportedLocales=["en"]' -s defaultLocale=en -s 'passwordPolicy=length(12) and notUsername and notEmail and maxLength(128)'`; texts via `PUT /admin/realms/ooh/localization/en/<key>` (`text/plain`) for `noAccount`, `doRegister`, `registerTitle`; mappers `oidc-usermodel-attribute-mapper` (`user.attribute`, `claim.name`, `access.token.claim: true`, `id.token.claim: false`, `userinfo.token.claim: false`), synced by name and never removed by the audience clean-up. The same settings are in `realm-ooh.yaml` (`localizationTexts`, `components`, client `protocolMappers`). With `editUsernameAllowed: false` and email as username, a user cannot change their email; the builder confirms this on Keycloak 26.8.2 and reports it.
+5. **"Request access" is Keycloak's own link** on its login page (the realm texts). The apps' sign-in screens keep their single button. The Admin Console's non-admin page adds: "To request access, open the Workspace: https://harness.<domain>" as a link (only the Workspace creates requests).
+6. **Admins:** the Harness also sends `is_admin` (from the verified user token's `realm_access.roles` containing `ooh-admin`) in `observe`; the Control Centre approves such a person (`decided_by system:admin-role`, audited). `People.Observe` keeps doing the same.
+7. **Check users:** 70 uses one fixed user ID `stage-check-access` (observe is idempotent) and expects any status other than `approved`. The Access requests list and count **hide user IDs starting `stage-check-`**.
+8. **The Everyone check moves to 62 (Part D):** 62 grants Everyone on tier 99, checks that a pending `stage-check-` user gets no tier 99 and an approved one does, then removes that grant. 70 keeps only the observe → not approved check and the registration-page check.
+9. **Revoke:** approved rows show **Revoke** (status `rejected`, audited `access.revoked`); a revoked person gets nothing, Everyone included. Rejected rows show **Approve**. 
+10. **Adding a person by user ID approves them**, including a rejected one (audited `access.approved`, `decided_by` the admin). The Control Centre does not look up Keycloak. The tier panel shows a short note under "Add person": "Adding a person also approves their access."
+11. **Spam:** at most **100 waiting** requests; past that, `observe` creates nothing and answers `{status:"closed"}`, and the Workspace says "Requests are closed for now. Please contact your administrator." The Access requests screen labels every email "not verified". No CAPTCHA now (README says how to switch registration off with 35 if spam appears: a `--registration off` flag on 35).
+12. Password policy as in item 4.
+13. Self-registered users can sign in to the Admin Console and see the non-admin page; accepted.
+14. **Audit:** access audit rows hold `user_id`, `status`, `decided_by`, `approved_tier` only, never name, email, organisation or reason; `audit.events` carries the usual fields only.
+15. Part D changes `contracts/identity.md` "Self-registration is off" to "Self-registration is on; a newcomer waits for approval"; the device sign-in rule stays.
+16. `access_requests` gets `deleted_at` (unused in Stage 2) and the same no-DELETE/TRUNCATE trigger as the other business tables; the app role has no DELETE.
+17. **Details:**
+    - the Approve tier list uses the same tiers as Models & tiers (an active entry or grant, never tier 99), with none preselected; Approve stays disabled until a tier is chosen;
+    - approving when the user already has that tier's grant adds no second grant;
+    - the count route takes `status=pending` only;
+    - `observe` matches the exact `sub`;
+    - field limits after trimming: name 200, email 320, organisation 100, reason 300;
+    - when `/api/me` answers 503, the Workspace shows its normal red notice, not the waiting screen.
+18. **Forgotten passwords:** the README (Part C) adds "Reset someone's password" (Keycloak admin console → Users → the person → Credentials → Reset password, temporary on). The Account Console stays reachable.
+
+**Files added by 17.8:** Part B: none new. Part C: `install/35-realm-sync.sh` gains `--registration off|on`. Part D: `install/62-check-control-centre.sh`.

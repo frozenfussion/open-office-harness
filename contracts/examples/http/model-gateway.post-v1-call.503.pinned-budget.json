@@ -1,0 +1,6 @@
+{
+  "code": "budget_exceeded",
+  "message": "Every model is over its daily budget",
+  "provider_status": null,
+  "provider_message": null
+}

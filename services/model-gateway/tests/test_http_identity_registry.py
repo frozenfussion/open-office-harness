@@ -511,3 +511,399 @@ def test_server_log_diagnostics_are_safe() -> None:
     )
     assert json.loads(formatter.format(lifecycle))["exception_type"] == "KeyError"
     assert "synthetic-private" not in formatter.format(lifecycle)
+
+
+def connection_body(entry: Entry) -> dict:
+    return {
+        "purpose": entry.purpose,
+        "tier": entry.tier,
+        "model_entry_id": str(entry.id),
+        "stream": False,
+        "user_id": "admin-test-fake-admin",
+        "messages": [{"role": "user", "content": "Reply with the single word OK."}],
+    }
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"model_entry_id": None},
+        {"stream": True},
+        {"messages": [{"role": "user", "content": "Other message"}]},
+        {"messages": [{"role": "system", "content": "Reply with the single word OK."}]},
+        {
+            "messages": [
+                {"role": "user", "content": "Reply with the single word OK."},
+                {"role": "user", "content": "Reply with the single word OK."},
+            ]
+        },
+        {"tools": [{"name": "fake", "description": "fake", "input_schema": {}}]},
+        {"user_id": "fake-user"},
+    ],
+)
+def test_control_centre_test_call_refusals(
+    http: tuple, entry: Entry, change: dict
+) -> None:
+    client, key = http
+    with respx.mock as mock:
+        response = client.post(
+            "/v1/call",
+            json=connection_body(entry) | change,
+            headers={"Authorization": "Bearer " + token(key, azp="ooh-control-centre")},
+        )
+        assert response.status_code == 403 and response.json()["code"] == "forbidden"
+        assert not mock.calls
+    assert not client.app.state.db.rows
+
+
+def test_control_centre_cannot_classify_or_other_caller_test(
+    http: tuple, entry: Entry
+) -> None:
+    client, key = http
+    response = client.post(
+        "/v1/classify",
+        json={"text": "fake", "questions": {"fake": "fake"}},
+        headers={"Authorization": "Bearer " + token(key, azp="ooh-control-centre")},
+    )
+    assert response.status_code == 403
+    response = client.post(
+        "/v1/call",
+        json=connection_body(entry),
+        headers={"Authorization": "Bearer " + token(key, azp="ooh-workspace")},
+    )
+    assert response.status_code == 403
+
+
+def test_control_centre_test_call_success_records_usage(
+    http: tuple, entry: Entry
+) -> None:
+    client, key = http
+    with respx.mock as mock:
+        route = mock.post("https://example.invalid/chat/completions").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"content": "OK"}}],
+                    "usage": {"prompt_tokens": 8, "completion_tokens": 3},
+                },
+            )
+        )
+        response = client.post(
+            "/v1/call",
+            json=connection_body(entry),
+            headers={"Authorization": "Bearer " + token(key, azp="ooh-control-centre")},
+        )
+        assert route.call_count == 1
+        assert (
+            json.loads(route.calls[0].request.content)["messages"]
+            == connection_body(entry)["messages"]
+        )
+    assert response.status_code == 200 and response.json()["content"] == "OK"
+    assert response.json()["model_entry_id"] == str(entry.id)
+    assert response.json()["usage"] == {"input_tokens": 8, "output_tokens": 3}
+    assert response.json()["cost_usd"] == 0.000028
+    assert len(client.app.state.db.rows) == 1 and client.app.state.db.rows[0][2] == "ok"
+
+
+@pytest.mark.parametrize(
+    "kind,path",
+    [
+        ("openai_chat_completions", "/chat/completions"),
+        ("openai_responses", "/responses"),
+        ("anthropic_messages", "/v1/messages"),
+    ],
+)
+@pytest.mark.parametrize("status", [401, 403, 402, 404, 429, 500])
+@pytest.mark.parametrize("caller_id", ["ooh-control-centre", "ooh-harness-api"])
+def test_provider_error_diagnostics_only_for_admin_test(
+    http: tuple,
+    entry: Entry,
+    kind: str,
+    path: str,
+    status: int,
+    caller_id: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    client, key = http
+    selected = entry.model_copy(update={"api_type": kind})
+    client.app.state.engine.registry = FakeRegistry([selected])
+    caplog.set_level(logging.DEBUG, logger="gateway")
+    with respx.mock as mock:
+        route = mock.post("https://example.invalid" + path).mock(
+            return_value=httpx.Response(
+                status,
+                json={
+                    "error": {
+                        "message": "Rejected fake-provider-key and provider-key and sk-synthetic-secret; marker"
+                    }
+                },
+            )
+        )
+        response = client.post(
+            "/v1/call",
+            json=connection_body(entry),
+            headers={"Authorization": "Bearer " + token(key, azp=caller_id)},
+        )
+        assert route.call_count == 1
+    assert response.status_code == 503 and response.json()["code"] == "unavailable"
+    if caller_id == "ooh-control-centre":
+        assert response.json()["provider_status"] == status
+        assert (
+            response.json()["provider_message"]
+            == "Rejected [removed] and [removed] and [removed]; marker"
+        )
+    else:
+        assert set(response.json()) == {"code", "message"}
+    failures = [
+        json.loads(record.getMessage())
+        for record in caplog.records
+        if record.name == "gateway" and '"provider_failed"' in record.getMessage()
+    ]
+    assert failures == [
+        {
+            "message": "provider_failed",
+            "model_entry_id": str(entry.id),
+            "provider_status": status,
+            "reason": "http",
+        }
+    ]
+    captured = repr([record.__dict__ for record in caplog.records])
+    assert (
+        "fake-provider-key" not in captured
+        and "sk-synthetic-secret" not in captured
+        and "Rejected" not in captured
+    )
+    assert (
+        len(client.app.state.db.rows) == 1
+        and client.app.state.db.rows[0][2] == "failed"
+    )
+
+
+@pytest.mark.parametrize(
+    "kind,path",
+    [
+        ("openai_chat_completions", "/chat/completions"),
+        ("openai_responses", "/responses"),
+        ("anthropic_messages", "/v1/messages"),
+    ],
+)
+@pytest.mark.parametrize(
+    "failure,reason,provider_message",
+    [
+        ("timeout", "timeout", "time limit reached"),
+        ("connect", "connect", "could not connect"),
+        ("bad_answer", "bad_answer", None),
+    ],
+)
+def test_test_call_transport_and_bad_answer(
+    http: tuple,
+    entry: Entry,
+    kind: str,
+    path: str,
+    failure: str,
+    reason: str,
+    provider_message: str | None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    client, key = http
+    client.app.state.engine.registry = FakeRegistry(
+        [entry.model_copy(update={"api_type": kind})]
+    )
+    caplog.set_level(logging.WARNING, logger="gateway")
+    with respx.mock as mock:
+        route = mock.post("https://example.invalid" + path)
+        if failure == "bad_answer":
+            route.mock(return_value=httpx.Response(200, json={}))
+        else:
+            route.mock(
+                side_effect=(
+                    httpx.ReadTimeout if failure == "timeout" else httpx.ConnectError
+                )("fake-provider-key")
+            )
+        response = client.post(
+            "/v1/call",
+            json=connection_body(entry),
+            headers={"Authorization": "Bearer " + token(key, azp="ooh-control-centre")},
+        )
+    assert response.status_code == 503
+    assert (
+        response.json()["provider_status"] is None
+        and response.json()["provider_message"] == provider_message
+    )
+    record = json.loads(
+        next(
+            record.getMessage() for record in caplog.records if record.name == "gateway"
+        )
+    )
+    assert record == {
+        "message": "provider_failed",
+        "model_entry_id": str(entry.id),
+        "provider_status": None,
+        "reason": reason,
+    }
+    assert "fake-provider-key" not in caplog.text
+
+
+@pytest.mark.parametrize("reason", ["budget", "rate", "registry"])
+def test_control_centre_limits_and_registry_errors(
+    http: tuple, entry: Entry, reason: str
+) -> None:
+    from decimal import Decimal
+
+    client, key = http
+    if reason == "budget":
+        client.app.state.engine.registry = FakeRegistry(
+            [entry.model_copy(update={"daily_budget": Decimal(1)})]
+        )
+        client.app.state.db.spent = Decimal(1)
+    elif reason == "rate":
+        client.app.state.db.count = entry.rate_limit_per_minute
+    else:
+
+        async def fail(purpose: str, tier: int | None) -> list[Entry]:
+            raise GatewayError(
+                503, "registry_unavailable", "The model registry did not answer"
+            )
+
+        client.app.state.engine.registry.get = fail
+    with respx.mock as mock:
+        response = client.post(
+            "/v1/call",
+            json=connection_body(entry),
+            headers={"Authorization": "Bearer " + token(key, azp="ooh-control-centre")},
+        )
+        assert not mock.calls
+    assert response.status_code == (429 if reason == "rate" else 503)
+    assert (
+        response.json()["code"]
+        == {
+            "budget": "budget_exceeded",
+            "rate": "rate_limited",
+            "registry": "registry_unavailable",
+        }[reason]
+    )
+    if reason != "rate":
+        assert (
+            response.json()["provider_status"] is None
+            and response.json()["provider_message"] is None
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failure,status,reason",
+    [
+        (401, 401, "unauthorized"),
+        (403, 403, "unauthorized"),
+        (404, 404, "missing"),
+        (500, 500, "bad answer"),
+        ("connect", None, "unreachable"),
+        ("timeout", None, "unreachable"),
+        ("bad_json", 200, "bad answer"),
+        ("missing_field", 200, "bad answer"),
+        ("empty_key", 200, "bad answer"),
+        ("token", 401, "unauthorized"),
+    ],
+)
+async def test_key_fetch_failure_diagnostics(
+    entry: Entry,
+    failure: int | str,
+    status: int | None,
+    reason: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="gateway")
+    with respx.mock as mock:
+        mock.post(CONFIG.issuer + "/protocol/openid-connect/token").mock(
+            return_value=httpx.Response(401, text="synthetic-private-body")
+            if failure == "token"
+            else httpx.Response(
+                200,
+                json={
+                    "access_token": "synthetic-private-service-token",
+                    "expires_in": 120,
+                },
+            )
+        )
+        route = mock.get(f"{CONFIG.registry_url}/api/models/{entry.id}/key")
+        if failure in ("connect", "timeout"):
+            route.mock(
+                side_effect=(
+                    httpx.ConnectError if failure == "connect" else httpx.ReadTimeout
+                )("synthetic-private-body")
+            )
+        elif failure == "bad_json":
+            route.mock(return_value=httpx.Response(200, text="synthetic-private-body"))
+        elif failure == "missing_field":
+            route.mock(
+                return_value=httpx.Response(
+                    200, json={"diagnostic": "synthetic-private-body"}
+                )
+            )
+        elif failure == "empty_key":
+            route.mock(
+                return_value=httpx.Response(
+                    200, json={"api_key": "", "diagnostic": "synthetic-private-body"}
+                )
+            )
+        elif failure != "token":
+            route.mock(
+                return_value=httpx.Response(
+                    failure,
+                    json={
+                        "api_key": "synthetic-private-provider-key",
+                        "diagnostic": "synthetic-private-body",
+                    },
+                )
+            )
+        async with httpx.AsyncClient() as client:
+            registry = Registry(CONFIG, client, Identity(CONFIG, client))
+            with pytest.raises((httpx.HTTPError, ValueError, KeyError, TypeError)):
+                await registry.key(entry)
+            assert entry.id not in registry.keys
+    records = [
+        json.loads(record.getMessage())
+        for record in caplog.records
+        if record.name == "gateway"
+    ]
+    assert records == [
+        {
+            "message": "key unavailable",
+            "model_entry_id": str(entry.id),
+            "status": status,
+            "reason": reason,
+        }
+    ]
+    assert "synthetic-private" not in repr(
+        [record.__dict__ for record in caplog.records]
+    )
+
+
+@pytest.mark.anyio
+async def test_keyless_entry_missing_key_is_not_logged_as_failure(
+    entry: Entry, caplog: pytest.LogCaptureFixture
+) -> None:
+    with respx.mock as mock:
+        mock.post(CONFIG.issuer + "/protocol/openid-connect/token").mock(
+            return_value=httpx.Response(
+                200, json={"access_token": "fake-token", "expires_in": 120}
+            )
+        )
+        route = mock.get(f"{CONFIG.registry_url}/api/models/{entry.id}/key").mock(
+            return_value=httpx.Response(404)
+        )
+        async with httpx.AsyncClient() as client:
+            registry = Registry(CONFIG, client, Identity(CONFIG, client))
+            for _ in range(2):
+                assert (
+                    await registry.key(entry.model_copy(update={"has_key": False}))
+                    == ""
+                )
+        assert route.call_count == 1
+    assert not [record for record in caplog.records if record.name == "gateway"]

@@ -312,3 +312,65 @@ async def test_messages_missing_input_usage_defaults_zero(
             ]
     assert result[0] == {"type": "delta", "text": "Hello "}
     assert result[-1] == {"type": "usage", "input_tokens": 0, "output_tokens": 3}
+
+
+@pytest.mark.parametrize(
+    "text,key,expected",
+    [
+        (
+            "full abcdefghijklmnop; partial defghijkl; end",
+            "abcdefghijklmnop",
+            "full [removed]; partial [removed]; end",
+        ),
+        (
+            "partial abcdefgh and ijklmnop",
+            "abcdefghijklmnop",
+            "partial [removed] and [removed]",
+        ),
+        (
+            "small abc; sk-other_secret; sk-ant-other_secret",
+            "abc",
+            "small [removed]; [removed]; [removed]",
+        ),
+        ("no saved key sk-another_secret", "", "no saved key [removed]"),
+        ("key-less text", "", "key-less text"),
+    ],
+)
+def test_provider_message_redaction(text: str, key: str, expected: str) -> None:
+    from gateway.adapters.common import sanitize_message
+
+    assert sanitize_message(text, key) == expected
+
+
+@pytest.mark.anyio
+async def test_provider_error_body_read_is_bounded(entry: Entry, call: Call) -> None:
+    from collections.abc import AsyncIterator
+
+    from gateway.adapters.common import ProviderError
+
+    class Body(httpx.AsyncByteStream):
+        reads = 0
+        closed = False
+
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            self.reads += 1
+            yield b"x" * 4096
+            self.reads += 1
+            yield b"must not read this" * 4096
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    body = Body()
+    with respx.mock as mock:
+        mock.post("https://example.invalid/chat/completions").mock(
+            return_value=httpx.Response(500, stream=body)
+        )
+        async with httpx.AsyncClient() as client:
+            with pytest.raises(ProviderError) as error:
+                _ = [
+                    event
+                    async for event in resolve(entry)(client, entry, "fake-key", call)
+                ]
+    assert body.reads == 1 and body.closed
+    assert error.value.status == 500 and error.value.provider_message == "x" * 300

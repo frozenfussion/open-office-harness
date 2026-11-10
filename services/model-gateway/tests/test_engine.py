@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+import json
 import logging
 from decimal import Decimal
 from uuid import UUID
@@ -51,6 +52,19 @@ async def test_failover_boundary(
         assert events[-1]["type"] == ("failed" if after_output else "completed")
         assert db.rows[0][2] == "failed"
         assert "fake-provider-key" not in caplog.text
+        failures = [
+            json.loads(record.getMessage())
+            for record in caplog.records
+            if record.name == "gateway" and '"provider_failed"' in record.getMessage()
+        ]
+        assert failures == [
+            {
+                "message": "provider_failed",
+                "model_entry_id": str(entry.id),
+                "provider_status": None if after_output else 500,
+                "reason": "bad_answer" if after_output else "http",
+            }
+        ]
 
 
 @pytest.mark.anyio

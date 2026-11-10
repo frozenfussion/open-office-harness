@@ -1,0 +1,6 @@
+{
+  "ok": false,
+  "reason": "key refused",
+  "provider_status": 401,
+  "provider_message": "Synthetic provider message"
+}
