@@ -29,8 +29,10 @@
 
 3. **Use chat.** Open <https://harness.faysalaziz.com>. Click **Sign in with
    company account**, then sign in on Keycloak with your account password.
-   Choose a tier, type a question and press Enter (Shift+Enter adds a line).
-   The answer appears as text while it streams. The line beneath it shows
+   Choose a **Chat model**, type a question and press Enter (Shift+Enter adds a line).
+   The picker shows the tier's main model title followed by `- Tier N`, or just
+   `Tier N` if no title is available. Only your allowed tiers appear. The answer
+   appears as text while it streams. The line beneath it shows
    tier, model title and token counts. Pick a recent conversation to reopen it;
    reloading keeps the selected conversation. **New chat** starts another one.
    Under your name, find **About me · Your user ID** and click **Copy user ID**

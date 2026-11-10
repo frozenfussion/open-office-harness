@@ -65,6 +65,10 @@ export class App implements OnInit, OnDestroy {
     try { await navigator.clipboard.writeText(this.me()?.user_id || ''); this.copied.set(true); }
     catch { this.notice.set('Copy did not work. Select and copy your user ID.'); }
   }
+  tierLabel(tier: number): string {
+    const title = this.me()?.chat_tier_titles?.[String(tier)];
+    return title ? `${title} - Tier ${tier}` : `Tier ${tier}`;
+  }
   accessMessage(): string {
     switch (this.me()?.access) {
       case 'pending': {

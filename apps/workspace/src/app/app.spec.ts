@@ -38,7 +38,7 @@ describe('Workspace', () => {
     const view = TestBed.createComponent(App);
     view.detectChanges();
     view.componentInstance.signedIn.set(true);
-    view.componentInstance.me.set({access: 'approved', user_id: 'test-user', name: 'Test user', chat_tiers: [1, 3], skills: []});
+    view.componentInstance.me.set({access: 'approved', user_id: 'test-user', name: 'Test user', chat_tiers: [1, 3], chat_tier_titles: {}, skills: []});
     view.componentInstance.tier = 1;
     view.detectChanges();
     await view.whenStable();
@@ -48,6 +48,19 @@ describe('Workspace', () => {
     const view = await fixture();
     const options = [...view.nativeElement.querySelectorAll('select option')] as HTMLOptionElement[];
     expect(options.map(option => option.textContent?.trim())).toEqual(['Tier 1', 'Tier 3']);
+  });
+  it('labels allowed chat models with their titles and falls back to the tier', async () => {
+    const view = await fixture();
+    view.componentInstance.me.update(me => me ? {
+      ...me, chat_tier_titles: {'1': 'Test main entry', '2': 'Hidden entry'},
+    } : null);
+    view.detectChanges();
+    const select = view.nativeElement.querySelector('select[aria-label="Chat model"]');
+    expect(select).not.toBeNull();
+    const options = [...select.querySelectorAll('option')] as HTMLOptionElement[];
+    expect(options.map(option => option.textContent?.trim())).toEqual(['Test main entry - Tier 1', 'Tier 3']);
+    expect(view.nativeElement.querySelector('.ooh-label').textContent).toBe('Chat model');
+    expect(select.textContent).not.toContain('Hidden entry');
   });
   it('shows a 403 message in an amber notice', async () => {
     const view = await fixture();
@@ -82,7 +95,7 @@ describe('Workspace', () => {
     const api = {
       me: access === 'unavailable'
         ? vi.fn().mockRejectedValue(new ApiError(503, 'Your access could not be checked. Try again.'))
-        : vi.fn().mockResolvedValue({access, user_id: 'test-user', name: 'Given Family', chat_tiers: [1], skills: []}),
+        : vi.fn().mockResolvedValue({access, user_id: 'test-user', name: 'Given Family', chat_tiers: [1], chat_tier_titles: {}, skills: []}),
       list: vi.fn().mockResolvedValue([]),
       conversation: vi.fn(), create: vi.fn(), send: vi.fn(),
     };

@@ -50,9 +50,9 @@
     </nav>
     <main class="chat">
       <header><h1>{{ title() }}</h1>
-        <label class="ooh-field"><span class="ooh-label">Chat tier</span>
-          <select class="ooh-select" aria-label="Chat tier" [(ngModel)]="tier" [disabled]="streaming() || loading()">
-            @for (allowed of me()?.chat_tiers || []; track allowed) { <option [ngValue]="allowed">Tier {{ allowed }}</option> }
+        <label class="ooh-field"><span class="ooh-label">Chat model</span>
+          <select class="ooh-select" aria-label="Chat model" [(ngModel)]="tier" [disabled]="streaming() || loading()">
+            @for (allowed of me()?.chat_tiers || []; track allowed) { <option [ngValue]="allowed">{{ tierLabel(allowed) }}</option> }
           </select>
         </label>
       </header>
