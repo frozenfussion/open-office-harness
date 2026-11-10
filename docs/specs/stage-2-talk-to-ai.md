@@ -32,7 +32,7 @@ Not in this stage (section 13): skill jobs on Kafka, uploads and files, classifi
 4. `install/70-check-stage-2.sh` prints `PASS` for every line and ends with `DONE` (section 9).
 5. In the browser, Aziz signs in to the Workspace, picks a tier, asks a question, and the answer streams in word by word; the meta line under the answer shows the tier, the model's title and the token counts; reloading the page shows the conversation.
 6. After `sudo reboot`, `40-check-platform.sh`, `62-check-control-centre.sh` and `70-check-stage-2.sh` pass again without anyone touching the server (allow 5 minutes), and the browser chat works.
-7. In a clean worktree of `stage-2`: every Part's checks (section 7) pass; `uv run --project contracts/check pytest` passes; `bash -n` and `shellcheck` are clean for every `install/*.sh`; `kubeconform -strict` passes on `deploy/`.
+7. In a clean worktree of `stage-2`: every Part's checks (section 7) pass; `uv run --project contracts/check pytest contracts/check/tests` passes; `bash -n` and `shellcheck` are clean for every `install/*.sh`; `kubeconform -strict` passes on `deploy/`.
 8. `README.md` Quick Guide covers section 10; `docs/STATUS.md` says Stage 2 is done and lists what was checked.
 
 ## 3. Prerequisites (before the builders start)
@@ -131,7 +131,7 @@ deploy/platform/postgres/db-modelgateway.yaml    (2 Databases + 4 DatabaseRoles)
 install/64-model-gateway-setup.sh                (database role Secrets, databases, test settings file ~/.config/ooh/model-gateway-test.env, the Gateway's Keycloak client secret copied into Secret model-gateway-oidc; no printing; re-runnable)
 install/65-model-gateway-deploy.sh               (<12-character tag>; image check as 61; apply; wait for the new revision and migrations; DONE)
 ```
-Checks: `uv run ruff check`, `uv run ruff format --check`, `uv run pytest` in `services/model-gateway` (database tests included once 64 has run); `uv run --project contracts/check pytest`; `bash -n` + `shellcheck` on its scripts; `kubeconform -strict` on its manifests.
+Checks: `uv run ruff check`, `uv run ruff format --check`, `uv run pytest` in `services/model-gateway` (database tests included once 64 has run); `uv run --project contracts/check pytest contracts/check/tests`; `bash -n` + `shellcheck` on its scripts; `kubeconform -strict` on its manifests.
 Tests must cover: each adapter's request and streamed answer (respx fakes), tools in and tool calls out per adapter, `request_settings` merge and null removal, main → backup before first output, no failover after first output, rate limit skip, budget skip, cost maths, `daily_budget` 0 = no limit, unsupported `api_type` skipped, wrong caller 403, the key never logged (a test captures logs), registry and key caching, append-only `usage` (database test as owner and as app role, rolled back).
 
 ### Part B — Harness API (branch `stage-2-part-b`, Codex B, tile 1)
@@ -254,6 +254,14 @@ Skill jobs on Kafka and the Slides worker, uploads, files and job events, the st
 | 1 | Spec review by Claude Code before the builders started (38 findings, `reviews/stage-2-spec-review` in the course folder): every finding is resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 10 Nov 14:00 |
 | 2 | Spec re-review (37 of 38 fixed, 8 new small findings, `reviews/stage-2-spec-rereview`): the earlier sections edited in place to agree with section 15; section 15 gains "Re-review additions" | Spec author, 10 Nov 14:04 |
 | 3 | Final check (`reviews/stage-2-spec-final`): section 9 rewritten to match section 15; port 8081 in the Ports row; 62 keeps one check user; tiers with grants but no model stay visible | Spec author, 10 Nov 14:06 |
+| 4 | The Gateway's registry answer (`GET /api/models`, Part D) includes `created_at` (UTC), so the Gateway can order entries by creation time | Spec author, 10 Nov 14:13 (asked by Codex A) |
+| 5 | Conversation paging: `GET /api/conversations?before=<conversation id>` — the id of the last conversation shown; ordered by `updated_at` then `id`, newest first; `limit` default 20, maximum 100. Parts B and C both use it | Spec author, 10 Nov 14:13 (B) and 14:21 (C) |
+| 6 | Part D removes the obsolete duplicate-model 409 entry from `contracts/examples/index.json` and its example file (the one edit Part D makes to `index.json`) | Spec author, 10 Nov 14:13 (asked by Codex D) |
+| 7 | `GET /api/admin/models` gains an optional `after=<model entry id>` cursor (limit and maximum unchanged); with no `after` the answer is exactly as in Stage 1. The Admin Console reads every page, so any number of models can be shown | Spec author, 10 Nov 14:21 (asked by Codex D) |
+| 8 | The contract check runs with the explicit path: `uv run --project contracts/check pytest contracts/check/tests` (the bare command also collects the service tests and fails). Done-when 7 and the Part checks are edited in place | Spec author, 10 Nov 14:33 (review of A and B) |
+| 9 | Gateway, mixed skips: if no entry was called and at least one was skipped for rate, the answer is 429 `rate_limited`; 503 `budget_exceeded` only when every entry was skipped for budget | Spec author, 10 Nov 14:33 (review of A) |
+| 10 | Harness API checks only `aud` `ooh-harness-api` (the extra `azp` check is removed). The Harness image workflow keeps its read-only runtime check before publishing (agreed deviation) | Spec author, 10 Nov 14:33 (review of B) |
+| 11 | Every builder that uses `dotnet` ends its checks with `dotnet build-server shutdown`, so no .NET build daemon outlives a check (global rule: nothing left running in the background) | Spec author, 10 Nov 14:36 (review of D) |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees)
 
