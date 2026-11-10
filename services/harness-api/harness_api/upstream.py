@@ -250,6 +250,9 @@ class Upstream:
                 ): "Your access must be approved before requesting a model.",
                 (400, "tier_not_requestable"): "This tier cannot be requested.",
                 (409, "already_requested"): "You have already requested this tier.",
+                (409, "too_soon"): (
+                    "You can ask for this model again 7 days after the last answer."
+                ),
                 (
                     429,
                     "too_many_requests",

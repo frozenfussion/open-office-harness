@@ -119,6 +119,7 @@ def create_app(
             "not_approved",
             "tier_not_requestable",
             "already_requested",
+            "too_soon",
             "too_many_requests",
         }:
             event = "rights_error"

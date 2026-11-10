@@ -737,7 +737,9 @@ paths:
           description: not_approved
           content: *id004
         '409':
-          description: already_requested
+          description: 'already_requested or too_soon. too_soon means the last rejection
+            was less than 7 days ago: You can ask for this model again 7 days after
+            the last answer.'
           content: *id004
         '429':
           description: too_many_requests

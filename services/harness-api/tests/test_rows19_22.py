@@ -188,6 +188,7 @@ async def test_tier_request_needs_token(h: Harness, wrong_audience: bool) -> Non
         (403, "not_approved"),
         (400, "tier_not_requestable"),
         (409, "already_requested"),
+        (409, "too_soon"),
         (429, "too_many_requests"),
     ],
 )
@@ -357,6 +358,7 @@ async def test_missing_thinking_applied_is_an_unexpected_answer(
         ("not_approved", 403),
         ("tier_not_requestable", 400),
         ("already_requested", 409),
+        ("too_soon", 409),
         ("too_many_requests", 429),
         ("unavailable", 503),
     ],
@@ -387,3 +389,13 @@ async def test_marked_tier_reason_absent_from_every_log_record(
         assert marker not in record.getMessage()
         assert marker not in repr(record.__dict__)
         assert marker not in JsonFormatter().format(record)
+
+
+async def test_too_soon_uses_the_specified_message(h: Harness) -> None:
+    h.tier_requests.respond(409, json={"code": "too_soon", "message": "Upstream text"})
+    response = await h.client.post("/api/tier-requests", json={"tier": 2})
+    assert response.status_code == 409
+    assert response.json() == {
+        "code": "too_soon",
+        "message": "You can ask for this model again 7 days after the last answer.",
+    }

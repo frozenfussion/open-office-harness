@@ -275,6 +275,15 @@
       "kind": "response",
       "media_type": "application/json",
       "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.post-tier-requests.409.too-soon.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/tier-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "409"
     }
   ]
 }
