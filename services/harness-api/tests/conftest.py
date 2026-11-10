@@ -82,6 +82,40 @@ class MemoryStore:
             messages.pop(0)
         return messages
 
+    async def title_source(
+        self, identifier: UUID, user: str, message_id: UUID
+    ) -> dict[str, str] | None:
+        await self.conversation(identifier, user)
+        messages = self.rows[identifier]["messages"]
+        answer = next(
+            (
+                message
+                for message in messages
+                if message["role"] == "assistant" and message["outcome"] == "completed"
+            ),
+            None,
+        )
+        question = next(
+            (message for message in messages if message["role"] == "user"), None
+        )
+        if (
+            answer is None
+            or question is None
+            or answer["id"] != message_id
+            or self.rows[identifier]["title"] != question["content"][:60]
+        ):
+            return None
+        return {"question": question["content"], "answer": answer["content"]}
+
+    async def set_title(
+        self, identifier: UUID, user: str, title: str, default_title: str
+    ) -> bool:
+        await self.conversation(identifier, user)
+        if self.rows[identifier]["title"] != default_title:
+            return False
+        self.rows[identifier]["title"] = title
+        return True
+
     async def append(
         self,
         identifier: UUID,
@@ -105,7 +139,11 @@ class MemoryStore:
                 "outcome": outcome,
                 "tier": tier,
                 "note": note,
-                **(metadata or {}),
+                **{
+                    key: value
+                    for key, value in (metadata or {}).items()
+                    if key != "thinking_applied"
+                },
             }
         )
         row["updated_at"] = datetime.now(UTC)
@@ -131,8 +169,23 @@ class Harness:
         self.token_route = router.post(
             f"{SETTINGS.issuer}/protocol/openid-connect/token"
         ).respond(json={"access_token": "fake-service-token", "expires_in": 300})
+        self.tier_requests = router.post(
+            "http://centre.test/api/tier-requests"
+        ).respond(
+            201,
+            json={"id": "00000000-0000-4000-8000-000000000010", "status": "pending"},
+        )
+        self.observe = router.post("http://centre.test/api/access/observe").respond(
+            json={"status": "approved"}
+        )
         self.rights = router.get("http://centre.test/api/rights/me").respond(
-            json={"chat_tiers": [3, 1, 2], "skills": ["slides"]}
+            json={
+                "chat_tiers": [3, 1, 2],
+                "skills": ["slides"],
+                "chat_tier_titles": {"1": "Example model"},
+                "chat_tier_thinking_switch": {"1": True},
+                "requestable_tiers": [],
+            }
         )
         self.skills = router.get("http://centre.test/api/skills").respond(
             json=[
@@ -146,6 +199,11 @@ class Harness:
         )
         self.check = router.post("http://centre.test/api/rights/check").respond(
             json={"allowed": True}
+        )
+        self.title_gateway = router.post(
+            "http://gateway.test/v1/call", json__stream=False
+        ).respond(
+            503, json={"code": "unavailable", "message": "Synthetic title failure"}
         )
         self.gateway = router.post("http://gateway.test/v1/call").respond(
             text=self.sse([{"type": "delta", "text": "Hello"}, self.completed()]),
@@ -175,6 +233,7 @@ class Harness:
             "model_title": "Example model",
             "tier": tier,
             "usage": {"input_tokens": 4, "output_tokens": 2},
+            "thinking_applied": False,
             "cost_usd": "0",
         }
 

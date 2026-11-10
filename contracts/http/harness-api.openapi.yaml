@@ -164,10 +164,12 @@ paths:
                     model_title: *id002
                     usage:
                       $ref: '#/components/schemas/Usage'
-                    note: &id004
+                    note: &id005
                       type:
                       - string
                       - 'null'
+                    thinking_applied:
+                      type: boolean
                   required:
                   - type
                   - message_id
@@ -175,6 +177,7 @@ paths:
                   - model_title
                   - usage
                   - note
+                  - thinking_applied
                   additionalProperties: false
                 - type: object
                   properties:
@@ -185,6 +188,22 @@ paths:
                   required:
                   - type
                   - error
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: title
+                    conversation_id:
+                      type: string
+                      format: uuid
+                    title:
+                      type: string
+                      minLength: 1
+                      maxLength: 60
+                  required:
+                  - type
+                  - conversation_id
+                  - title
                   additionalProperties: false
         '400':
           description: Invalid input
@@ -223,10 +242,29 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       description: 'SSE: one JSON object per data line, no event lines; delta events
-        then completed or failed. Rights are checked before storing the user message.
-        Gateway errors before the first event are JSON. Headers: Cache-Control: no-store,
-        X-Accel-Buffering: no. Only user tokens with audience ooh-harness-api
-        are accepted. No caller-supplied user_id.'
+        then completed or failed, with one optional final title event after completed.
+        Rights are checked before storing the user message. Gateway errors before
+        the first event are JSON. Headers: Cache-Control: no-store, X-Accel-Buffering:
+        no. Only user tokens with audience ooh-harness-api are accepted. No caller-supplied
+        user_id. Every streamed chat call prepends one system message from HA_SYSTEM_PROMPT,
+        including budget fallback; an empty setting omits it. The default asks the
+        assistant to reply in the language of the latest user message. The system
+        prompt is never logged or stored in history. Only while the conversation still
+        has its default title, after the first assistant answer stored as completed,
+        one extra non-streamed title call uses the tier that answered and user_id
+        title-<sub>, with a fixed 20-second total limit; the first user message and
+        first completed answer are each cut to 2000 characters. The fixed title instruction
+        overrides HA_SYSTEM_PROMPT for this call. A generated title is trimmed, stripped
+        of surrounding quotes and a final full stop, cut to 60 characters and saved
+        without changing updated_at. Failure keeps the initial title, logs title_failed
+        with a safe code, and emits no title or failed event after completed. Later
+        answers do not retry. Failed and tool_requested answers do not trigger title
+        generation. Title rights are checked as the original user. Title calls bypass
+        that user''s rate allowance, but still count model budget/cost. Completed
+        ends the answer; title may follow on the same stream before it closes. Thinking
+        defaults true and is forwarded unchanged through budget fallback; thinking_applied
+        in completed reports the actual answering model''s support, and is not stored
+        in history.'
       parameters:
       - name: id
         in: path
@@ -249,6 +287,9 @@ paths:
                   anyOf:
                   - *id003
                   - type: 'null'
+                thinking:
+                  type: boolean
+                  default: true
               required:
               - content
               additionalProperties: false
@@ -512,11 +553,53 @@ paths:
                       - name
                       - title
                       additionalProperties: false
+                  access:
+                    type: string
+                    enum:
+                    - approved
+                    - pending
+                    - rejected
+                    - closed
+                  chat_tier_titles:
+                    type: object
+                    additionalProperties:
+                      type: string
+                    description: Tier-to-title map from the Control Centre, with string
+                      tier keys. The title comes from the active main entry with lowest
+                      priority, then created_at; a missing entry has no map value.
+                  chat_tier_thinking_switch:
+                    type: object
+                    additionalProperties:
+                      type: boolean
+                  requestable_tiers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        tier:
+                          type: integer
+                          minimum: 1
+                        title:
+                          type: string
+                        requested:
+                          enum:
+                          - pending
+                          - rejected
+                          - null
+                      required:
+                      - tier
+                      - title
+                      - requested
+                      additionalProperties: false
                 required:
                 - user_id
                 - name
                 - chat_tiers
                 - skills
+                - access
+                - chat_tier_titles
+                - chat_tier_thinking_switch
+                - requestable_tiers
                 additionalProperties: false
         '400':
           description: Request could not be completed
@@ -536,6 +619,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+      description: 'Observe access first through the Control Centre using the Harness
+        service token and verified user claims, including is_admin from realm_access.roles.
+        Missing/non-string profile claims become null; strings are trimmed then limited:
+        name 200, email 320, organisation 100, access_reason 300. The exact sub is
+        preserved. Then read rights and skills. Observe or rights failure returns
+        503 rights_unavailable. Closed means new requests are temporarily full. Pass
+        chat_tier_titles through from the Control Centre.'
   /api/conversations/{id}:
     get:
       operationId: get_api_conversations_id
@@ -589,6 +679,74 @@ paths:
         in: path
         required: true
         schema: *id001
+  /api/tier-requests:
+    post:
+      operationId: post_api_tier_requests
+      security:
+      - bearerAuth: []
+      description: Forwards a request using the verified sub and Harness service token.
+        The Control Centre enforces approved access, requestable tiers, a seven-day
+        rejection wait and at most 20 pending requests per user. No caller-supplied
+        user_id. Reason is never logged. Unavailable or invalid upstream responses
+        return 503 rights_unavailable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tier:
+                  type: integer
+                  minimum: 1
+                reason:
+                  anyOf:
+                  - type: string
+                    maxLength: 300
+                  - type: 'null'
+              required:
+              - tier
+              additionalProperties: false
+      responses:
+        '201':
+          description: Request created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  status:
+                    const: pending
+                required:
+                - id
+                - status
+                additionalProperties: false
+        '400':
+          description: invalid_input or tier_not_requestable
+          content: &id004
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: unauthorized
+          content: *id004
+        '403':
+          description: not_approved
+          content: *id004
+        '409':
+          description: 'already_requested or too_soon. too_soon means the last rejection
+            was less than 7 days ago: You can ask for this model again 7 days after
+            the last answer.'
+          content: *id004
+        '429':
+          description: too_many_requests
+          content: *id004
+        '503':
+          description: rights_unavailable
+          content: *id004
 components:
   securitySchemes:
     bearerAuth:
@@ -627,7 +785,7 @@ components:
       properties:
         id: *id001
         title: *id002
-        updated_at: &id005
+        updated_at: &id006
           type: string
           format: date-time
       required:
@@ -654,7 +812,7 @@ components:
           - string
           - 'null'
           format: uuid
-        model_title: *id004
+        model_title: *id005
         input_tokens:
           type:
           - integer
@@ -665,13 +823,13 @@ components:
           - integer
           - 'null'
           minimum: 0
-        note: *id004
+        note: *id005
         outcome:
           enum:
           - completed
           - failed
           - tool_requested
-        created_at: *id005
+        created_at: *id006
       required:
       - id
       - role

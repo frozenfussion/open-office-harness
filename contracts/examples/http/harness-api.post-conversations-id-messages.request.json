@@ -1,4 +1,5 @@
 {
   "content": "Example question",
-  "tier": 1
+  "tier": 1,
+  "thinking": false
 }

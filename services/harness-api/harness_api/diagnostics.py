@@ -19,6 +19,7 @@ EVENTS = frozenset(
         "database_error",
         "token_error",
         "request_error",
+        "title_failed",
     }
 )
 CODES = frozenset(
@@ -34,13 +35,25 @@ CODES = frozenset(
         "invalid_input",
         "not_found",
         "not_built_yet",
+        "registry_unavailable",
+        "forbidden",
+        "not_approved",
+        "tier_not_requestable",
+        "already_requested",
+        "too_soon",
+        "too_many_requests",
     }
 )
 
 
 def failure(event: str, code: str, tier: int | None = None) -> None:
     logging.getLogger("harness_api").warning(
-        "service_failure", extra={"event": event, "code": code, "tier": tier}
+        "service_failure",
+        extra={
+            "event": event,
+            "code": code if code in CODES else "unavailable",
+            "tier": tier,
+        },
     )
 
 
