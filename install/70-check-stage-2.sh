@@ -202,17 +202,23 @@ fi
 [[ "$(jq length <<< "$entries")" != 0 ]] || stop "no chat entry with a saved key in tiers 1 to 20; add models in the Admin Console first"
 call_entry() {
   local entry="$1" stream="$2" id title tier payload user rc=0
+  local prompt='Reply with the single word OK.' events reason delta_count last_event http_status
+  local budget_exceeded=false
+  [[ "$stream" != true ]] || prompt='Count from 1 to 20, separated by spaces.'
   id="$(jq -er '.model_entry_id' <<< "$entry")"
   title="$(jq -r '.title' <<< "$entry")"
   tier="$(jq -er '.tier' <<< "$entry")"
   user="stage-check-$(cat /proc/sys/kernel/random/uuid)"
   call_users="$(jq -c --arg user "$user" '. + [$user]' <<< "$call_users")"
-  payload="$(jq -cn --arg id "$id" --arg user "$user" --argjson tier "$tier" --argjson stream "$stream" \
-    '{purpose:"chat",tier:$tier,user_id:$user,model_entry_id:$id,messages:[{role:"user",content:"Reply with the single word OK."}],stream:$stream}')"
+  payload="$(jq -cn --arg id "$id" --arg user "$user" --arg prompt "$prompt" --argjson tier "$tier" --argjson stream "$stream" \
+    '{purpose:"chat",tier:$tier,user_id:$user,model_entry_id:$id,messages:[{role:"user",content:$prompt}],stream:$stream}')"
   request ooh-harness-api POST http://127.0.0.1:18080/v1/call "$payload" || rc=1
   if [[ "$status" == 503 ]] && jq -e '.code == "budget_exceeded"' <<< "$body" >/dev/null 2>&1; then
-    result 1 "$title" 'over its daily budget today'
-    return
+    if [[ "$stream" == false ]]; then
+      result 1 "$title" 'over its daily budget today'
+      return
+    fi
+    budget_exceeded=true
   fi
   [[ "$status" == 200 ]] || rc=1
   if [[ "$stream" == false ]]; then
@@ -230,7 +236,19 @@ call_entry() {
       last.type == "completed" and last.model_entry_id == $id and
       ([.[] | select(.type == "completed")] | length == 1) and
       all(.[0:-1][]; .type == "delta")' <<< "$events" >/dev/null 2>&1 || rc=1
-    result "$rc" "$title streamed answer" 'expected at least two deltas then completed; inspect stream buffering and provider settings'
+    reason='expected at least two deltas then completed; inspect stream buffering and provider settings'
+    [[ "$budget_exceeded" != true ]] || reason='over its daily budget today'
+    if [[ "$rc" != 0 ]]; then
+      delta_count="$(jq -sr '[.[] | select(.type == "delta")] | length' <<< "$events" 2>/dev/null)" || delta_count=0
+      last_event="$(jq -sr '
+        if length == 0 then "none"
+        elif (last.type == "delta" or last.type == "completed" or last.type == "failed" or last.type == "tool_call") then last.type
+        else "unknown" end' <<< "$events" 2>/dev/null)" || last_event=invalid
+      http_status="${status:-000}"
+      [[ "$http_status" =~ ^[0-9]{3}$ ]] || http_status=000
+      reason+=" ($delta_count deltas, last event $last_event, HTTP $http_status)"
+    fi
+    result "$rc" "$title streamed answer" "$reason"
   fi
 }
 while IFS= read -r entry; do call_entry "$entry" false; done < <(jq -c '.[]' <<< "$entries")
