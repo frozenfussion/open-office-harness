@@ -1,0 +1,60 @@
+/* Open Office Harness components — class-based, styled only from tokens. Prefix: ooh- */
+.ooh-btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);height:36px;padding:0 var(--space-4);border-radius:var(--radius-md);border:1px solid transparent;font-family:var(--font-tech);font-size:14px;line-height:20px;font-weight:600;letter-spacing:.04em;cursor:pointer;background:transparent;color:var(--ink);transition:background .12s,border-color .12s}
+.ooh-btn:focus-visible{outline:2px solid var(--phosphor);outline-offset:2px}
+.ooh-btn--primary{background:var(--phosphor);color:var(--on-phosphor)}
+.ooh-btn--primary:hover{filter:brightness(1.08)}
+.ooh-btn--secondary{border-color:var(--line-strong);color:var(--ink)}
+.ooh-btn--secondary:hover{background:var(--phosphor-soft)}
+.ooh-btn--ghost{color:var(--ink-muted)}
+.ooh-btn--ghost:hover{color:var(--ink);background:var(--surface)}
+.ooh-btn--danger{border-color:var(--signal-red);color:var(--signal-red)}
+.ooh-btn[disabled]{opacity:.45;cursor:not-allowed;filter:none}
+.ooh-btn--sm{height:28px;padding:0 var(--space-3);font-size:12px}
+
+.ooh-field{display:flex;flex-direction:column;gap:var(--space-1);min-width:0}
+.ooh-label{font-family:var(--font-tech);font-size:12px;line-height:16px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted)}
+.ooh-input,.ooh-select,.ooh-textarea{font-family:var(--font-sans);font-size:15px;line-height:22px;color:var(--ink);background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-md);padding:7px var(--space-3);min-width:0}
+.ooh-input::placeholder,.ooh-textarea::placeholder{color:var(--ink-muted)}
+.ooh-input:focus,.ooh-select:focus,.ooh-textarea:focus{outline:2px solid var(--phosphor);outline-offset:0;border-color:var(--phosphor)}
+.ooh-help{font-size:13px;line-height:18px;color:var(--ink-muted)}
+.ooh-field--error .ooh-input{border-color:var(--signal-red)}
+.ooh-field--error .ooh-help{color:var(--signal-red)}
+
+.ooh-chip{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 var(--space-2);border-radius:var(--radius-sm);border:1px solid currentColor;font-family:var(--font-tech);font-size:12px;line-height:16px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.ooh-chip::before{content:"";width:6px;height:6px;border-radius:1px;background:currentColor}
+.ooh-chip--queued{color:var(--signal-cyan)}
+.ooh-chip--approval{color:var(--signal-amber)}
+.ooh-chip--done{color:var(--phosphor)}
+.ooh-chip--failed{color:var(--signal-red)}
+.ooh-chip--running{color:var(--phosphor)}
+.ooh-chip--running::before{animation:ooh-blink 1s steps(2,start) infinite}
+
+.ooh-msg{display:flex;flex-direction:column;gap:var(--space-1);max-width:640px;min-width:0}
+.ooh-msg--user{align-self:flex-end;align-items:flex-end}
+.ooh-msg__body{padding:var(--space-3) var(--space-4);border-radius:var(--radius-md);font-family:var(--font-sans);font-size:15px;line-height:22px;color:var(--ink);overflow-wrap:anywhere}
+.ooh-msg--user .ooh-msg__body{background:var(--phosphor-soft)}
+.ooh-msg--assistant .ooh-msg__body{background:var(--surface);border:1px solid var(--line)}
+.ooh-msg__meta{font-family:var(--font-mono);font-size:12px;line-height:16px;color:var(--ink-muted)}
+.ooh-cursor{display:inline-block;width:8px;height:16px;margin-left:2px;vertical-align:-2px;background:var(--phosphor);animation:ooh-blink 1s steps(2,start) infinite}
+.ooh-job{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);margin-top:var(--space-2);padding:var(--space-2) var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--ground)}
+.ooh-job__name{font-family:var(--font-mono);font-size:13px;line-height:20px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+
+.ooh-table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface)}
+.ooh-table{width:100%;border-collapse:collapse;font-family:var(--font-sans);font-size:13px;line-height:18px;color:var(--ink)}
+.ooh-table th{text-align:left;padding:var(--space-2) var(--space-3);font-family:var(--font-tech);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);border-bottom:1px solid var(--line-strong);white-space:nowrap}
+.ooh-table td{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--line);vertical-align:middle}
+.ooh-table tr:last-child td{border-bottom:0}
+.ooh-table tbody tr:hover td{background:var(--phosphor-soft)}
+.ooh-mono{font-family:var(--font-mono);font-size:12px;color:var(--ink-muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+.ooh-nav{display:flex;flex-direction:column;gap:2px;width:220px;padding:var(--space-4) var(--space-3);background:var(--surface);border-right:1px solid var(--line)}
+.ooh-nav__brand{font-family:var(--font-serif);font-size:22px;line-height:26px;font-weight:500;color:var(--ink);padding:0 var(--space-2) var(--space-4)}
+.ooh-nav__brand span{display:block;font-family:var(--font-tech);font-size:11px;line-height:14px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--phosphor);margin-top:2px}
+.ooh-nav__item{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);height:34px;padding:0 var(--space-2);border-radius:var(--radius-md);font-family:var(--font-tech);font-size:14px;line-height:20px;font-weight:500;color:var(--ink-muted);text-decoration:none;border-left:2px solid transparent}
+.ooh-nav__item:hover{color:var(--ink);background:var(--ground)}
+.ooh-nav__item[aria-current="page"]{color:var(--phosphor);background:var(--phosphor-soft);border-left-color:var(--phosphor);border-radius:0 var(--radius-md) var(--radius-md) 0}
+.ooh-nav__count{font-family:var(--font-mono);font-size:12px;color:var(--signal-amber)}
+.ooh-nav__section{font-family:var(--font-tech);font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-muted);padding:var(--space-4) var(--space-2) var(--space-1)}
+
+@keyframes ooh-blink{to{visibility:hidden}}
+@media (prefers-reduced-motion:reduce){.ooh-cursor,.ooh-chip--running::before{animation:none}}

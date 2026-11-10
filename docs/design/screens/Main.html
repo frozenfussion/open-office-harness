@@ -1,0 +1,112 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Workspace chat</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/openofficeharness/tokens.css">
+<link rel="stylesheet" href="ds/openofficeharness/components/bundle.css">
+<script src="ds/openofficeharness/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--ground)}
+a{color:var(--phosphor)}a:hover{color:var(--ink)}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 900px; background: var(--ground); color: var(--ink); font-family: var(--font-sans);">
+  <nav class="ooh-nav" aria-label="Workspace" style="flex: 1 1 220px; max-width: 240px;">
+    <div class="ooh-nav__brand">Open Office Harness<span>Workspace</span></div>
+    <a class="ooh-nav__item" href="#" aria-current="page">Chat</a>
+    <a class="ooh-nav__item" href="#">Files</a>
+    <a class="ooh-nav__item" href="#">My jobs <span class="ooh-nav__count" style="color: var(--signal-cyan);">2</span></a>
+    <a class="ooh-nav__item" href="#">Approvals <span class="ooh-nav__count">1</span></a>
+    <div class="ooh-nav__section">Recent</div>
+    <a class="ooh-nav__item" href="#">Q3 maintenance deck</a>
+    <a class="ooh-nav__item" href="#">Vendor contract summary</a>
+    <a class="ooh-nav__item" href="#">Onboarding checklist</a>
+    <div style="margin-top: auto; padding: 16px 8px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px;">
+      <span style="font-size: 13px; color: var(--ink);">Nur Aisyah</span>
+      <span class="ooh-mono">tier 1 · slides · report</span>
+    </div>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column;">
+    <header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 32px; border-bottom: 1px solid var(--line);">
+      <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+        <span class="ooh-label">Conversation</span>
+        <h1 style="margin: 0; font-family: var(--font-serif); font-weight: 500; font-size: 32px; line-height: 38px;">Q3 maintenance deck</h1>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <span class="ooh-chip ooh-chip--done">Tier 1 · standard</span>
+        <button class="ooh-btn ooh-btn--ghost ooh-btn--sm">New chat</button>
+      </div>
+    </header>
+
+    <section aria-label="Messages" style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 24px; padding: 32px; max-width: 880px; width: 100%; box-sizing: border-box; margin: 0 auto;">
+      <div class="ooh-msg ooh-msg--user">
+        <div class="ooh-msg__body">Make a 6-slide deck on our Q3 maintenance backlog from the attached report. Keep it for the Monday ops review.</div>
+        <div class="ooh-msg__meta">you · 09:14 · report-q3.pdf</div>
+      </div>
+      <div class="ooh-msg ooh-msg--assistant">
+        <div class="ooh-msg__body">I've sent this to the Slides skill with the report attached. You'll find the file here when it's ready.
+          <div class="ooh-job"><span class="ooh-job__name">q3-maintenance-backlog.pptx</span><span class="ooh-chip ooh-chip--done">Done</span></div>
+          <div style="display: flex; gap: 8px; margin-top: 8px;"><a class="ooh-btn ooh-btn--secondary ooh-btn--sm" href="#">Download</a><a class="ooh-btn ooh-btn--ghost ooh-btn--sm" href="#">Open preview</a></div>
+        </div>
+        <div class="ooh-msg__meta">tier 1 · route: skill.slides (0.93) · req-7f3a21 · 2m 41s</div>
+      </div>
+      <div class="ooh-msg ooh-msg--user">
+        <div class="ooh-msg__body">Now compare the backlog against last year and explain the trend in detail.</div>
+        <div class="ooh-msg__meta">you · 09:21</div>
+      </div>
+      <div class="ooh-msg ooh-msg--assistant">
+        <div class="ooh-msg__body">The backlog grew 18% since June, mostly in inspection tasks waiting on parts<span class="ooh-cursor" aria-hidden="true"></span></div>
+        <div class="ooh-msg__meta">tier 1 · streaming…</div>
+      </div>
+      <div style="display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border: 1px solid var(--signal-amber); border-radius: var(--radius-md); background: var(--surface); max-width: 640px;">
+        <span class="ooh-chip ooh-chip--approval">Tier 2</span>
+        <p style="margin: 0; font-size: 13px; line-height: 18px; color: var(--ink);">This looks like a deep-analysis question. The advanced model would answer it better, but you don't have tier 2. An admin can grant it under People &amp; rights.</p>
+      </div>
+    </section>
+
+    <form style="padding: 16px 32px 24px; border-top: 1px solid var(--line); max-width: 880px; width: 100%; box-sizing: border-box; margin: 0 auto; display: flex; flex-direction: column; gap: 8px;">
+      <label class="ooh-label" for="ask">Ask, or ask for a skill</label>
+      <textarea id="ask" class="ooh-textarea" rows="3" placeholder="e.g. Turn this report into a 6-slide deck"></textarea>
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px;">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button type="button" class="ooh-btn ooh-btn--secondary ooh-btn--sm">Attach file</button>
+          <button type="button" class="ooh-btn ooh-btn--ghost ooh-btn--sm">Skills: slides · report</button>
+        </div>
+        <button type="button" class="ooh-btn ooh-btn--primary">Send</button>
+      </div>
+    </form>
+  </main>
+
+  <aside aria-label="Jobs" style="flex: 1 1 280px; max-width: 320px; border-left: 1px solid var(--line); background: var(--surface); padding: 20px 16px; display: flex; flex-direction: column; gap: 12px;">
+    <span class="ooh-label">Jobs in this chat</span>
+    <div style="display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--ground);">
+      <span class="ooh-job__name">q3-maintenance-backlog.pptx</span>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span class="ooh-chip ooh-chip--done">Done</span><span class="ooh-mono">slides · 2m 41s</span></div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--ground);">
+      <span class="ooh-job__name">backlog-trend-report.docx</span>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span class="ooh-chip ooh-chip--queued">Queued</span><span class="ooh-mono">report · 3rd in line</span></div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--ground);">
+      <span class="ooh-job__name">email-vendors.draft</span>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span class="ooh-chip ooh-chip--approval">Awaiting approval</span><span class="ooh-mono">sends email</span></div>
+    </div>
+    <p style="margin: 8px 0 0; font-size: 13px; line-height: 18px; color: var(--ink-muted);">Jobs keep running if you close this page. Queued jobs start when a worker is free.</p>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

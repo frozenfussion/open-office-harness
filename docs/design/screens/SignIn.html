@@ -1,0 +1,54 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign in</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/openofficeharness/tokens.css">
+<link rel="stylesheet" href="ds/openofficeharness/components/bundle.css">
+<script src="ds/openofficeharness/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--ground)}
+a{color:var(--phosphor)}a:hover{color:var(--ink)}
+</style>
+</helmet>
+<div style="position: relative; min-height: 900px; overflow: hidden; background: var(--ground); color: var(--ink); font-family: var(--font-sans); display: flex; align-items: center; justify-content: center; padding: 48px 16px; box-sizing: border-box;">
+  <canvas ref="{{ setRain }}" aria-hidden="true" style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
+  <div style="position: relative; width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 24px; padding: 40px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); box-sizing: border-box;">
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <span class="ooh-label" style="color: var(--phosphor);">Open Office Harness</span>
+      <h1 style="margin: 0; font-family: var(--font-serif); font-weight: 500; font-size: 56px; line-height: 60px;">Good morning.</h1>
+      <p style="margin: 0; font-size: 15px; line-height: 22px; color: var(--ink-muted);">Sign in to your workspace: chat, skills and approvals.</p>
+    </div>
+    <a class="ooh-btn ooh-btn--primary" href="#" style="height: 44px; text-decoration: none;">Sign in with company account</a>
+    <div style="display: flex; align-items: center; gap: 12px;"><span style="flex: 1; height: 1px; background: var(--line);"></span><span class="ooh-label">or</span><span style="flex: 1; height: 1px; background: var(--line);"></span></div>
+    <form style="display: flex; flex-direction: column; gap: 16px;">
+      <label class="ooh-field"><span class="ooh-label">Email</span><input class="ooh-input" type="email" placeholder="name@company.com"></label>
+      <label class="ooh-field"><span class="ooh-label">Password</span><input class="ooh-input" type="password"></label>
+      <button type="button" class="ooh-btn ooh-btn--secondary" style="height: 44px;">Sign in</button>
+    </form>
+    <p class="ooh-mono" style="margin: 0; white-space: normal;">Sign-in by Keycloak · auth.faysalaziz.com</p>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  componentWillUnmount() { if (this._rain) this._rain.stop(); }
+  renderVals() {
+    return {
+      setRain: (el) => {
+        if (el && !this._rain && window.OpenOfficeHarness && window.OpenOfficeHarness.WordRain) {
+          this._rain = window.OpenOfficeHarness.WordRain.mount(el);
+        }
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

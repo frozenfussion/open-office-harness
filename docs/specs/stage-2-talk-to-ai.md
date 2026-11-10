@@ -1,0 +1,250 @@
+# Stage 2 — Talk to AI (Model Gateway, Harness API, Workspace chat, Admin Models & tiers)
+
+Written 2026-11-10 by Claude (orchestrator). Read `00-GLOBAL-RULES.md` first; it applies in full.
+**Base commit:** `main` right after this spec is merged. Before any Part starts, Codex tags that commit `stage-2-base` and pushes the tag (`git tag -a stage-2-base -m "Stage 2 base" && git push origin stage-2-base`). Every Part starts from that tag.
+**Tag when accepted:** `spine-v0.2`.
+
+## 0. Aziz's words and decisions (Malaysia time)
+
+- 07 Nov 16:30: "Tier 1 is, I don't know, I'll make it DeepSeek or OpenAI. Tier 2 will be for more advanced users, and you will need rights for that. Say it will be Claude's API."
+- 08 Nov 12:00: approved Models & tiers form: tier is a field (chat only; a new tier creates its right), main or backup, on-prem or cloud, API type (OpenAI-compatible, Anthropic Messages, OpenAI Responses), endpoint, model ID, **API key: stored encrypted, never shown again**, rate limit, daily budget.
+- 10 Nov 13:32: "There's not going to be any hard code. I'm going to use DeepSeek, OpenAI, Anthropic's Claude… DeepSeek supports both [formats]. I might or might not do on-prem. It should all be adjustable and I should be able to add as many as I want in whichever tier I want from the admin or control centre." Rehearsal is the real build.
+- 10 Nov 13:38: wants to see a screen and chat.
+- 10 Nov 13:41: yes to four builders in parallel, Full Access for Codex, the faster plan (`plan/REHEARSAL-PLAN-v0.2.md` in the course folder): Stage 2 = Gateway + Harness API + Workspace chat + Admin Models & tiers.
+
+## 1. Purpose
+
+A signed-in person opens `https://harness.faysalaziz.com`, picks a chat tier they are allowed, types, and sees a real model's answer stream in word by word. An admin opens `https://admin.faysalaziz.com`, adds any number of models in any tier from any provider (OpenAI, Anthropic, DeepSeek, on-prem), types the API key once (stored encrypted, never shown again), and decides who may use each tier. **Nothing about providers is in code.**
+
+Built in this stage:
+- **Model Gateway** (Python, internal only): calls AI by purpose and tier, using the Control Centre's registry; three connection types; main then backup before the first word; per-user rate limit; daily budget; usage and cost recorded.
+- **Harness API** (Python, `harness.faysalaziz.com/api`): conversations, streamed chat, rights checked against the Control Centre (fail closed), the user's allowed skills offered to the model as tools.
+- **Workspace app** (Angular, `harness.faysalaziz.com/`): sign-in and the chat screen.
+- **Admin Console app** (Angular, `admin.faysalaziz.com/`): sign-in and the Models & tiers screen, plus the Control Centre changes it needs (encrypted keys, prices, who may use a tier).
+
+Not in this stage (section 13): skill jobs on Kafka, uploads and files, classifier routing, the other admin screens.
+
+## 2. Done when (all of these)
+
+1. GitHub Actions builds four new images on every push that changes their folder (and on demand): `ghcr.io/frozenfussion/ooh-model-gateway`, `ooh-harness-api`, `ooh-workspace`, `ooh-admin-console`, each tagged with the first 12 characters of the commit hash; the Control Centre image builds as before. All five pull without logging in.
+2. On harness, from the merged `stage-2` worktree, these end with `DONE` (Claude runs them in tile 3 where Aziz watches; none needs sudo): `63-control-centre-keys.sh`, `61-control-centre-deploy.sh <tag>`, `64-model-gateway-setup.sh`, `65-model-gateway-deploy.sh <tag>`, `66-harness-api-setup.sh`, `67-harness-api-deploy.sh <tag>`, `68-workspace-deploy.sh <tag>`, `69-admin-console-deploy.sh <tag>`, `35-realm-sync.sh`. All pods in `ooh-apps` are Ready; the four placeholder pages are gone.
+3. In the browser, Aziz signs in to the Admin Console, adds at least one chat model of each connection type with its real key (OpenAI-compatible, OpenAI Responses, Anthropic Messages), sets who may use each tier, and the keys never appear again anywhere (form, list, network responses, logs).
+4. `install/70-check-stage-2.sh` prints `PASS` for every line and ends with `DONE` (section 9).
+5. In the browser, Aziz signs in to the Workspace, picks a tier, asks a question, and the answer streams in word by word; the meta line under the answer shows the tier, the model's title and the token counts; reloading the page shows the conversation.
+6. After `sudo reboot`, `40-check-platform.sh`, `62-check-control-centre.sh` and `70-check-stage-2.sh` pass again without anyone touching the server (allow 5 minutes), and the browser chat works.
+7. In a clean worktree of `stage-2`: every Part's checks (section 7) pass; `uv run --project contracts/check pytest` passes; `bash -n` and `shellcheck` are clean for every `install/*.sh`; `kubeconform -strict` passes on `deploy/`.
+8. `README.md` Quick Guide covers section 10; `docs/STATUS.md` says Stage 2 is done and lists what was checked.
+
+## 3. Prerequisites (before the builders start)
+
+1. Two more tmux tiles: tile 4 "CODEX C — builds" and tile 5 "CODEX D — builds" (Claude adds them; tiles 0–3 keep their numbers and roles).
+2. Databases for the builders' tests: Part A writes `install/64-model-gateway-setup.sh` first and Part B writes `install/66-harness-api-setup.sh` first; Claude runs each as soon as it is pushed (no sudo). Until then those Parts run only the tests that need no database and say so.
+3. Node 26 and the Angular CLI run through `npx` inside each app folder (Node 26 is already on harness); nothing is installed system-wide.
+
+## 4. Decisions for this stage (fixed; versions checked 10 Nov 2026 on pypi.org, npmjs.com, Docker Hub and endoflife.date)
+
+| Item | Decision | Why |
+|---|---|---|
+| Python services | Python **3.14.10**; image `python:3.14.10-slim-trixie` (build and run, non-root user `10001`); `uv` 0.13.7 for packages and lock files | Global rules; newest 3.14 patch (25 Oct 2026) |
+| Web framework | FastAPI **0.162.2**, uvicorn **0.54.0**, pydantic **2.14.3** (comes with FastAPI, pinned) | Standard async Python API stack; streaming responses built in (no extra SSE package) |
+| Outgoing HTTP | httpx **0.28.1** (provider calls with streaming, Control Centre and Gateway calls) | One client for sync and streaming calls |
+| Database | PostgreSQL through psycopg **3.3.8** with its binary package `psycopg[binary]` (no system libpq) | Plain SQL; no ORM needed for a few tables |
+| Migrations | numbered SQL files (`migrations/0001_*.sql`) applied in order by the program's own `migrate` command, recorded in a `schema_migrations` table; run by an init container as the owner role, exactly as the Control Centre does | Same proven pattern; no migration framework needed |
+| Tokens | PyJWT **2.15.1** with `cryptography` **50.0.2** (`pyjwt[crypto]`), checking signature (realm keys, cached), issuer, audience, expiry, `sub` | Same checks as the Control Centre |
+| Tests | pytest **9.2.0**; anyio's pytest plugin (comes with FastAPI) for async tests; respx **0.23.1** to fake provider and Control Centre answers; ruff **0.17.4** | Global rules: pytest, ruff; never a real model in tests |
+| Web apps | Angular **22.2.5** (`@angular/core` and friends), Angular CLI **22.2.6** (`@angular/build`), TypeScript **6.0.3** (Angular 22.2 needs >=6.0 <6.1), rxjs **7.8.2**; the CLI's own `ng build` and `ng test` | Global rules; newest Angular 22 |
+| Sign-in in the web apps | angular-auth-oidc-client **22.0.2**: authorization code + PKCE S256, silent refresh with refresh tokens, no tokens in local storage beyond what the library keeps in session storage | Certified OIDC client; supports Angular 22 (peer >=20) |
+| Web app images | build: `node:26` slim image pinned by the builder to an exact tag and reported; run: `nginxinc/nginx-unprivileged:1.28.0-alpine` (already proven in Stage 0), port 8080, read-only root with `/tmp` and nginx cache as `emptyDir` | Static files; same server as the placeholders |
+| Web app settings | each app reads `/config.json` at start (issuer, client id, API base `/api`) served from a ConfigMap; nothing about the domain is compiled in | Same image on Droplet and AWS |
+| Design | `apps/design-system/` (tokens, component CSS, WordRain script, fonts, OFL licences) is copied into each app at build time; screens follow `docs/design/screens/Main.html`, `SignIn.html`, `AdminModels.html`. Both are spec-author files: the Parts read them, never change them | Global rules: design tokens from the Open Office Harness design system only |
+| Connection types (`api_type`) | exactly three are supported by the Gateway: `openai_chat_completions`, `openai_responses`, `anthropic_messages`. Any other value in the registry is skipped by the Gateway (logged as "unsupported connection type"). The Control Centre keeps `api_type` a free string so the Stage 1 check data (`stage-check`) still works; the Admin Console offers only the three | Aziz 13:32: OpenAI format and Anthropic format; DeepSeek speaks both; OpenAI's reasoning models refuse function tools in chat completions (found in HOORA AI, 22 Oct), so OpenAI Responses is needed for tools |
+| Provider keys | typed in the Admin Console form; the Control Centre encrypts them with AES-256-GCM (.NET's built-in `AesGcm`), the 32-byte encryption key from Secret `control-centre-keys` (key `encryption-key`, made by `63`); stored as `v1:<nonce>:<ciphertext>:<tag>` in base64; never returned to admins (`has_key` only); only the Gateway service account may read a decrypted key, through `GET /api/models/{id}/key`, inside the cluster | Aziz's approved form; replaces the Stage 0 "secret_ref = Kubernetes Secret name" choice; one owner of registry data |
+| Who calls what (all with Keycloak service-account tokens, client credentials) | Harness → Control Centre (aud `ooh-control-centre`) and → Gateway (aud `ooh-model-gateway`); Gateway → Control Centre (aud `ooh-control-centre`). These audiences already exist in the realm | No realm audience change |
+| In-cluster addresses | Control Centre `http://control-centre.ooh-apps.svc:8080`, Gateway `http://model-gateway.ooh-apps.svc:8080` (no Ingress for the Gateway). The Control Centre already serves `/api/...` paths on its own port | Gateway has no public name (fixed) |
+| Rate limit | per model entry and per user: the Gateway counts this user's usage rows for that entry in the last 60 s; at `rate_limit_per_minute` the entry is skipped for this call | Approved form ("rate limit per user") |
+| Daily budget | per model entry: the sum of today's cost (UTC day) from the Gateway's usage rows; at or above `daily_budget` the entry is skipped. `daily_budget` 0 = no limit | Approved form; 0 keeps the Stage 1 check data valid |
+| Cost | `input_tokens × input_price_per_million / 1 000 000 + output_tokens × output_price_per_million / 1 000 000`, prices typed per model entry in USD; 0 when the prices are 0 (on-prem) | Prices are data, never code |
+| Failover | entries for the purpose and tier are tried main first, then backup; a failure **before the first output** (connection error, timeout, non-2xx) moves to the next entry; after the first output a failure ends the answer with a `failed` event (no gluing of half answers) | Proven in HOORA AI |
+| Budget fallback (Harness) | if every entry of tier N > 1 is over budget, the Harness answers with the lowest tier the user may use and says so in the meta line ("tier 2 is over its daily budget; answered with tier 1") | Approved form: "Over budget: tier 2 falls back to tier 1" |
+| Health | the Gateway reports `ok` or `down` for an entry after a call when it changed since its last report (`PUT /api/models/{id}/health`, no audit row, like `last_seen_at`) | No audit flood (HOORA AI lesson) |
+| Skills as tools | the Harness offers the model only the skills the user may use (`GET /api/skills?user_id=`), each as a tool whose input schema is the skill's `input.schema.json` (copied into the Harness package, a test checks the copy equals `contracts/skills/<skill>/input.schema.json`). If the model calls a tool, the Harness answers with the fixed sentence `I would use the <title> skill for this. Skills are switched on in the next stage.` | Skills run on Kafka in Stage 3; the tool offer and rights work now |
+| Conversation memory | the last 20 messages of the conversation go to the model; title = the first 60 characters of the first question | Simple; an AI-written title can come later |
+| Streaming format | Server-Sent Events on both Harness `POST /api/conversations/{id}/messages` and Gateway `POST /v1/call` with `stream: true`: `event` lines are not used; each `data:` line is one JSON object with `type` (section 6). Headers `Content-Type: text/event-stream`, `Cache-Control: no-store`, `X-Accel-Buffering: no` | Contract already says SSE |
+| Logs | JSON lines; never request or answer text, keys, tokens or prompts; one line per failover with the entry id only | Global rules |
+| Kafka | none in Stage 2 (usage stays in the Gateway's own database; the cost meter and audit writer read events in Stage 3) | Kafka only where it earns its place |
+
+## 5. Data (each service owns its database; two roles each: owner for migrations, app role with no DELETE/TRUNCATE, as in Stage 1)
+
+**Gateway database `modelgateway`** (roles `modelgateway`, `modelgateway_app`; test `modelgateway_test`, `modelgateway_test_app`):
+- `usage`: id bigint identity, occurred_at timestamptz, model_entry_id uuid, user_id text, purpose text, tier int null, outcome text (`ok`, `failed`, `skipped_rate`, `skipped_budget`), input_tokens int, output_tokens int, cost_usd numeric(14,6), duration_ms int. **Append-only**: a trigger refuses UPDATE, DELETE and TRUNCATE; the app role has SELECT, INSERT only. Index (model_entry_id, user_id, occurred_at) and (model_entry_id, occurred_at).
+
+**Harness database `harness`** (roles `harness`, `harness_app`; test `harness_test`, `harness_test_app`):
+- `conversations`: id uuid, user_id text, title text, created_at, updated_at, deleted_at, created_by, updated_by.
+- `messages`: id uuid, conversation_id uuid (FK), role (`user`, `assistant`), content text, tier int null, model_entry_id uuid null, model_title text null, input_tokens int null, output_tokens int null, note text null, outcome (`completed`, `failed`, `tool_requested`), created_at, created_by. Messages are never changed: a trigger refuses UPDATE and DELETE on `messages`; app role SELECT, INSERT.
+- A statement trigger refuses DELETE and TRUNCATE on every table (as in the Control Centre).
+
+**Control Centre (`controlcentre`), a new migration** (never edit an applied one): `model_entries` gains `title` text not null default '', `api_key_encrypted` text null, `input_price_per_million` numeric(14,6) not null default 0, `output_price_per_million` numeric(14,6) not null default 0, `timeout_seconds` int not null default 120 (10–900), `request_settings` jsonb not null default '{}'; `secret_ref` becomes optional (empty allowed; ignored by the Gateway; kept for old rows). The audit detail of a model change records `"api_key": "changed"` or `"api_key": "removed"`, never a value.
+
+## 6. Interfaces
+
+### Gateway (`contracts/http/model-gateway.openapi.yaml`, Part A updates it)
+- `GET /health` → `{"status":"ok"}` when its database answers.
+- `POST /v1/call` (caller must be the Harness service account: `azp` `ooh-harness-api`, aud `ooh-model-gateway`). Body: `purpose`, `tier` (required when purpose is `chat`), `user_id`, `messages` (`role` system/user/assistant, `content`), optional `tools` (`[{name, description, input_schema}]`), `stream`. 
+  - `stream: false` → 200 `{content, tool_calls, model_entry_id, model_title, tier, usage: {input_tokens, output_tokens}, cost_usd}`.
+  - `stream: true` → SSE `data:` objects: `{"type":"delta","text":...}`, `{"type":"tool_call","id":...,"name":...,"arguments":{...}}`, then one `{"type":"completed","model_entry_id":...,"model_title":...,"tier":...,"usage":{...},"cost_usd":...}` or `{"type":"failed","error":{"code","message"}}`.
+  - Errors before streaming: 400 invalid input; 401; 403 wrong caller; 404 `no_model` (no active supported entry for this purpose and tier); 429 `rate_limited` (every entry skipped for rate); 503 `budget_exceeded` (every entry over budget), `unavailable` (every entry failed), `registry_unavailable` (Control Centre did not answer).
+- `POST /v1/classify` → 503 `{"code":"not_built_yet","message":"Classification arrives in Stage 3"}` (route kept, contract unchanged except the documented 503).
+- Adapters (one module each; nothing above them reads `api_type`):
+  - `openai_chat_completions`: `POST {endpoint_url}/chat/completions`, header `Authorization: Bearer <key>`; tools as `{"type":"function","function":{name, description, parameters}}`; streaming with `stream_options: {include_usage: true}`. Examples of `endpoint_url`: `https://api.openai.com/v1`, `https://api.deepseek.com`, an on-prem `http://<host>:8000/v1`.
+  - `openai_responses`: `POST {endpoint_url}/responses`, Bearer; `instructions` = the system message; `input` = the other messages; tools `{"type":"function", name, description, parameters}`; `store: false`; streaming events `response.output_text.delta`, `response.completed`. Example: `https://api.openai.com/v1`.
+  - `anthropic_messages`: `POST {endpoint_url}/v1/messages`, headers `x-api-key: <key>`, `anthropic-version: 2023-06-01`; `system` = the system message; `max_tokens` from `request_settings.max_tokens`, else 4096; tools `{name, description, input_schema}`; streaming events `content_block_delta`, `message_delta`, `message_stop`. Examples: `https://api.anthropic.com`, `https://api.deepseek.com/anthropic`.
+  - `request_settings`: its top-level fields are merged into the provider's request body after the adapter builds it; a value `null` removes that field (the escape hatch when a provider refuses a field).
+  - The builder checks every field name above against the provider's official reference on the day and reports any difference; the behaviour does not change.
+- Registry: `GET {CC}/api/models?purpose=&tier=` (cached 30 s), key `GET {CC}/api/models/{id}/key` (cached 5 min; dropped on a 401/403 from the provider and fetched once more). Service token cached until 30 s before expiry.
+
+### Harness API (`contracts/http/harness-api.openapi.yaml`, Part B updates it)
+- `GET /health`.
+- `GET /api/me` → `{user_id, name, chat_tiers: [int], skills: [{name, title}]}` (name from the token's `name` claim; tiers and skills from the Control Centre for this user).
+- `POST /api/conversations` → 201 `{id}`; `GET /api/conversations?limit=&before=` → the user's own, newest first `[{id, title, updated_at}]`; `GET /api/conversations/{id}` → `{id, title, messages: [...]}` (own only, else 404).
+- `POST /api/conversations/{id}/messages` body `{content, tier?}`: before the stream: the conversation must be the user's (404); tier = the given one or the lowest the user may use (none → 403 `no_tier`, "You have no chat tier yet. An admin can grant one."); `POST {CC}/api/rights/check` for `chat.tier` + tier (not allowed → 403 `tier_not_allowed`; no answer → 503 `rights_unavailable`: fail closed). Then the user message is stored, the Gateway is called with `stream: true`, and the SSE stream to the browser carries `delta`, then `completed` with `{message_id, tier, model_title, usage, note}` or `failed` with `{error}`. The assistant message is stored when the stream ends (partial text with outcome `failed` if it broke).
+- `POST /api/uploads`, `GET /api/events`, `GET /api/files/{key}`: answer 503 `{"code":"not_built_yet",...}` in Stage 2 (Stage 3 builds them with the storage contract rewrite).
+- Every route needs a user token with aud `ooh-harness-api` (the Workspace's tokens already carry it); `user_id` is always the token's `sub`, never taken from the body.
+
+### Control Centre additions (`contracts/http/control-centre.openapi.yaml`, Part D updates it)
+- `ModelInput` gains optional `title`, `api_key` (write-only, 1–4096 characters; an empty string removes the key), `input_price_per_million`, `output_price_per_million`, `timeout_seconds`, `request_settings`; `secret_ref` becomes optional. `ModelEntry` (admin and Gateway views) gains `title`, `has_key`, the two prices, `timeout_seconds`, `request_settings`; **never** the key.
+- `GET /api/models/{id}/key` (Gateway only) → `{api_key}`; 404 when the entry has no key. Not audited per read; logged without the value.
+- `PUT /api/models/{id}/health` (Gateway only) body `{health: ok|down|unknown}` → 200; no audit row.
+- Existing grant routes are used by the Admin Console for "who may use this tier" (`subject_type` `everyone` or a `user_id`).
+
+## 7. Parallel Parts
+
+Four Codex windows at the same time, each in its own worktree from `stage-2-base`, Full Access (Aziz 13:41). **Rule: no Part changes a file another Part lists.** Nobody changes the files in section 11.
+
+### Part A — Model Gateway (branch `stage-2-part-a`, Codex A, tile 0)
+Files (only these):
+```
+services/model-gateway/**                       (package, migrations, tests, Dockerfile, .dockerignore, README.md, uv.lock)
+contracts/http/model-gateway.openapi.yaml
+contracts/examples/http/model-gateway.*
+contracts/examples/index.model-gateway.json     (index entries for NEW Gateway examples; existing entries stay in index.json, whose example files Part A may update in place)
+.github/workflows/model-gateway-image.yml
+deploy/apps/model-gateway/*.yaml                 (Deployment with migrate init container, Service, ConfigMap; no Ingress)
+deploy/platform/postgres/db-modelgateway.yaml    (2 Databases + 4 DatabaseRoles)
+install/64-model-gateway-setup.sh                (database role Secrets, databases, test settings file ~/.config/ooh/model-gateway-test.env, the Gateway's Keycloak client secret copied into Secret model-gateway-oidc; no printing; re-runnable)
+install/65-model-gateway-deploy.sh               (<12-character tag>; image check as 61; apply; wait for the new revision and migrations; DONE)
+```
+Checks: `uv run ruff check`, `uv run ruff format --check`, `uv run pytest` in `services/model-gateway` (database tests included once 64 has run); `uv run --project contracts/check pytest`; `bash -n` + `shellcheck` on its scripts; `kubeconform -strict` on its manifests.
+Tests must cover: each adapter's request and streamed answer (respx fakes), tools in and tool calls out per adapter, `request_settings` merge and null removal, main → backup before first output, no failover after first output, rate limit skip, budget skip, cost maths, `daily_budget` 0 = no limit, unsupported `api_type` skipped, wrong caller 403, the key never logged (a test captures logs), registry and key caching, health reported only on change, append-only `usage` (database test as owner and as app role, rolled back).
+
+### Part B — Harness API (branch `stage-2-part-b`, Codex B, tile 1)
+Files (only these):
+```
+services/harness-api/**                          (package, migrations, bundled skill input schemas, tests, Dockerfile, .dockerignore, README.md, uv.lock)
+contracts/http/harness-api.openapi.yaml
+contracts/examples/http/harness-api.*
+contracts/examples/index.harness-api.json        (index entries for NEW Harness examples; existing entries stay in index.json, whose example files Part B may update in place)
+.github/workflows/harness-api-image.yml
+deploy/apps/harness-api/*.yaml                   (Deployment with migrate init container, Service named harness-api port 8080 with label app: harness-api, ConfigMap; no Ingress: the existing harness Ingress already sends /api to Service harness-api:8080)
+deploy/platform/postgres/db-harness.yaml
+install/66-harness-api-setup.sh                  (as 64, for the Harness: Secret harness-api-oidc, test file ~/.config/ooh/harness-api-test.env)
+install/67-harness-api-deploy.sh                 (as 65; afterwards deletes the leftover placeholder ConfigMap harness-api, which holds no data)
+```
+Checks as Part A, in `services/harness-api`. Tests must cover: every route allowed, refused and bad input; fail closed when the Control Centre does not answer or says no; lowest allowed tier chosen; tools only for allowed skills; tool call → the fixed sentence; budget fallback to the lowest allowed tier with its note; SSE order delta… completed; partial answer stored as failed when the Gateway stream breaks; another user's conversation → 404; `user_id` never taken from the body; the bundled schema copies equal the contracts; messages append-only (database test).
+
+### Part C — Workspace app + platform glue + the stage check (branch `stage-2-part-c`, Codex C, tile 4)
+Files (only these):
+```
+apps/workspace/**                                (Angular app, tests, Dockerfile, nginx.conf, .dockerignore, README.md, package-lock.json)
+.github/workflows/workspace-image.yml
+deploy/apps/workspace/*.yaml                     (Deployment named workspace with label app: workspace, Service workspace:8080, ConfigMap workspace-config with config.json; the existing harness Ingress already sends / to it)
+install/68-workspace-deploy.sh                   (image check, apply, wait, delete the leftover placeholder ConfigMap workspace)
+install/70-check-stage-2.sh                      (section 9)
+install/30-platform-apply.sh                     (stop re-applying the workspace, harness-api and admin-console placeholders once their real Deployment exists, as it already does for control-centre-api; nothing else changes)
+install/40-check-platform.sh                     (harness /, admin /: 200 from the real apps (look for the app's root element); harness /api/conversations without a token: 401 once the real harness-api runs, else the placeholder 200; nothing else changes)
+deploy/platform/keycloak/realm-ooh.yaml          (ooh-workspace and ooh-admin-console: attribute post.logout.redirect.uris "+" for fresh installs)
+install/35-realm-sync.sh                         (also sets post.logout.redirect.uris "+" on those two clients; never creates a client)
+docs/ARCHITECTURE.md                             (the Gateway, Harness, both apps as built; keys encrypted in the Control Centre; the storage paragraph is NOT changed in Stage 2)
+README.md                                        (Quick Guide, section 10)
+```
+The Workspace: sign-in page (SignIn screen: Keycloak button, digital rain from the design system, "Sign in with company account" starts the code + PKCE flow; no password fields, Keycloak shows those); chat screen (Main screen): left nav with Chat and the user's conversations (newest first, "New chat"), header with the conversation title and a tier picker showing only the user's tiers ("Tier 1", "Tier 2"…), messages (user right, assistant left, streaming cursor while streaming, mono meta line `tier N · <model title> · <in> in / <out> out tokens` plus the note when present), composer (Enter sends, Shift+Enter new line, Send disabled while streaming), an amber notice for 403 answers with the API's message, a red notice for failures. Jobs, Files and Approvals panels are not shown in Stage 2. The browser reads the SSE stream from `fetch` (POST cannot use EventSource). Tests (`ng test`): the SSE parser (chunks split across lines), the tier picker shows only allowed tiers, a 403 shows its message, the meta line format.
+Checks: `npx ng build`, `npx ng test` (no watch), `npm ci` from the lock file; the stage check script with `bash -n` + `shellcheck`; `kubeconform` on its manifests.
+
+### Part D — Control Centre changes + Admin Console app (branch `stage-2-part-d`, Codex D, tile 5)
+Files (only these):
+```
+services/control-centre/**                       (new migration, model fields, key encryption, the two Gateway routes, tests, README)
+contracts/http/control-centre.openapi.yaml
+contracts/examples/http/control-centre.*
+contracts/examples/index.control-centre.json     (new Control Centre examples only; existing entries stay in index.json, whose files Part D may update in place)
+apps/admin-console/**
+.github/workflows/admin-console-image.yml
+deploy/apps/admin-console/*.yaml                 (Deployment named admin-console, label app: admin-console, Service admin-console:8080, ConfigMap admin-console-config; the existing admin Ingress already sends / to it)
+deploy/apps/control-centre/deployment.yaml       (CC_KEY_ENCRYPTION_KEY from Secret control-centre-keys key encryption-key)
+install/63-control-centre-keys.sh                (creates Secret control-centre-keys with 32 random bytes, only if missing; never prints; DONE)
+install/69-admin-console-deploy.sh               (image check, apply, wait, delete the leftover placeholder ConfigMap admin-console)
+```
+Control Centre: section 5 and section 6 additions; the app refuses to start without a valid `CC_KEY_ENCRYPTION_KEY` (32 bytes, base64) with a clear log line; a wrong key never leaks in errors. Tests: encryption round trip, tamper detected, key never in any admin response, audit detail or log; the Gateway-only routes refuse admins and the Harness; health update writes no audit row; the new fields' validation; old rows without key still listed.
+Admin Console: sign-in page (as the Workspace, client `ooh-admin-console`); a signed-in person without realm role `ooh-admin` sees "This console is for administrators." and a sign-out button; Models & tiers screen (AdminModels screen): cards per purpose and tier, the table (purpose · tier, main, backup, where, rate limit, cost-today shown as "—" in Stage 2), "Add model" and "Edit" open the form with the approved fields (name = `title`, purpose, tier for chat only, role, where it runs, connection type with the three options and one help line each with the example endpoints of section 6, endpoint, model ID, API key "Saved · type to replace" — never pre-filled, rate limit per user, daily budget USD with help "0 = no limit", input and output price per million tokens USD, time limit seconds, extra request settings as JSON with validation); "Switch off" removes the entry (asks to confirm); per chat tier a "Who may use this tier" row: "Everyone" toggle (grant/remove an `everyone` grant) and an "Add person by user ID" field (a user grant). No "Test connection" button in Stage 2 (Stage 3). Other nav items are not shown in Stage 2.
+Checks: `dotnet format --verify-no-changes`, `dotnet build -warnaserror`, `dotnet test` (database tests included), `dotnet ef migrations has-pending-model-changes`; `npx ng build`, `npx ng test`; contract check; scripts and manifests as the others.
+
+### Merge (after all four Parts pass review)
+Codex makes branch `stage-2` from `stage-2-base` in a new worktree `~/projects/worktrees/stage-2`, merges the four branches (the file lists do not overlap), runs every check in section 2 item 7 on a clean worktree, writes `docs/STATUS.md` (the only file written at merge), pushes `stage-2`, and runs each image workflow on demand for the merge commit if the path filter did not start it.
+
+## 8. Fixed names between the Parts
+
+| What | Value |
+|---|---|
+| Ports | every service and app container listens on 8080; probes: readiness `GET /health` (services) or `GET /` (apps); liveness TCP 8080 |
+| Images | `ghcr.io/frozenfussion/ooh-<model-gateway, harness-api, workspace, admin-console>:<first 12 characters of the commit hash>`; init container args `["migrate"]` for the two Python services |
+| Gateway environment | `GW_DB_CONNECTION` (Secret `model-gateway-db` key `connection`), `GW_DB_MIGRATE_CONNECTION` (same Secret, key `migrate-connection`, init container only), `GW_OIDC_ISSUER` `https://auth.${DOMAIN}/realms/ooh`, `GW_OIDC_AUDIENCE` `ooh-model-gateway`, `GW_CLIENT_ID` `ooh-model-gateway`, `GW_CLIENT_SECRET` (Secret `model-gateway-oidc` key `client-secret`), `GW_CONTROL_CENTRE_URL` `http://control-centre.${APPS_NAMESPACE}.svc:8080` |
+| Harness environment | `HA_DB_CONNECTION`, `HA_DB_MIGRATE_CONNECTION` (Secret `harness-api-db`), `HA_OIDC_ISSUER`, `HA_OIDC_AUDIENCE` `ooh-harness-api`, `HA_CLIENT_ID` `ooh-harness-api`, `HA_CLIENT_SECRET` (Secret `harness-api-oidc` key `client-secret`), `HA_CONTROL_CENTRE_URL`, `HA_GATEWAY_URL` `http://model-gateway.${APPS_NAMESPACE}.svc:8080` |
+| Control Centre environment (new) | `CC_KEY_ENCRYPTION_KEY` (Secret `control-centre-keys` key `encryption-key`) |
+| Test settings files (accepted exception, test databases only, mode 600) | `~/.config/ooh/model-gateway-test.env` (`GW_TEST_DB_MIGRATE_CONNECTION`, `GW_TEST_DB_CONNECTION`), `~/.config/ooh/harness-api-test.env` (`HA_TEST_DB_MIGRATE_CONNECTION`, `HA_TEST_DB_CONNECTION`) |
+| Web app config (`/config.json`) | `{"issuer":"https://auth.<domain>/realms/ooh","clientId":"ooh-workspace" or "ooh-admin-console","apiBase":"/api"}` |
+| Manifests | use `${DOMAIN}`, `${PLATFORM_NAMESPACE}`, `${APPS_NAMESPACE}`, `${IMAGE_TAG}` like Stage 1; scripts render them from `deploy/values/do.env` |
+| Client secrets into Kubernetes | read inside the Keycloak pod with `kcadm.sh get clients/<id>/client-secret` (logged in as in `35-realm-sync.sh`), captured on harness, written with `kubectl create -f -` from standard input; never printed, never an argument, never a trailing newline (`jq -j`) |
+
+## 9. `install/70-check-stage-2.sh` (Part C), one `PASS`/`FAIL` line each, then `DONE`
+
+1. `https://harness.<domain>/` and `https://admin.<domain>/` answer 200 with each app's root element; `/config.json` of each holds the right client id.
+2. `https://harness.<domain>/api/conversations` without a token → 401; with a wrong-audience token (the Control Centre's own service token) → 401.
+3. The Gateway has no Ingress and no public route (`https://harness.<domain>/v1/call` and `https://admin.<domain>/v1/call` are not the Gateway: 404 or the app page).
+4. Through a short-lived `kubectl port-forward` to the Gateway Service (started and stopped by the script): the Control Centre's service token → 403 or 401 on `/v1/call`; the Harness service token with purpose `chat` and a tier that has no entries → 404 `no_model`.
+5. For **every active chat entry with a key** in the registry (read with the Gateway's service token): one non-streamed `/v1/call` pinned to that entry's purpose and tier with the message `Reply with the single word OK.` → 200 with non-empty content, the entry's title, usage > 0. (Entries of the same tier are main/backup; the check reports which entry answered.) One streamed call per connection type in use → at least two `delta` events then `completed`.
+6. The Gateway's `usage` table has a new row per call above (psql in the PostgreSQL pod, count by time window).
+7. Admin views never contain a key: `GET /api/admin/models` and `GET /api/models` (as the Gateway) have `has_key` and no field holding a key; the Control Centre logs since the check began contain none of the key values (the script reads each key once through the Gateway route, keeps it in a variable, searches the logs, never prints it).
+8. `GET /api/models/{id}/key` as the Harness service account → 403.
+The device sign-in is not needed: every call above uses service accounts, and the browser test of Done-when 5 covers a real user.
+
+## 10. README Quick Guide additions (Part C writes them; each with where to type, which password, good result)
+1. The Stage 2 order on a fresh server: 63 → 61 → 64 → 65 → 66 → 67 → 68 → 69 → 35 → (admin adds models in the browser) → 70.
+2. Each script's command, folder (`~/projects/worktrees/stage-2` until accepted, then the main clone) and good result.
+3. Adding a model in the Admin Console, with one example per connection type: OpenAI (`openai_responses`, `https://api.openai.com/v1`), Anthropic (`anthropic_messages`, `https://api.anthropic.com`), DeepSeek (`openai_chat_completions`, `https://api.deepseek.com`, or `anthropic_messages`, `https://api.deepseek.com/anthropic`), on-prem (`openai_chat_completions`, `http://<host>:8000/v1`), with placeholder model IDs (never a real model name in the repo).
+4. Giving people a tier ("Who may use this tier").
+5. Everyday: logs, restart, which image runs, for each of the four new deployments; what to do after a reboot.
+6. Builder checks for the two Python services and the two apps.
+7. Every new `STOP:` and `FAIL` message and what to do.
+
+## 11. Files that already exist (spec author's; Codex does not change them)
+`AGENTS.md`, `CLAUDE.md`, `LICENSE`, `docs/specs/*`, `docs/plan/*`, `docs/images/*`, `docs/design/*`, `apps/design-system/*`, `contracts/check/*`, `install/01-server-setup.sh`, and every earlier file not listed in a Part. If a Part believes one must change, it stops and asks with the reason.
+
+## 12. Pre-mortem
+
+| Step | Failure | How it shows | Action |
+|---|---|---|---|
+| Streaming | Traefik or nginx buffers SSE | answer appears all at once | `X-Accel-Buffering: no`, `Cache-Control: no-store`; Claude tests a stream through `https://harness.<domain>/api` before Aziz does |
+| Provider fields | a field name differs from what the adapter sends | provider 400 | builder checks references on the day; Claude tests each provider with Aziz's key through the Gateway before the browser test; `request_settings` can remove a refused field |
+| Keys | wrong or missing encryption key | Control Centre will not start | run 63 before deploying the new Control Centre image |
+| Placeholders | 30 re-applied over a real app | real app replaced by the placeholder page | Part C's change to 30; check with 40 |
+| Sign-in | redirect or logout refused by Keycloak | Keycloak error page | 35 must run (post-logout redirect URIs); redirect URIs already on both hosts |
+| Gateway to Control Centre | 401 from the Control Centre | Gateway log "registry unauthorized" | the Gateway's token must carry aud `ooh-control-centre` (realm already maps it); 64 copied the right client secret |
+| Budget | Stage 1 check entry `stage-check` with budget 0 | — | 0 = no limit, and its `api_type` is unsupported, so the Gateway skips it anyway |
+| Memory | six new pods on 16 GB | Pending pods | requests small (Python 100m/128Mi, apps 10m/32Mi); report actual use |
+
+## 13. Out of scope for Stage 2
+Skill jobs on Kafka and the Slides worker, uploads, files and job events, the storage contract rewrite, classifier routing and `/v1/classify`, Test connection, health checks on a timer, the Overview, Approvals, People & rights, Audit, Skills and Failed messages screens, branded sign-in, ordinary users' name and email in the Control Centre, an AI-written conversation title, Helm, tracing, AWS. Codex does not pre-build any of it.
+
+## 14. Changes agreed during the build — these override the sections above
+
+| # | Change | Who / when |
+|---|---|---|

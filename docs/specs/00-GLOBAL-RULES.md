@@ -35,7 +35,7 @@ When Codex needs something only Aziz may do, it writes the exact commands into a
 - Kafka only where it solves a real problem (slow or bursty work, fan-out, survive a service being down, replay). Chat streaming and rights checks are direct HTTP calls.
 - Rights (chat tiers, skills, image) are decided by fixed rules in the Control Centre, never by an AI. If the Control Centre does not answer, the answer is **not allowed** (fail closed). The classifier only *suggests*.
 - A tier is a field on each chat model entry (1..N). Creating a new tier creates its right automatically.
-- **No AI model name, vendor, address or key in code or config in the repo.** AI is used by *purpose* (`chat`, `classification`, `image`, and any purpose added later). Which model serves a purpose and tier is a row in the Control Centre's model registry. Tests use a fake model, never a real one.
+- **No AI model name, vendor, address or key in code or config in the repo** (Aziz, 10 Nov 2026: "There's not going to be any hard code"). AI is used by *purpose* (`chat`, `classification`, `image`, and any purpose added later). Which model serves a purpose and tier is a row in the Control Centre's model registry. Tests use a fake model, never a real one.
 - Each service owns its own database. Nobody reads another service's tables.
 - **Nothing is ever deleted.** Business tables have `deleted_at`; "delete" sets it. The audit trail is append-only, enforced by the database.
 
@@ -48,10 +48,11 @@ When Codex needs something only Aziz may do, it writes the exact commands into a
 - Exact versions are fixed and dated in each stage spec.
 
 **Places and names**
-- Droplet `harness` (DigitalOcean, 143.198.221.2), password login for user `aziz`. Main clone `~/projects/open-office-harness`; one git worktree per Part under `~/projects/worktrees/`; local settings in `~/.config/ooh/`. Everyone works inside the tmux session `harness`, window `work`, four labelled tiles: 0 Codex A (builds), 1 Codex B (builds), 2 Claude Code (reviews), 3 Shell (Aziz, sudo).
+- Droplet `harness` (DigitalOcean, 143.198.221.2), password login for user `aziz`. Main clone `~/projects/open-office-harness`; one git worktree per Part under `~/projects/worktrees/`; local settings in `~/.config/ooh/`. Everyone works inside the tmux session `harness`, window `work`, labelled tiles: 0 Codex A (builds), 1 Codex B (builds), 2 Claude Code (reviews), 3 Shell (Aziz, sudo), and from Stage 2 also 4 Codex C (builds), 5 Codex D (builds).
 - Public hostnames (A records to `harness`): `harness.faysalaziz.com` = Workspace app, with the Harness API under `/api`; `admin.faysalaziz.com` = Admin Console, with the Control Centre API under `/api`; `auth.faysalaziz.com` = Keycloak. Each app talks only to its own host (no cross-site calls). Model Gateway, Kafka and PostgreSQL have no public name.
 - Kubernetes namespaces: `ooh-platform` (Kafka, PostgreSQL, Keycloak) and `ooh-apps` (our services).
 - Secrets live only in Kubernetes Secrets, created by scripts Aziz runs. The repo holds `.env.example` files and `*.example.yaml` files with names and no values.
+  Two agreed exceptions: AI provider keys are typed by an admin in the Admin Console and stored **encrypted** in the Control Centre's database (the encryption key is a Kubernetes Secret; agreed 10 Nov 2026); and the builders' **test** database settings files under `~/.config/ooh/*-test.env` (mode 600, test databases only).
 - Times are stored in UTC. The display time zone is a setting (first value `Asia/Kuala_Lumpur`). All user-facing text is English.
 
 ## 3. Repo layout (one repo, fixed)

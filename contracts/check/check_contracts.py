@@ -130,7 +130,12 @@ def check_contracts() -> dict[str, int]:
                 )
                 expected.update(http_cases(name, path, method, operation))
 
-    index = load(ROOT / "examples/index.json")["examples"]
+    # Each stage Part may own its own index file (examples/index.<area>.json).
+    index_files = [
+        ROOT / "examples/index.json",
+        *sorted((ROOT / "examples").glob("index.*.json")),
+    ]
+    index = [entry for file in index_files for entry in load(file)["examples"]]
     covered_http = set()
     covered_schemas = set()
     indexed_files = set()
@@ -179,7 +184,7 @@ def check_contracts() -> dict[str, int]:
     actual_files = {
         path.resolve()
         for path in (ROOT / "examples").rglob("*.json")
-        if path.name != "index.json"
+        if path.resolve() not in {file.resolve() for file in index_files}
     }
     require(
         indexed_files == actual_files,
