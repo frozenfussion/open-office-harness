@@ -99,7 +99,7 @@
 
 ## What the Gateway does
 
-Only the Harness service account (`azp: ooh-harness-api`) with a valid realm signature, issuer, audience, expiry and subject can call `/v1/call` and `/v1/classify`. `/health` is public and checks the database. Classification validates its input and returns `not_built_yet` until Stage 3. Interactive API documentation routes are disabled.
+The Harness service account (`azp: ooh-harness-api`) with a valid realm signature, issuer, audience, expiry and subject can call `/v1/call` and `/v1/classify`. The Control Centre service account may call `/v1/call` only for the fixed test described below; it cannot classify. `/health` is public and checks the database. Classification validates its input and returns `not_built_yet` until Stage 3. Interactive API documentation routes are disabled.
 
 The Control Centre supplies all model addresses, IDs, keys, prices and settings. Its registry response must include `model_entry_id`, `created_at`, title, purpose, tier, role, priority, connection type and the configured limits. The spec author agreed to expose `created_at` on 10 November 2026 so the Gateway can order equal-priority entries itself. Part D owns that response.
 
@@ -114,6 +114,16 @@ Before the first text or tool event, a failed connection can move to the next en
 Each SSE `data:` line contains one JSON object (`delta`, `tool_call`, `completed`, `failed`); no `event:` line is used. Both stream headers prevent buffering or caching. Non-streamed calls collect text, tools, selected entry metadata, usage and cost into one JSON response.
 
 Extra request settings replace top-level fields after the adapter builds the request; `null` removes a field. They must be a JSON object. Newer Anthropic versions may refuse `temperature`, `top_p` or `top_k` supplied here. The two compatible connection formats impose no length limit unless configured; the Messages format defaults to 4096 output tokens.
+
+## Test connection (section 16)
+
+In the Admin Console's Models & tiers screen, save a key and press **Test** beside that entry. Each click makes one short paid call, counts against that entry's rate limit and daily budget, and writes usage like a chat call. This builder's automated tests use fake providers only.
+
+The Control Centre may send only a pinned, non-streamed call with the single user message `Reply with the single word OK.`, no tools, and a user ID starting `admin-test-`. Any other Control Centre call is refused with 403. The Harness rules are unchanged, including pinned checks.
+
+On a failed test the Gateway adds `provider_status` and a scrubbed `provider_message` to its 503 response. Only the authorized Control Centre test receives these fields; Harness responses keep their ordinary error shape. Registry or budget errors have null provider details. Timeouts say `time limit reached`; connection failures say `could not connect`.
+
+Each adapter reads at most 4 KiB of a non-success response, takes `error.message` when present or the text otherwise, removes the saved key, any matching key fragment of eight or more characters, and token-shaped `sk-` values, then limits the result to 300 characters. Provider messages and replies are never logged. Every failed provider attempt logs only `provider_failed`, entry ID, HTTP status (or null), and reason (`http`, `timeout`, `connect`, `bad_answer`). No new setup or database migration is needed for this Gateway change. The merged-stage guide owns the deployment order and the Control Centre/browser steps.
 
 ## Official reference check — 10 November 2026
 

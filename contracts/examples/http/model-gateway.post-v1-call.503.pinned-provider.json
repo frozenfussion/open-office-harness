@@ -1,0 +1,6 @@
+{
+  "code": "unavailable",
+  "message": "The model did not answer. Try again.",
+  "provider_status": 401,
+  "provider_message": "Key [removed] refused"
+}

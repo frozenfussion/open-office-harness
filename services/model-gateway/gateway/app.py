@@ -22,12 +22,23 @@ from gateway.registry import Registry
 async def caller(
     request: Request, authorization: Annotated[str | None, Header()] = None
 ) -> dict[str, Any]:
-    claims = await request.app.state.identity.authenticate(authorization)
-    if claims.get("azp") != "ooh-harness-api":
-        raise GatewayError(
-            403, "forbidden", "Only the Harness service account may call the Gateway"
-        )
-    return claims
+    return await request.app.state.identity.authenticate(authorization)
+
+
+def authorize_call(body: Call, claims: dict[str, Any]) -> bool:
+    if claims.get("azp") == "ooh-harness-api":
+        return False
+    if (
+        claims.get("azp") == "ooh-control-centre"
+        and body.model_entry_id is not None
+        and not body.stream
+        and [message.model_dump() for message in body.messages]
+        == [{"role": "user", "content": "Reply with the single word OK."}]
+        and not body.tools
+        and body.user_id.startswith("admin-test-")
+    ):
+        return True
+    raise GatewayError(403, "forbidden", "This caller may not make this Gateway call")
 
 
 def create_app(config: Config | None = None) -> FastAPI:
@@ -51,7 +62,13 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     @app.exception_handler(GatewayError)
     async def gateway_error(request: Request, error: GatewayError) -> JSONResponse:
-        return JSONResponse(error.body(), status_code=error.status)
+        body: dict[str, Any] = error.body()
+        if getattr(request.state, "test_connection", False) and error.status == 503:
+            body |= {
+                "provider_status": error.provider_status,
+                "provider_message": error.provider_message,
+            }
+        return JSONResponse(body, status_code=error.status)
 
     @app.exception_handler(RequestValidationError)
     async def invalid(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -61,9 +78,8 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     @app.exception_handler(psycopg.Error)
     async def database_error(request: Request, error: psycopg.Error) -> JSONResponse:
-        return JSONResponse(
-            {"code": "unavailable", "message": "The database did not answer"},
-            status_code=503,
+        return await gateway_error(
+            request, GatewayError(503, "unavailable", "The database did not answer")
         )
 
     @app.get("/health")
@@ -71,9 +87,14 @@ def create_app(config: Config | None = None) -> FastAPI:
         await request.app.state.db.health()
         return {"status": "ok"}
 
-    @app.post("/v1/call", dependencies=[Depends(caller)])
-    async def call(body: Call, request: Request) -> Any:
-        events = request.app.state.engine.events(body)
+    @app.post("/v1/call")
+    async def call(
+        body: Call, request: Request, claims: Annotated[dict[str, Any], Depends(caller)]
+    ) -> Any:
+        request.state.test_connection = authorize_call(body, claims)
+        events = request.app.state.engine.events(
+            body, provider_details=request.state.test_connection
+        )
         try:
             first = await anext(events)
         except StopAsyncIteration:
@@ -129,8 +150,14 @@ def create_app(config: Config | None = None) -> FastAPI:
             **{key: value for key, value in completed.items() if key != "type"},
         }
 
-    @app.post("/v1/classify", dependencies=[Depends(caller)])
-    async def classify(body: Classify) -> JSONResponse:
+    @app.post("/v1/classify")
+    async def classify(
+        body: Classify, claims: Annotated[dict[str, Any], Depends(caller)]
+    ) -> JSONResponse:
+        if claims.get("azp") != "ooh-harness-api":
+            raise GatewayError(
+                403, "forbidden", "Only the Harness service account may classify"
+            )
         return JSONResponse(
             {"code": "not_built_yet", "message": "Classification arrives in Stage 3"},
             status_code=503,

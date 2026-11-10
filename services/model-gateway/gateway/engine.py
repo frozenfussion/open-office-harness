@@ -12,6 +12,7 @@ import httpx
 import psycopg
 
 from gateway.adapters import resolve
+from gateway.adapters.common import failure_info
 from gateway.database import Database
 from gateway.models import Call, Entry, GatewayError
 from gateway.registry import Registry
@@ -35,7 +36,9 @@ class Engine:
     ) -> None:
         self.client, self.registry, self.db = client, registry, db
 
-    async def events(self, call: Call) -> AsyncIterator[dict[str, Any]]:
+    async def events(
+        self, call: Call, *, provider_details: bool = False
+    ) -> AsyncIterator[dict[str, Any]]:
         entries = await self.registry.get(call.purpose, call.tier)
         entries = [
             e
@@ -81,8 +84,11 @@ class Engine:
             input_tokens = output_tokens = 0
             started = False
             recorded = False
+            provider_attempted = False
+            provider_finished = False
             try:
                 key = await self.registry.key(entry)
+                provider_attempted = True
                 async with aclosing(
                     resolve(entry)(self.client, entry, key, call)
                 ) as output:
@@ -95,6 +101,7 @@ class Engine:
                         else:
                             started = True
                             yield event
+                provider_finished = True
                 total = cost(entry, input_tokens, output_tokens)
                 await self.db.record(
                     entry,
@@ -140,7 +147,23 @@ class Engine:
                 TypeError,
                 RuntimeError,
                 psycopg.Error,
-            ):
+            ) as error:
+                status, message, reason = (
+                    failure_info(error)
+                    if provider_attempted and not provider_finished
+                    else (None, None, "bad_answer")
+                )
+                if provider_attempted and not provider_finished:
+                    logger.warning(
+                        json.dumps(
+                            {
+                                "message": "provider_failed",
+                                "model_entry_id": str(entry.id),
+                                "provider_status": status,
+                                "reason": reason,
+                            }
+                        )
+                    )
                 await self.db.record(
                     entry,
                     call,
@@ -150,6 +173,14 @@ class Engine:
                     cost(entry, input_tokens, output_tokens),
                     int((time.monotonic() - start) * 1000),
                 )
+                if provider_details and call.model_entry_id is not None:
+                    raise GatewayError(
+                        503,
+                        "unavailable",
+                        "The model did not answer. Try again.",
+                        provider_status=status,
+                        provider_message=message,
+                    ) from None
                 if started:
                     yield {
                         "type": "failed",
