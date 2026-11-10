@@ -4,9 +4,9 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { of } from 'rxjs';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { App } from './app';
-import { ModelEntry, modelPayload, settingsObject, tierRows } from './models';
+import { ConnectionResult, ModelEntry, modelPayload, settingsObject, tierRows } from './models';
 const model: ModelEntry = { model_entry_id: 'synthetic', title: 'Synthetic', purpose: 'chat', tier: 1, role: 'main', location: 'cloud', api_type: 'openai_responses', endpoint_url: 'https://synthetic.invalid', model_id: 'synthetic', has_key: true, priority: 100, rate_limit_per_minute: 10, daily_budget: 0, input_price_per_million: 0, output_price_per_million: 0, timeout_seconds: 120, request_settings: {} };
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 describe('Model settings and rights', () => {
   it('rejects arrays, null and scalar request settings', () => {
     for (const value of ['[]', 'null', 'true', '1', '"text"', '{']) expect(() => settingsObject(value)).toThrow();
@@ -62,7 +62,6 @@ describe('Admin console', () => {
     const input = fixture.nativeElement.querySelector('input[name=key]') as HTMLInputElement;
     expect(input.value).toBe(''); expect(input.placeholder).toBe('Saved · type to replace');
     expect(fixture.nativeElement.textContent).toContain('No model yet');
-    expect(fixture.nativeElement.textContent).not.toContain('Test connection');
   });
   it('reads every model page and sorts the display', async () => {
     const { fixture } = await create(true); const app = fixture.componentInstance;
@@ -73,6 +72,49 @@ describe('Admin console', () => {
     await app.load();
     expect(request).toHaveBeenNthCalledWith(2, '/admin/models?limit=200&after=synthetic-199');
     expect(app.models()).toHaveLength(201); expect(app.models()[0].purpose).toBe('a-purpose');
+  });
+
+  it('disables connection tests without a saved key', async () => {
+    const { fixture } = await create(true); const app = fixture.componentInstance;
+    app.models.set([{ ...model, has_key: false }]); fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('button[title="Save a key first"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    const request = vi.spyOn(app, 'request'); await app.testConnection({ ...model, has_key: false }); expect(request).not.toHaveBeenCalled();
+  });
+  it('shows Testing then formats the successful result beneath the row', async () => {
+    const { fixture } = await create(true); const app = fixture.componentInstance;
+    app.models.set([model]);
+    let finish!: (result: ConnectionResult) => void;
+    const pending = new Promise<ConnectionResult>(resolve => { finish = resolve; });
+    const request = vi.spyOn(app, 'request').mockReturnValueOnce(pending);
+    const test = app.testConnection(model); fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('button[title="One short paid call to this model only"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(true); expect(button.textContent).toContain('Testing…');
+    finish({ ok: true, model_title: 'Synthetic', reply: 'a'.repeat(90), duration_ms: 1234, usage: { input_tokens: 2, output_tokens: 1 }, cost_usd: 0.000123 });
+    await test; fixture.detectChanges();
+    expect(request).toHaveBeenCalledWith('/admin/models/synthetic/test', 'POST', {}, expect.any(AbortSignal));
+    expect(button.disabled).toBe(false);
+    expect(fixture.nativeElement.querySelector('[role=status]').textContent).toBe('Works · 1.2 s · reply: "' + 'a'.repeat(80) + '" · 2/1 tokens · $0.000123');
+  });
+  it('shows the failure and provider detail as plain text', async () => {
+    const { fixture } = await create(true); const app = fixture.componentInstance;
+    app.models.set([model]);
+    vi.spyOn(app, 'request').mockResolvedValueOnce({ ok: false, reason: 'key refused', provider_status: 401, provider_message: '<img src=x onerror=alert(1)>' });
+    await app.testConnection(model); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role=status]').textContent).toBe('Failed · key refused (provider answered 401) · <img src=x onerror=alert(1)>');
+    expect(fixture.nativeElement.querySelector('img')).toBeNull();
+  });
+  it('aborts the browser wait at the entry timeout plus fifteen seconds', async () => {
+    const { fixture } = await create(true); const app = fixture.componentInstance;
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    })));
+    const test = app.testConnection({ ...model, timeout_seconds: 10 });
+    await vi.advanceTimersByTimeAsync(24999); expect(app.testing().has(model.model_entry_id)).toBe(true);
+    await vi.advanceTimersByTimeAsync(1); await test;
+    expect(app.testResults()[model.model_entry_id]).toEqual({ ok: false, reason: 'took longer than its time limit', provider_status: null, provider_message: null });
+    expect(app.testing().size).toBe(0);
   });
 
 });

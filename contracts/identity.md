@@ -36,7 +36,7 @@ be refused even if its issuer and signature are valid.
 | Service account | HTTP rights |
 |---|---|
 | ooh-harness-api | Control Centre rights checks, rights lists and allowed skill manifests; Gateway purpose calls and classification, on behalf of the user |
-| ooh-control-centre | Its Control Centre operations subject to fixed policy; no AI calls |
+| ooh-control-centre | Its Control Centre operations subject to fixed policy; Gateway /v1/call only for a pinned, non-streamed connection test with the fixed OK message, no tools, and admin-test- user ID; aud ooh-model-gateway |
 | ooh-model-gateway | Control Centre GET /api/models and GET /api/models/{id}/key on internal port 8081 only; provider keys encrypted in the Control Centre; no rights grants or skill jobs |
 
 The Harness and workers call the Gateway with tokens for ooh-model-gateway.

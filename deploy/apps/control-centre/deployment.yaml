@@ -71,6 +71,12 @@ spec:
             secretKeyRef:
               name: control-centre-keys
               key: encryption-key
+        - name: CC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: control-centre-oidc
+              key: client-secret
+              optional: true
         - name: CC_DB_CONNECTION
           valueFrom:
             secretKeyRef:

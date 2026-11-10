@@ -3,7 +3,7 @@ import { Component, DestroyRef, ElementRef, afterNextRender, inject, signal } fr
 import { FormsModule } from '@angular/forms';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { firstValueFrom, of, switchMap } from 'rxjs';
-import { Grant, ModelEntry, modelPayload, tierRows } from './models';
+import { ConnectionResult, connectionSummary, Grant, ModelEntry, modelPayload, tierRows } from './models';
 
 export interface AppConfig { issuer: string; clientId: string; apiBase: string; }
 declare global { interface Window { oohConfig: AppConfig; OpenOfficeHarness?: { WordRain: { mount(el: HTMLCanvasElement): { stop(): void } } }; } }
@@ -15,6 +15,9 @@ export class App {
   signedIn = signal(false); admin = signal(false); ready = signal(false);
   models = signal<ModelEntry[]>([]); grants = signal<Grant[]>([]);
   error = signal(''); busy = signal(false); editing = signal<ModelEntry | null>(null);
+  testing = signal<Set<string>>(new Set());
+  testResults = signal<Record<string, ConnectionResult>>({});
+  connectionSummary = connectionSummary;
   key = ''; removeKey = false; settings = '{}'; people: Record<number, string> = {};
   types = [
     { value: 'openai_chat_completions', title: 'OpenAI-compatible', help: 'Chat completions: https://api.deepseek.com or http://<host>:8000/v1' },
@@ -45,9 +48,9 @@ export class App {
   tierModels(tier: number): ModelEntry[] { return this.models().filter(m => m.purpose === 'chat' && m.tier === tier); }
   tierGrants(tier: number): Grant[] { return this.grants().filter(g => g.right_key === `chat.tier.${tier}`); }
   everyone(tier: number): boolean { return this.tierGrants(tier).some(g => g.subject_type === 'everyone'); }
-  async request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  async request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
     const token = await firstValueFrom(this.auth.getAccessToken());
-    const response = await fetch(window.oohConfig.apiBase + path, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const response = await fetch(window.oohConfig.apiBase + path, { method, signal, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.message || 'The request failed. Try again.');
     return result as T;
@@ -85,6 +88,24 @@ export class App {
       await this.request('/admin/models' + (m.model_entry_id ? '/' + m.model_entry_id : ''), m.model_entry_id ? 'PUT' : 'POST', payload);
       this.key = ''; this.editing.set(null); await this.load();
     } catch (e) { this.failure(e); } finally { this.busy.set(false); }
+  }
+  async testConnection(model: ModelEntry): Promise<void> {
+    const id = model.model_entry_id;
+    if (!model.has_key || this.testing().has(id)) return;
+    this.testing.update(ids => new Set([...ids, id]));
+    this.testResults.update(results => { const next = { ...results }; delete next[id]; return next; });
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), (model.timeout_seconds + 15) * 1000);
+    try {
+      const result = await this.request<ConnectionResult>('/admin/models/' + encodeURIComponent(id) + '/test', 'POST', {}, abort.signal);
+      this.testResults.update(results => ({ ...results, [id]: result }));
+    } catch (error) {
+      const reason = abort.signal.aborted ? 'took longer than its time limit' : error instanceof Error ? error.message : 'unexpected answer';
+      this.testResults.update(results => ({ ...results, [id]: { ok: false, reason, provider_status: null, provider_message: null } }));
+    } finally {
+      clearTimeout(timer);
+      this.testing.update(ids => { const next = new Set(ids); next.delete(id); return next; });
+    }
   }
   async switchOff(m: ModelEntry): Promise<void> {
     if (!confirm(`Switch off ${m.title || m.model_id}?`)) return;

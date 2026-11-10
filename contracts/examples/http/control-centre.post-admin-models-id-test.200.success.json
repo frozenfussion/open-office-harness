@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "model_title": "Synthetic model",
+  "reply": "OK",
+  "duration_ms": 1234,
+  "usage": {
+    "input_tokens": 2,
+    "output_tokens": 1
+  },
+  "cost_usd": 0.000123
+}

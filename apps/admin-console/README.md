@@ -7,6 +7,15 @@
    install/63-control-centre-keys.sh
    ```
 
+**Enable connection tests.** Claude runs this in the harness terminal, in the plain shell, while Aziz watches. No password is needed. First follow the root README to sync the new realm audience mapper with 35. This copies the Control Centre's service credential privately from Keycloak; it retains a matching existing Secret and refuses to overwrite a changed one. Good result: `DONE`.
+
+```bash
+cd ~/projects/worktrees/stage-2
+install/71-control-centre-oidc.sh
+```
+
+For the new Test button, the deployment order is realm sync → 71 → the new Gateway image with 65 → the new Control Centre image with 61 → the new console image with 69 → check 70. The Control Centre still starts without the optional service Secret; testing then reports “the Control Centre has no service credentials.”
+
 2. **Deploy the Control Centre.** Claude runs this in the harness terminal, in the plain shell. No password is needed. The folder is the merged Stage 2 worktree. This uses the first 12 characters of its commit; the image workflow for that commit must be green. Good result: the new revision is Ready and `DONE`.
 
    ```bash
@@ -40,6 +49,8 @@
    These are help examples, never defaults or routing rules. The administrator chooses every address and model. `temperature`, `top_p` and `top_k` in extra request settings may be refused by newer Anthropic versions. Priority means “Order within the tier, lowest first”; the Gateway tries main entries before backups, then priority, then creation time. Budget `0` means no limit.
 
    Type the provider key once. It is stored encrypted and never filled back into the form. A blank field keeps the saved key; **Remove saved key** removes it. Changing the endpoint or connection type removes it unless a replacement is typed in the same save. **Switch off** asks for confirmation and marks the entry removed without deleting its row.
+
+**Test a saved model.** Do this in the Admin Console browser screen. Each model row has **Test** in Actions. Save a key first to enable it. One click makes one short paid call to that entry only; it counts against its daily budget and rate limit. The button says **Testing…** until the result appears beneath the row. Success shows elapsed seconds, the first 80 reply characters, token counts and USD cost. A failure shows a plain reason, the provider status and its short message when available. The result stays until the next test or page reload. Provider messages are displayed as text. Tests wait at most the model's time limit plus 15 seconds in the browser; no provider key is returned.
 
 6. **Give access to a tier.** Do this in the same browser screen. In **Who may use this tier**, turn **Everyone** on or enter the user's ID and choose **Add person**. The user can copy their ID from the Workspace's About me line. Remove individual grants with **Remove access**. A tier with grants and no model stays visible as **No model yet**. The reserved installation-check tier 99 is hidden from these tier rows. Good result: the grant stays after reloading.
 
@@ -101,6 +112,11 @@ The build copies `apps/design-system` into `public/ds` using Node's built-in fil
 | `FAIL ...` or another `STOP:` from 62 | Follow the Control Centre README and the root Stage 1 check guidance; do not treat the check as passed. |
 | Console could not start or sign-in failed | Reload; check `/config.json`, the issuer, realm sync and the public app route. |
 | Extra request settings rejected | Enter a JSON object, not an array, number, string or null. |
+| Control Centre service credentials missing | Claude runs 71, then deploys or restarts the Control Centre as described in its README. |
+| `the Control Centre client secret changed` from 71 | Ask the maintainer to inspect the changed credential privately; 71 never overwrites it. |
+| Connection test cannot sign in to the Gateway | Check the realm audience mapper, matching service Secret and new Gateway deployment. |
+| Connection test says key refused / provider account has no credit | Replace the saved provider key or restore credit with the provider, then test again. |
+| Connection test says rate limited / over daily budget | Wait for the limit window or UTC day, or adjust the entry's configured limits. |
 | `This console is for administrators.` | Sign out and use an account with realm role `ooh-admin`. |
 
 Lost encryption Secret: saved provider keys cannot be recovered; after a replacement Secret is created with 63, retype each provider key in the console. Never commit or paste the Secret into chat. The Control Centre README describes an optional private backup.

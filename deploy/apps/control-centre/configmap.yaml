@@ -9,3 +9,4 @@ data:
   CC_KAFKA_USERNAME: control-centre
   CC_OIDC_ISSUER: https://auth.${DOMAIN}/realms/ooh
   CC_OIDC_AUDIENCE: ooh-control-centre
+  CC_GATEWAY_URL: http://model-gateway.${APPS_NAMESPACE}.svc:8080

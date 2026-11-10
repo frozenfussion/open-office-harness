@@ -4,3 +4,5 @@
 .person-form{display:flex;flex-direction:column;gap:var(--space-4)}.person-form>.ooh-btn{align-self:flex-start}.form-actions{display:flex;flex-wrap:wrap;gap:var(--space-2)}
 
 .tier-access{display:flex;flex-direction:column;gap:var(--space-4)}.tier-access>h2,.tier-access>p{margin:0}.grant-row{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2)}input[type=checkbox]{accent-color:var(--phosphor);width:var(--space-4);height:var(--space-4);margin:0}
+
+.connection-result{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}.connection-result--ok{color:var(--phosphor)}.connection-result--failed{color:var(--signal-red)}

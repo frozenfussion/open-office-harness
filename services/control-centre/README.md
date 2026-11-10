@@ -147,3 +147,65 @@ it detects authentication failure when a saved provider key is read.
 Builder check sessions end with `dotnet build-server shutdown` so automatic MSBuild and compiler daemons do not remain running.
 
 The follow-up `EnforceModelSettings` migration enforces priority 1–1000, timeout 10–900 and object-shaped request settings in PostgreSQL. It keeps the previously tested model-field migration unchanged. Invalid encryption settings produce one JSON error line and a non-zero exit before the application binds a port.
+
+
+# Test connection (section 16)
+
+`POST /api/admin/models/{id}/test` is an administrator route on port 8080. It
+returns 404 for a missing/removed entry and 409 `no_key` when no key is saved.
+Otherwise it sends exactly the fixed OK request, pinned to this entry and
+non-streamed, through the Gateway. Failure results use HTTP 200 with `ok: false`;
+provider fields are explicitly null when absent. Missing service credentials
+are a normal failed result and do not prevent application startup.
+
+`CC_GATEWAY_URL` is supplied by the Control Centre ConfigMap.
+`CC_CLIENT_SECRET` comes from optional Secret `control-centre-oidc`, key
+`client-secret`. The token URL is `CC_OIDC_ISSUER` plus
+`/protocol/openid-connect/token`, with fixed client ID `ooh-control-centre` and
+credentials only in the form body. Tokens are cached until 30 seconds before
+expiry. The HTTP limit covers token acquisition and the Gateway call and is
+the entry timeout plus 10 seconds. The browser allows an additional five seconds.
+The admin's subject is used only in the delegated `admin-test-` user ID, never
+in request logs.
+
+Every attempted existing-entry test, including no-key and no-credential failures,
+appends one `model.tested` audit row and the usual `audit.events` outbox message.
+The target is `model_id`; detail is exactly `{model_entry_id, ok, reason,
+duration_ms}`. Reply text, provider messages and keys are not logged or audited.
+Only a fixed setup-error log is written if service authentication fails.
+Provider text is additionally redacted before returning it to the browser;
+full keys, shared runs of at least eight characters and sk-style key strings
+are removed. Provider messages are capped at 300 characters.
+
+**Prepare service credentials.** Type this in your harness terminal, in the
+plain shell; Claude runs it while Aziz watches. No password is needed. This
+copies the current Control Centre credential inside Keycloak to the application
+Secret once. Run realm sync first. Good result: `DONE`. A changed existing
+credential is a `STOP:`; ask the maintainer before replacing it.
+
+```bash
+cd ~/projects/worktrees/stage-2
+install/71-control-centre-oidc.sh
+```
+
+The deployment order is 35 → 71 → 65 → 61 → 69 → 70, as described in the root
+README. Script 61 warns when the optional credential Secret is absent; it does
+not stop for it. If 71 reports missing tools, finish server setup. If it cannot
+read Keycloak credentials, check the Keycloak pod's readiness and bootstrap
+access privately. If the Secret differs, 71 retains it and reports the change.
+Never display or paste secret contents.
+
+**Load credentials after a late setup.** Type this in your harness terminal,
+in the plain shell; Claude runs it while Aziz watches. No password is needed.
+The folder does not matter. Use this only when the Control Centre was already
+running without the Secret when 71 created it. This replaces the pod so it
+reads the newly available environment setting. Good result: the replacement pod
+becomes Ready and connection tests no longer report missing credentials.
+
+```bash
+kubectl -n ooh-apps rollout restart deployment/control-centre
+```
+
+The model tests use a fake Gateway and token endpoint; the builder makes no
+paid calls. Follow the Quick Guide's .NET checks and finish with
+`dotnet build-server shutdown`.
