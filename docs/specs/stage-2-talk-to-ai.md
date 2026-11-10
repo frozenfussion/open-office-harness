@@ -473,3 +473,33 @@ The Access requests screen and nav count as above, using the design system (same
 **Order to deploy.** 35 → 61 → 67 → 68 → 69 → 70.
 
 **Out of scope here:** email verification and password-reset emails (need a mail server), notifying the admin outside the console, deleting requests.
+
+### 17.8 Review decisions for section 17 (Claude Code review `reviews/stage-2-access-spec-review`; binding, override section 17 where they differ)
+
+Defaults chosen by the spec author where the review asked Aziz; Aziz may change any of them.
+1. **Existing users who only had Everyone** request access once and Aziz approves them (in practice only test accounts). No special migration path. README says so.
+2. **Deploy order:** 61 → 67 → 35 → 68 → 69 → 62 → 70 (the rule and observe exist before registration opens). Backfill takes only `people` rows with `first_seen_at` before the migration time and user grants created before it.
+3. **User profile:** `organisation` and `access_reason` are user-editable (Keycloak 26 has no "registration only"; harmless, because the Control Centre copies them only while a request is pending). `organisation`: `required {roles:[user]}`, validator `length` max 100; `access_reason`: validator `length` max 300; both `permissions {view:[admin,user], edit:[admin,user]}`. 35 **reads** the current profile (`GET /admin/realms/ooh/users/profile`), adds or updates only these two attributes, keeps every other attribute and `unmanagedAttributePolicy`, writes it back, and reads it again to verify. Fresh install: the realm's `components` entry `org.keycloak.userprofile.UserProfileProvider` with `kc.user.profile.config` holding the full JSON (defaults plus the two attributes).
+4. **Exact mechanics for 35:** `kcadm update realms/ooh -s registrationAllowed=true -s registrationEmailAsUsername=true -s loginWithEmailAllowed=true -s duplicateEmailsAllowed=false -s editUsernameAllowed=false -s verifyEmail=false -s resetPasswordAllowed=false -s internationalizationEnabled=true -s 'supportedLocales=["en"]' -s defaultLocale=en -s 'passwordPolicy=length(12) and notUsername and notEmail and maxLength(128)'`; texts via `PUT /admin/realms/ooh/localization/en/<key>` (`text/plain`) for `noAccount`, `doRegister`, `registerTitle`; mappers `oidc-usermodel-attribute-mapper` (`user.attribute`, `claim.name`, `access.token.claim: true`, `id.token.claim: false`, `userinfo.token.claim: false`), synced by name and never removed by the audience clean-up. The same settings are in `realm-ooh.yaml` (`localizationTexts`, `components`, client `protocolMappers`). With `editUsernameAllowed: false` and email as username, a user cannot change their email; the builder confirms this on Keycloak 26.8.2 and reports it.
+5. **"Request access" is Keycloak's own link** on its login page (the realm texts). The apps' sign-in screens keep their single button. The Admin Console's non-admin page adds: "To request access, open the Workspace: https://harness.<domain>" as a link (only the Workspace creates requests).
+6. **Admins:** the Harness also sends `is_admin` (from the verified user token's `realm_access.roles` containing `ooh-admin`) in `observe`; the Control Centre approves such a person (`decided_by system:admin-role`, audited). `People.Observe` keeps doing the same.
+7. **Check users:** 70 uses one fixed user ID `stage-check-access` (observe is idempotent) and expects any status other than `approved`. The Access requests list and count **hide user IDs starting `stage-check-`**.
+8. **The Everyone check moves to 62 (Part D):** 62 grants Everyone on tier 99, checks that a pending `stage-check-` user gets no tier 99 and an approved one does, then removes that grant. 70 keeps only the observe → not approved check and the registration-page check.
+9. **Revoke:** approved rows show **Revoke** (status `rejected`, audited `access.revoked`); a revoked person gets nothing, Everyone included. Rejected rows show **Approve**. 
+10. **Adding a person by user ID approves them**, including a rejected one (audited `access.approved`, `decided_by` the admin). The Control Centre does not look up Keycloak. The tier panel shows a short note under "Add person": "Adding a person also approves their access."
+11. **Spam:** at most **100 waiting** requests; past that, `observe` creates nothing and answers `{status:"closed"}`, and the Workspace says "Requests are closed for now. Please contact your administrator." The Access requests screen labels every email "not verified". No CAPTCHA now (README says how to switch registration off with 35 if spam appears: a `--registration off` flag on 35).
+12. Password policy as in item 4.
+13. Self-registered users can sign in to the Admin Console and see the non-admin page; accepted.
+14. **Audit:** access audit rows hold `user_id`, `status`, `decided_by`, `approved_tier` only, never name, email, organisation or reason; `audit.events` carries the usual fields only.
+15. Part D changes `contracts/identity.md` "Self-registration is off" to "Self-registration is on; a newcomer waits for approval"; the device sign-in rule stays.
+16. `access_requests` gets `deleted_at` (unused in Stage 2) and the same no-DELETE/TRUNCATE trigger as the other business tables; the app role has no DELETE.
+17. **Details:**
+    - the Approve tier list uses the same tiers as Models & tiers (an active entry or grant, never tier 99), with none preselected; Approve stays disabled until a tier is chosen;
+    - approving when the user already has that tier's grant adds no second grant;
+    - the count route takes `status=pending` only;
+    - `observe` matches the exact `sub`;
+    - field limits after trimming: name 200, email 320, organisation 100, reason 300;
+    - when `/api/me` answers 503, the Workspace shows its normal red notice, not the waiting screen.
+18. **Forgotten passwords:** the README (Part C) adds "Reset someone's password" (Keycloak admin console → Users → the person → Credentials → Reset password, temporary on). The Account Console stays reachable.
+
+**Files added by 17.8:** Part B: none new. Part C: `install/35-realm-sync.sh` gains `--registration off|on`. Part D: `install/62-check-control-centre.sh`.
