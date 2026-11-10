@@ -93,13 +93,16 @@ class ThinkingBreak(httpx.AsyncByteStream):
         yield b'data: {"type":"thinking","text":"PRIVATE_PARTIAL_THINKING"}\n\n'
         if self.answer:
             yield b'data: {"type":"delta","text":"Partial answer"}\n\n'
-        raise httpx.ReadError("PRIVATE_PARTIAL_THINKING")
+        raise httpx.ReadError("Synthetic stream failure")
 
 
 @pytest.mark.parametrize("answer", [False, True])
 async def test_failed_stream_keeps_partial_thinking(
     h: Harness, answer: bool, caplog: pytest.LogCaptureFixture
 ) -> None:
+    import logging
+
+    caplog.set_level(logging.DEBUG)
     identifier = await h.conversation()
     h.gateway.respond(
         stream=ThinkingBreak(answer), headers={"Content-Type": "text/event-stream"}
@@ -113,6 +116,9 @@ async def test_failed_stream_keeps_partial_thinking(
     assert assistant["outcome"] == "failed"
     assert not h.title_gateway.called
     assert "PRIVATE_PARTIAL_THINKING" not in caplog.text
+    for record in caplog.records:
+        assert "PRIVATE_PARTIAL_THINKING" not in repr(record.__dict__)
+        assert "PRIVATE_PARTIAL_THINKING" not in JsonFormatter().format(record)
 
 
 async def test_disconnect_after_thinking_preserves_it(h: Harness) -> None:
@@ -266,3 +272,121 @@ async def test_thinking_is_not_forwarded_after_completed(h: Harness) -> None:
         "completed"
     ]
     assert h.store.rows[UUID(identifier)]["messages"][-1]["thinking"] is None
+
+
+@pytest.mark.parametrize("failed", [False, True])
+async def test_thinking_storage_cap_does_not_cap_stream(
+    h: Harness, failed: bool
+) -> None:
+    identifier = await h.conversation()
+    chunks = ["界" * 99_999, "🙂tail-after-cap", "more-after-cap"]
+    ending = (
+        {"type": "failed", "error": {"code": "unavailable", "message": "Failed"}}
+        if failed
+        else h.completed()
+    )
+    h.gateway.respond(
+        text=h.sse(
+            [
+                *({"type": "thinking", "text": chunk} for chunk in chunks),
+                {"type": "delta", "text": "Answer"},
+                ending,
+            ]
+        ),
+        headers={"Content-Type": "text/event-stream"},
+    )
+    result = events(await h.send(identifier))
+    assert [event["text"] for event in result if event["type"] == "thinking"] == chunks
+    assistant = h.store.rows[UUID(identifier)]["messages"][-1]
+    assert assistant["thinking"] == "界" * 99_999 + "🙂"
+    assert len(assistant["thinking"]) == 100_000
+    assert assistant["outcome"] == ("failed" if failed else "completed")
+
+
+async def test_unknown_events_are_ignored_before_and_between_known_events(
+    h: Harness,
+) -> None:
+    identifier = await h.conversation()
+    h.gateway.respond(
+        text=h.sse(
+            [
+                {"type": "future-event", "text": "PRIVATE_FUTURE_PAYLOAD"},
+                {"type": "thinking", "text": "Visible thinking"},
+                {
+                    "type": "future-version",
+                    "new_field": {"private": "PRIVATE_FUTURE_PAYLOAD"},
+                },
+                {"type": "delta", "text": "Answer"},
+                h.completed(),
+            ]
+        ),
+        headers={"Content-Type": "text/event-stream"},
+    )
+    response = await h.send(identifier)
+    assert [event["type"] for event in events(response)] == [
+        "thinking",
+        "delta",
+        "completed",
+    ]
+    assert "PRIVATE_FUTURE_PAYLOAD" not in response.text
+    assert (
+        h.store.rows[UUID(identifier)]["messages"][-1]["thinking"] == "Visible thinking"
+    )
+
+
+async def test_unknown_event_does_not_start_the_browser_stream(h: Harness) -> None:
+    identifier = await h.conversation()
+    h.gateway.respond(
+        text=h.sse(
+            [
+                {"type": "future-event", "text": "Ignored"},
+                {
+                    "type": "failed",
+                    "error": {"code": "no_model", "message": "No model"},
+                },
+            ]
+        ),
+        headers={"Content-Type": "text/event-stream"},
+    )
+    response = await h.send(identifier)
+    assert response.status_code == 503 and response.json()["code"] == "no_model"
+
+
+@pytest.mark.parametrize("code", ["unavailable", "budget_exceeded"])
+async def test_failure_after_thinking_never_calls_another_tier(
+    h: Harness, code: str
+) -> None:
+    identifier = await h.conversation()
+    h.gateway.respond(
+        text=h.sse(
+            [
+                {"type": "thinking", "text": "Partial thinking"},
+                {"type": "failed", "error": {"code": code, "message": "Failed"}},
+            ]
+        ),
+        headers={"Content-Type": "text/event-stream"},
+    )
+    response = await h.send(identifier)
+    assert [event["type"] for event in events(response)] == ["thinking", "failed"]
+    assert h.gateway.call_count == 1 and not h.title_gateway.called
+    assert (
+        h.store.rows[UUID(identifier)]["messages"][-1]["thinking"] == "Partial thinking"
+    )
+
+
+async def test_malformed_thinking_has_a_sanitized_exception_message(h: Harness) -> None:
+    private = "PRIVATE_MALFORMED_THINKING"
+    h.gateway.respond(
+        text=h.sse([{"type": "thinking", "text": {"private": private}}]),
+        headers={"Content-Type": "text/event-stream"},
+    )
+    stream = await h.app.state.upstream.open(
+        "test-user", 1, [{"role": "user", "content": "Question"}], []
+    )
+    try:
+        with pytest.raises(ValueError) as error:
+            await anext(stream.events)
+        assert str(error.value) == "Unexpected Gateway event"
+        assert private not in str(error.value)
+    finally:
+        await stream.close()

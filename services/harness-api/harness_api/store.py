@@ -7,6 +7,8 @@ from psycopg.rows import dict_row
 
 from .errors import ApiError
 
+MAX_THINKING_CHARS = 100_000
+
 
 class Store:
     def __init__(self, connection: str) -> None:
@@ -140,6 +142,7 @@ class Store:
         thinking: str | None = None,
     ) -> UUID:
         metadata = metadata or {}
+        thinking = thinking[:MAX_THINKING_CHARS] if thinking else None
         usage = metadata.get("usage", {})
         message_id = uuid4()
         async with await psycopg.AsyncConnection.connect(self.connection) as db:

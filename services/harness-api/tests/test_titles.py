@@ -46,6 +46,7 @@ async def test_title_after_completed_uses_answering_tier_and_preserves_updated_t
         "tier": 3,
         "user_id": "title-test-user",
         "stream": False,
+        "thinking": False,
         "tools": [],
         "messages": [
             {"role": "system", "content": TITLE_PROMPT},
@@ -263,3 +264,26 @@ async def test_title_text_and_context_never_logged(
     for value in (question, answer, title, TITLE_PROMPT):
         assert value not in rendered
         assert value not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "answer", [{"content": "A useful short title"}, {"content": ""}, {}]
+)
+async def test_title_disables_thinking_and_ignores_reasoning(
+    h: Harness, caplog: pytest.LogCaptureFixture, answer: dict[str, str]
+) -> None:
+    identifier = await h.conversation()
+    private = "PRIVATE_TITLE_THINKING_NEVER_USE"
+    h.title_gateway.respond(json={**answer, "thinking": private})
+    result = events(await h.send(identifier))
+    assert json.loads(h.title_gateway.calls.last.request.content)["thinking"] is False
+    if answer.get("content"):
+        assert result[-1]["type"] == "title"
+        assert result[-1]["title"] == answer["content"]
+    else:
+        assert result[-1]["type"] == "completed"
+        assert h.store.rows[UUID(identifier)]["title"] == "Question"
+    assert private not in caplog.text
+    for record in caplog.records:
+        assert private not in repr(record.__dict__)
+        assert private not in JsonFormatter().format(record)

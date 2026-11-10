@@ -279,7 +279,11 @@ paths:
         never after completed. Their text is concatenated into the assistant message''s
         nullable thinking field, including partial thinking on failure. Thinking is
         never logged or sent to a model in chat history or title context; empty thinking
-        events are dropped.'
+        events are dropped. Unknown Gateway event types are ignored. Only the first
+        100000 characters of thinking are stored, for all outcomes; later thinking
+        still streams. The title call sends thinking false and ignores thinking in
+        its answer, using answer content only. Deploy Gateway, then Harness, then
+        Workspace.'
       parameters:
       - name: id
         in: path
@@ -851,7 +855,9 @@ components:
           - 'null'
           description: Concatenated assistant thinking, separate from answer content.
             Null when absent or for older messages. Never logged or sent back to a
-            model.
+            model. At most the first 100000 characters per message are stored; later
+            thinking continues streaming.
+          maxLength: 100000
       required:
       - id
       - role

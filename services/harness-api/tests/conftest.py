@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from harness_api.app import create_app
 from harness_api.config import Settings
 from harness_api.errors import ApiError
+from harness_api.store import MAX_THINKING_CHARS
 
 SETTINGS = Settings(
     "unused",
@@ -140,7 +141,7 @@ class MemoryStore:
                 "outcome": outcome,
                 "tier": tier,
                 "note": note,
-                "thinking": thinking,
+                "thinking": thinking[:MAX_THINKING_CHARS] if thinking else None,
                 **{
                     key: value
                     for key, value in (metadata or {}).items()

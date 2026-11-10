@@ -20,7 +20,7 @@
       "id": "00000000-0000-4000-8000-000000000003",
       "role": "assistant",
       "content": "Example answer",
-      "thinking": "Example thinking text",
+      "thinking": "Example visible thinking summary",
       "tier": 1,
       "model_entry_id": "00000000-0000-4000-8000-000000000004",
       "model_title": "Example model",

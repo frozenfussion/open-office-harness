@@ -29,7 +29,7 @@ from .config import Settings
 from .diagnostics import JsonFormatter
 from .diagnostics import failure as record_failure
 from .errors import ApiError, gateway_error
-from .store import Store
+from .store import MAX_THINKING_CHARS, Store
 from .upstream import GatewayStream, Upstream
 
 TITLE_TIMEOUT_SECONDS = 20
@@ -287,7 +287,10 @@ def create_app(
                             content += event["text"]
                             yield data(event)
                     case "thinking":
-                        thinking_text += event["text"]
+                        if len(thinking_text) < MAX_THINKING_CHARS:
+                            thinking_text += event["text"][
+                                : MAX_THINKING_CHARS - len(thinking_text)
+                            ]
                         yield data(event)
                     case "tool_call":
                         if event["name"] not in titles:

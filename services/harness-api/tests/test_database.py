@@ -292,3 +292,18 @@ async def test_thinking_is_inserted_and_read_but_not_used_as_model_context(
         "question": "Question",
         "answer": "Answer",
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("outcome", ["completed", "failed", "tool_requested"])
+async def test_database_thinking_is_bounded_for_every_outcome(
+    store: Store, db_user: str, outcome: str
+) -> None:
+    identifier = await store.create(db_user)
+    await store.append(identifier, db_user, "user", "Question", "completed", 1)
+    await store.append(
+        identifier, db_user, "assistant", "Answer", outcome, 1, thinking="思" * 100_001
+    )
+    row = await store.conversation(identifier, db_user)
+    assert row["messages"][-1]["thinking"] == "思" * 100_000
+    assert row["messages"][-1]["outcome"] == outcome
