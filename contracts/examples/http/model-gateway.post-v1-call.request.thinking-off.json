@@ -1,0 +1,13 @@
+{
+  "purpose": "chat",
+  "tier": 1,
+  "user_id": "u-123",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Example"
+    }
+  ],
+  "stream": false,
+  "thinking": false
+}

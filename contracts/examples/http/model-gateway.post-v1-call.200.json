@@ -8,5 +8,6 @@
     "input_tokens": 8,
     "output_tokens": 3
   },
-  "cost_usd": 2.8e-05
+  "cost_usd": 2.8e-05,
+  "thinking_applied": true
 }

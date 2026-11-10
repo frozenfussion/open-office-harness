@@ -7,7 +7,7 @@ import httpx
 
 from gateway.models import Call, Entry
 
-from .common import ProviderError, check_response, settings, sse, tool_event
+from .common import ProviderError, check_response, request_body, sse, tool_event
 
 
 async def run(
@@ -28,7 +28,7 @@ async def run(
         "POST",
         entry.endpoint_url.rstrip("/") + "/v1/messages",
         headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
-        json=settings(body, entry.request_settings),
+        json=request_body(body, entry, call),
         timeout=entry.timeout_seconds,
     ) as response:
         await check_response(response, key)

@@ -223,3 +223,49 @@ async def test_mixed_skips_return_rate_limited(entry: Entry, call: Call) -> None
         assert not mock.calls
     assert (error.value.status, error.value.code) == (429, "rate_limited")
     assert [row[2] for row in db.rows] == ["skipped_budget", "skipped_rate"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("backup_supports", [False, True])
+async def test_thinking_application_comes_from_answering_backup(
+    entry: Entry, call: Call, backup_supports: bool
+) -> None:
+    main = entry.model_copy(
+        update={
+            "request_settings_thinking_off": None
+            if backup_supports
+            else {"extra": "main-off"}
+        }
+    )
+    backup = entry.model_copy(
+        update={
+            "id": UUID(int=2),
+            "role": "backup",
+            "endpoint_url": "https://backup.invalid",
+            "request_settings_thinking_off": {"extra": "backup-off"}
+            if backup_supports
+            else None,
+        }
+    )
+    call = call.model_copy(update={"thinking": False})
+    with respx.mock as mock:
+        mock.post("https://example.invalid/chat/completions").mock(
+            return_value=httpx.Response(500)
+        )
+        route = mock.post("https://backup.invalid/chat/completions").mock(
+            return_value=httpx.Response(
+                200,
+                text='data: {"choices":[{"delta":{"content":"backup"},"finish_reason":"stop"}]}\n\n',
+            )
+        )
+        async with httpx.AsyncClient() as client:
+            events = [
+                event
+                async for event in Engine(
+                    client, FakeRegistry([main, backup]), FakeDatabase()
+                ).events(call)
+            ]
+        body = json.loads(route.calls[0].request.content)
+    assert events[-1]["model_entry_id"] == str(backup.id)
+    assert events[-1]["thinking_applied"] is backup_supports
+    assert body.get("extra") == ("backup-off" if backup_supports else None)

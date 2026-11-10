@@ -85,6 +85,11 @@ paths:
                   cost_usd:
                     type: number
                     minimum: 0
+                  thinking_applied:
+                    type: boolean
+                    description: Whether the caller thinking choice was honoured.
+                      True when thinking is true or absent; when false, true only
+                      if the answering entry has a request_settings_thinking_off object.
                 required:
                 - content
                 - tool_calls
@@ -93,6 +98,7 @@ paths:
                 - tier
                 - usage
                 - cost_usd
+                - thinking_applied
                 additionalProperties: false
             text/event-stream:
               schema:
@@ -154,6 +160,12 @@ paths:
                     cost_usd:
                       type: number
                       minimum: 0
+                    thinking_applied:
+                      type: boolean
+                      description: Whether the caller thinking choice was honoured.
+                        True when thinking is true or absent; when false, true only
+                        if the answering entry has a request_settings_thinking_off
+                        object.
                   required:
                   - type
                   - model_entry_id
@@ -161,6 +173,7 @@ paths:
                   - tier
                   - usage
                   - cost_usd
+                  - thinking_applied
                   additionalProperties: false
                 - type: object
                   properties:
@@ -273,6 +286,13 @@ paths:
                   - string
                   - 'null'
                   format: uuid
+                thinking:
+                  type: boolean
+                  default: true
+                  description: Defaults to true. When false, the answering entry request_settings_thinking_off
+                    object is merged after request_settings using top-level replacement
+                    and null removal. Ignored when the entry has no off-settings object.
+                    The Control Centre test caller must omit this field.
               required:
               - purpose
               - user_id
@@ -305,7 +325,12 @@ paths:
         Registry cache 30 seconds; key cache 60 seconds. Only the Control Centre test
         receives provider_status and scrubbed provider_message on 503. Provider error
         reads are bounded to 4 KiB and messages to 300 characters. Keys, their substrings
-        of at least eight characters, and sk- tokens are replaced with [removed].'
+        of at least eight characters, and sk- tokens are replaced with [removed].
+        Thinking defaults to true. The Control Centre test rejects all extra fields,
+        including thinking. thinking_applied reports whether the caller choice was
+        honoured: true when thinking is true or omitted; otherwise true only when
+        the answering entry has an off-settings object. It reflects the actual answering
+        entry after failover.'
   /v1/classify:
     post:
       operationId: post_v1_classify
