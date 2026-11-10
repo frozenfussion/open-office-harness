@@ -119,9 +119,21 @@ Extra request settings replace top-level fields after the adapter builds the req
 
 When a provider returns visible thinking text, the Gateway emits `{"type":"thinking","text":"..."}` SSE events before or between answer deltas, followed by the usual completed event. Non-streamed answers include a separate `thinking` string, or null when no non-empty thinking arrived. Empty thinking strings are dropped. Signatures, encrypted reasoning and redacted blocks are never forwarded; thinking and answer text are never logged. Usage and cost still use the provider's token counts.
 
-The chat-completions adapter reads `message.reasoning_content` or streamed `delta.reasoning_content`. This field was confirmed on 10 November 2026 against the [official provider guide](https://api-docs.deepseek.com/guides/thinking_mode/). The Messages adapter reads thinking blocks and `thinking_delta` text; configure `{"thinking":{"display":"summarized"}}` in that entry's ordinary extra settings as the [official streaming reference](https://platform.claude.com/docs/en/build-with-claude/streaming) describes. The Gateway does not inject that setting. The Responses adapter forwards no reasoning text.
+The chat-completions adapter reads `message.reasoning_content` or streamed `delta.reasoning_content`, falling back to `reasoning` when it is a non-empty string. Object forms and `reasoning_details` are ignored. This field was confirmed on 10 November 2026 against the [official provider guide](https://api-docs.deepseek.com/guides/thinking_mode/). The Messages adapter reads thinking blocks and `thinking_delta` text; configure `{"thinking":{"display":"summarized"}}` in that entry's ordinary extra settings as the [official streaming reference](https://platform.claude.com/docs/en/build-with-claude/streaming) describes. The Gateway does not inject that setting. The Responses adapter forwards visible summaries when the final request settings ask for `reasoning.summary`: it maps `response.reasoning_summary_text.delta` and non-streamed reasoning items' `summary[].text` into thinking. It never forwards `encrypted_content`, raw reasoning events or duplicate done events. See the [official OpenAI streaming reference](https://developers.openai.com/api/reference/resources/responses/streaming-events).
 
-Once any thinking has been streamed, a later failure ends the stream with failed rather than switching to a backup. Stored thinking is never sent back to a model; storing/displaying it belongs to the Harness and Workspace Parts. No Gateway database migration, new dependency or deployment was performed for this update.
+Once any thinking has been streamed, a later failure ends the stream with failed rather than switching to a backup. Stored thinking is never sent back to a model; storing/displaying it belongs to the Harness and Workspace Parts. Unknown event types are ignored. Gateway usage rows contain counts and costs, never thinking; the Gateway sends no thinking to logs, audit or Kafka. No Gateway database migration, new dependency or deployment was performed for this update.
+
+### Settings that enable visible thinking (Row 27)
+
+Configure the following in the entry's ordinary extra request settings, with a placeholder model ID such as `example-model`. These are data; the Gateway does not inject them:
+
+| Connection type | Example ordinary request settings |
+|---|---|
+| `openai_chat_completions` | On supporting services, `{"thinking":{"type":"enabled"}}` or `{"reasoning_effort":"high"}`. |
+| `openai_responses` | `{"reasoning":{"summary":"auto"}}`. |
+| `anthropic_messages` | `{"thinking":{"type":"enabled","display":"summarized","budget_tokens":1024},"max_tokens":2048}`. |
+
+For manual thinking, `max_tokens` must be above `budget_tokens` in the same settings. A thinking block with no text is dropped. Deploy the Gateway first, then the Harness, then the Workspace; the merge operator performs deployment. Parts B/C own thinking storage caps, title-call behavior, history and display.
 
 ## Thinking switch (Row19)
 

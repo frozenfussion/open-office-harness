@@ -352,9 +352,12 @@ paths:
         entry after failover. Visible thinking is emitted as thinking/text SSE events
         before or between answer deltas, never after completed; empty strings are
         dropped. Non-streamed thinking is a separate string or null. Signatures, encrypted
-        reasoning and redacted blocks are never forwarded. openai_responses never
-        emits reasoning text. Thinking is never logged; token usage remains as reported
-        by the provider.'
+        reasoning and redacted blocks are never forwarded. openai_responses forwards
+        visible reasoning summaries only when effective request settings ask for reasoning.summary;
+        encrypted_content is never forwarded. Chat-completions prefers reasoning_content,
+        then string reasoning, and ignores reasoning_details/object forms. Unknown
+        event types are ignored. Thinking is never logged; token usage remains as
+        reported by the provider.'
   /v1/classify:
     post:
       operationId: post_v1_classify

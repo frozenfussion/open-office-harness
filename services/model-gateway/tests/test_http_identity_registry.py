@@ -1038,6 +1038,7 @@ def test_thinking_on_or_absent_is_honoured(
     [
         ("openai_chat_completions", "/chat/completions"),
         ("anthropic_messages", "/v1/messages"),
+        ("openai_responses", "/responses"),
     ],
 )
 @pytest.mark.parametrize("stream", [False, True])
@@ -1055,7 +1056,14 @@ def test_http_visible_thinking_separate_from_answer_and_logs(
 
     client, key = http
     client.app.state.engine.registry = FakeRegistry(
-        [entry.model_copy(update={"api_type": kind})]
+        [
+            entry.model_copy(
+                update={
+                    "api_type": kind,
+                    "request_settings": {"reasoning": {"summary": "auto"}},
+                }
+            )
+        ]
     )
     caplog.set_level(logging.DEBUG, logger="gateway")
     response = (
@@ -1108,6 +1116,7 @@ def test_http_visible_thinking_separate_from_answer_and_logs(
     )
     assert len(client.app.state.db.rows) == 1 and client.app.state.db.rows[0][2] == "ok"
     assert client.app.state.db.rows[0][3:5] == (8, 3)
+    assert "Consider" not in repr(client.app.state.db.rows)
 
 
 @pytest.mark.parametrize(
@@ -1150,3 +1159,97 @@ def test_no_visible_thinking_is_null(
         )
     assert response.status_code == 200 and response.json()["thinking"] is None
     assert "private-" not in response.text
+
+
+@pytest.mark.parametrize(
+    "kind,path",
+    [
+        ("openai_chat_completions", "/chat/completions"),
+        ("anthropic_messages", "/v1/messages"),
+        ("openai_responses", "/responses"),
+    ],
+)
+def test_failure_after_thinking_keeps_streamed_thinking_without_failover(
+    http: tuple, entry: Entry, kind: str, path: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    client, key = http
+    selected = entry.model_copy(
+        update={
+            "api_type": kind,
+            "request_settings": {"reasoning": {"summary": "auto"}},
+        }
+    )
+    backup = selected.model_copy(
+        update={
+            "id": UUID(int=2),
+            "role": "backup",
+            "endpoint_url": "https://backup.invalid",
+        }
+    )
+    client.app.state.engine.registry = FakeRegistry([selected, backup])
+    if kind == "openai_chat_completions":
+        events = [
+            {"choices": [{"delta": {"reasoning": "retained-thinking"}}]},
+            {"error": {"message": "private-error"}},
+        ]
+    elif kind == "anthropic_messages":
+        events = [
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {
+                    "type": "thinking",
+                    "thinking": "retained-thinking",
+                    "signature": "private-signature",
+                },
+            },
+            {"type": "error", "error": {"message": "private-error"}},
+        ]
+    else:
+        events = [
+            {
+                "type": "response.reasoning_summary_text.delta",
+                "delta": "retained-thinking",
+            },
+            {
+                "type": "response.failed",
+                "response": {"error": {"message": "private-error"}},
+            },
+        ]
+    caplog.set_level(logging.DEBUG, logger="gateway")
+    with respx.mock as mock:
+        mock.post("https://example.invalid" + path).mock(
+            return_value=httpx.Response(
+                200,
+                text="".join("data: " + json.dumps(event) + "\n\n" for event in events),
+            )
+        )
+        response = client.post(
+            "/v1/call",
+            json={
+                "purpose": "chat",
+                "tier": 1,
+                "user_id": "fake-user",
+                "messages": [{"role": "user", "content": "Example"}],
+                "stream": True,
+            },
+            headers={"Authorization": "Bearer " + token(key)},
+        )
+        assert len(mock.calls) == 1
+    assert response.status_code == 200
+    result = [
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert [event["type"] for event in result] == ["thinking", "failed"]
+    assert result[0]["text"] == "retained-thinking"
+    assert (
+        len(client.app.state.db.rows) == 1
+        and client.app.state.db.rows[0][2] == "failed"
+    )
+    assert "retained-thinking" not in repr(client.app.state.db.rows)
+    captured = repr([record.__dict__ for record in caplog.records])
+    assert "retained-thinking" not in captured and "private-" not in captured

@@ -33,11 +33,18 @@ async def run(
             }
             for t in call.tools
         ]
+    body = request_body(body, entry, call)
+    reasoning = body.get("reasoning")
+    summary_requested = (
+        isinstance(reasoning, dict)
+        and isinstance(reasoning.get("summary"), str)
+        and bool(reasoning["summary"])
+    )
     async with client.stream(
         "POST",
         entry.endpoint_url.rstrip("/") + "/responses",
         headers={"Authorization": "Bearer " + key},
-        json=request_body(body, entry, call),
+        json=body,
         timeout=entry.timeout_seconds,
     ) as response:
         await check_response(response, key)
@@ -50,6 +57,10 @@ async def run(
                     for content in item.get("content", []):
                         if content["type"] == "output_text" and content["text"]:
                             yield {"type": "delta", "text": content["text"]}
+                elif item["type"] == "reasoning" and summary_requested:
+                    for summary in item.get("summary", []):
+                        if isinstance(summary.get("text"), str) and summary["text"]:
+                            yield {"type": "thinking", "text": summary["text"]}
                 elif item["type"] == "function_call":
                     yield tool_event(
                         {
@@ -73,6 +84,9 @@ async def run(
                 raise ProviderError()
             if kind == "response.output_text.delta" and event["delta"]:
                 yield {"type": "delta", "text": event["delta"]}
+            elif kind == "response.reasoning_summary_text.delta" and summary_requested:
+                if isinstance(event.get("delta"), str) and event["delta"]:
+                    yield {"type": "thinking", "text": event["delta"]}
             elif (
                 kind == "response.output_item.added"
                 and event["item"]["type"] == "function_call"

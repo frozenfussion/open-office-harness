@@ -302,3 +302,29 @@ async def test_no_failover_after_first_thinking_output(
     assert [event["type"] for event in events] == ["thinking", "failed"]
     assert len(db.rows) == 1 and db.rows[0][2] == "failed"
     assert "private-" not in repr([record.__dict__ for record in caplog.records])
+
+
+@pytest.mark.anyio
+async def test_engine_ignores_unknown_adapter_events(
+    entry: Entry, call: Call, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from collections.abc import AsyncIterator
+    from typing import Any
+
+    async def adapter(
+        client: httpx.AsyncClient, selected: Entry, key: str, body: Call
+    ) -> AsyncIterator[dict[str, Any]]:
+        yield {"type": "future.event", "text": "private-unknown"}
+        yield {"type": "delta", "text": "ok"}
+        yield {"type": "usage", "input_tokens": 8, "output_tokens": 3}
+
+    monkeypatch.setattr("gateway.engine.resolve", lambda _: adapter)
+    async with httpx.AsyncClient() as client:
+        events = [
+            event
+            async for event in Engine(
+                client, FakeRegistry([entry]), FakeDatabase()
+            ).events(call)
+        ]
+    assert [event["type"] for event in events] == ["delta", "completed"]
+    assert "private-unknown" not in json.dumps(events)
