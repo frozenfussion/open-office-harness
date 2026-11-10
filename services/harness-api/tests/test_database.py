@@ -169,3 +169,25 @@ async def test_store_ownership_history_and_metadata(store: Store) -> None:
     assert last["input_tokens"] == 9 and last["output_tokens"] == 4
     assert last["note"] == "Example note" and last["tier"] == 1
     await store.health()
+
+
+@pytest.mark.anyio
+async def test_history_starts_at_user(store: Store) -> None:
+    user = "stage-check-" + str(uuid4())
+    identifier = await store.create(user)
+    await store.append(identifier, user, "user", "Old question", "completed", 1)
+    await store.append(
+        identifier, user, "assistant", "Orphan at boundary", "completed", 1
+    )
+    for index in range(9):
+        await store.append(
+            identifier, user, "user", f"Question {index}", "completed", 1
+        )
+        await store.append(
+            identifier, user, "assistant", f"Answer {index}", "completed", 1
+        )
+    await store.append(identifier, user, "user", "Newest question", "completed", 1)
+    history = await store.history(identifier)
+    assert len(history) == 19
+    assert history[0] == {"role": "user", "content": "Question 0"}
+    assert history[-1] == {"role": "user", "content": "Newest question"}

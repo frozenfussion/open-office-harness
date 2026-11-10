@@ -477,3 +477,7 @@ async def test_logs_never_include_text_or_credentials(
     assert json.loads(formatted)["level"] == "error"
     assert "synthetic-private-chat-content" not in formatted
     assert "fake-client-credential" not in formatted
+
+
+async def test_upload_bad_query(h: Harness) -> None:
+    assert (await h.client.post("/api/uploads?user_id=other")).status_code == 400
