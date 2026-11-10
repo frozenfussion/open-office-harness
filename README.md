@@ -6,7 +6,25 @@ Claude runs the non-sudo deploy and live-check commands in the Shell tile while
 Aziz watches. No command here asks for a terminal password. Aziz keeps browser
 sign-ins, package visibility changes, sudo and stage acceptance. Before this
 stage, complete the Stage 0 platform and Stage 1 Control Centre setup below.
-The existing Control Centre test database is reused.
+The existing Control Centre test database is reused. Fresh Stage 2 setup uses
+**63 → 71 → 61 → 64 → 65 → 66 → 67 → 68 → 69 → 35 → add models → 70**.
+
+For the Test connection update on an existing Stage 2 deployment, use the new
+Gateway, Control Centre and console image tags. Type this in your harness
+terminal, Shell tile, plain shell. Claude runs these commands while Aziz watches;
+no password. This updates the audience, copies service credentials and deploys
+the three images before checking. Good result: each script ends with `DONE` and
+70 prints `PASS`. The paid-call note in the live-check step applies.
+
+```bash
+cd ~/projects/worktrees/stage-2
+install/35-realm-sync.sh
+install/71-control-centre-oidc.sh
+install/65-model-gateway-deploy.sh MERGED_IMAGE_TAG
+install/61-control-centre-deploy.sh MERGED_IMAGE_TAG
+install/69-admin-console-deploy.sh MERGED_IMAGE_TAG
+install/70-check-stage-2.sh
+```
 
 1. **Check images and make the four new packages public.** On GitHub, wait for
    green image workflows for Gateway, Harness, Workspace and Admin Console.
@@ -29,7 +47,20 @@ The existing Control Centre test database is reused.
    install/63-control-centre-keys.sh
    ```
 
-3. **Deploy the Control Centre.** Type this in your harness terminal, Shell tile,
+3. **Set up the Control Centre service credentials.** Type this in your harness
+   terminal, Shell tile, plain shell. Claude runs it while Aziz watches. No
+   password. This reads the client secret inside Keycloak and creates the private
+   `control-centre-oidc` Secret once. Good result: `DONE`. It keeps a matching
+   existing Secret and stops if it differs from Keycloak; inspect privately
+   rather than replacing it blindly. Without credentials the Control Centre
+   still starts, but Test reports that service credentials are missing.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/71-control-centre-oidc.sh
+   ```
+
+4. **Deploy the Control Centre.** Type this in your harness terminal, Shell tile,
    plain shell. No password. Replace `MERGED_IMAGE_TAG` with the image commit's
    first 12 characters in each deploy step. This upgrades the registry and its
    database; good result: Ready, then `DONE`.
@@ -39,7 +70,7 @@ The existing Control Centre test database is reused.
    install/61-control-centre-deploy.sh MERGED_IMAGE_TAG
    ```
 
-4. **Set up the Gateway.** Type this in your harness terminal, Shell tile, plain
+5. **Set up the Gateway.** Type this in your harness terminal, Shell tile, plain
    shell. No password. This prepares its roles, databases and secrets; good
    result: private test settings saved, then `DONE`.
 
@@ -48,7 +79,7 @@ The existing Control Centre test database is reused.
    install/64-model-gateway-setup.sh
    ```
 
-5. **Deploy the Gateway.** Type this in your harness terminal, Shell tile, plain
+6. **Deploy the Gateway.** Type this in your harness terminal, Shell tile, plain
    shell. No password. This runs migrations and starts the internal Gateway;
    good result: Ready, then `DONE`.
 
@@ -57,7 +88,7 @@ The existing Control Centre test database is reused.
    install/65-model-gateway-deploy.sh MERGED_IMAGE_TAG
    ```
 
-6. **Set up the Harness.** Type this in your harness terminal, Shell tile, plain
+7. **Set up the Harness.** Type this in your harness terminal, Shell tile, plain
    shell. No password. This prepares its roles, databases and secrets; good
    result: private test settings saved, then `DONE`.
 
@@ -66,7 +97,7 @@ The existing Control Centre test database is reused.
    install/66-harness-api-setup.sh
    ```
 
-7. **Deploy the Harness.** Type this in your harness terminal, Shell tile, plain
+8. **Deploy the Harness.** Type this in your harness terminal, Shell tile, plain
    shell. No password. This runs migrations and replaces the API placeholder;
    good result: Ready, then `DONE`.
 
@@ -75,7 +106,7 @@ The existing Control Centre test database is reused.
    install/67-harness-api-deploy.sh MERGED_IMAGE_TAG
    ```
 
-8. **Deploy Workspace.** Type this in your harness terminal, Shell tile, plain
+9. **Deploy Workspace.** Type this in your harness terminal, Shell tile, plain
    shell. No password. This replaces the chat page placeholder; good result:
    the intended running image, then `DONE`.
 
@@ -84,26 +115,27 @@ The existing Control Centre test database is reused.
    install/68-workspace-deploy.sh MERGED_IMAGE_TAG
    ```
 
-9. **Deploy Admin Console.** Type this in your harness terminal, Shell tile,
-   plain shell. No password. This replaces the admin placeholder and removes
-   its leftover placeholder settings; good result: Ready, then `DONE`.
+10. **Deploy Admin Console.** Type this in your harness terminal, Shell tile,
+    plain shell. No password. This replaces the admin placeholder and removes
+    its leftover placeholder settings; good result: Ready, then `DONE`.
 
-   ```bash
-   cd ~/projects/worktrees/stage-2
-   install/69-admin-console-deploy.sh MERGED_IMAGE_TAG
-   ```
+    ```bash
+    cd ~/projects/worktrees/stage-2
+    install/69-admin-console-deploy.sh MERGED_IMAGE_TAG
+    ```
 
-10. **Update sign-out settings.** Type this in your harness terminal, Shell tile,
+11. **Update sign-in and sign-out settings.** Type this in your harness terminal, Shell tile,
     plain shell. No password. This updates existing Keycloak clients, including
-    logout redirects; it never creates a client. Good result: synced clients,
-    then `DONE`. It may run any time after merge, before browser tests.
+    logout redirects and the Control Centre's access-token audience for the
+    Gateway. It never creates a client. Good result: synced clients, then `DONE`.
+    It runs after merge and before browser tests or the new Test connection checks.
 
     ```bash
     cd ~/projects/worktrees/stage-2
     install/35-realm-sync.sh
     ```
 
-11. **Add models in the browser.** Open <https://admin.faysalaziz.com>, sign in
+12. **Add models in the browser.** Open <https://admin.faysalaziz.com>, sign in
     with your administrator account password, choose **Add model**, then enter
     a title, purpose, chat tier, main/backup role, order, location, connection
     type, endpoint and the model ID supplied by your provider. These are example
@@ -125,20 +157,29 @@ The existing Control Centre test database is reused.
     JSON object; a null value removes a provider field. `temperature`, `top_p`
     and `top_k` may be refused by newer Anthropic versions. At least one keyed
     chat entry per connection type is needed for the full browser acceptance test.
-    There is no Test connection button until Stage 3.
+    Click **Test** beside a saved model to send one short paid call to that entry.
+    Without a saved key, it is disabled with **Save a key first**. While waiting
+    it says **Testing…**. A successful result shows seconds, a short reply, token
+    counts and cost. A failure shows a plain reason and, when available, the
+    provider status and redacted message. Results stay until the next test or
+    reload. The key is never sent to the browser. Tests count against the entry's
+    daily budget and rate limit.
 
-12. **Give people a tier.** On that tier's **Who may use this tier** row, switch
+13. **Give people a tier.** On that tier's **Who may use this tier** row, switch
     **Everyone** on, or enter the person's user ID and add them. They can copy
     their ID from Workspace's **About me** line under their name. In Workspace,
     sign in, choose an allowed tier, ask a question and check streaming, token
     counts and conversation reload. Names and email in the Control Centre arrive
     in Stage 3; use IDs for individual grants now.
 
-13. **Run the live check.** Type this in your harness terminal, Shell tile,
+14. **Run the live check.** Type this in your harness terminal, Shell tile,
     plain shell. Claude runs it while Aziz watches. No password or device
     sign-in. It checks all keyed entries in chat tiers 1–20, public restrictions,
     usage rows and logs. **Each run makes one short paid call per entry with a
-    key, plus one streamed paid call per connection type in use.** Keep tier 98
+    key, plus one streamed paid call per connection type in use, plus one pinned
+    paid call as the Control Centre.** The extra Control Centre call is skipped
+    with a note when no keyed chat entry is found; the full stage check still
+    requires keyed chat entries. Keep tier 98
     empty for the no-model check. Good result: every line `PASS`, then `DONE`.
 
     ```bash
@@ -146,7 +187,7 @@ The existing Control Centre test database is reused.
     install/70-check-stage-2.sh
     ```
 
-14. **Everyday work and builder checks.** Each guide below gives exact commands
+15. **Everyday work and builder checks.** Each guide below gives exact commands
     for logs, restart, running images, setup, tests and every STOP/FAIL message.
     Use the merged worktree until acceptance, then `~/projects/open-office-harness`.
     Do not stop databases or the platform to stop an app.
@@ -157,7 +198,7 @@ The existing Control Centre test database is reused.
     - [Admin Console guide](apps/admin-console/README.md): Angular build/tests, models, keys and grants.
     - [Control Centre guide](services/control-centre/README.md): registry, encryption key recovery and private backup.
 
-15. **After a reboot.** k3s starts everything automatically. Wait five minutes.
+16. **After a reboot.** k3s starts everything automatically. Wait five minutes.
     Type this in your harness terminal, Shell tile, plain shell. Claude runs it
     while Aziz watches. No terminal password; the Control Centre check asks for
     browser administrator sign-in. This repeats platform, policy and chat checks;
@@ -171,6 +212,13 @@ The existing Control Centre test database is reused.
     install/62-check-control-centre.sh
     install/70-check-stage-2.sh
     ```
+
+Stage-check failures for **unpinned**, **streamed** or **other-messages Control
+Centre call** mean the Gateway must enforce its restricted test-call rules
+(HTTP 403, `forbidden`). A failure for **Control Centre pinned test call** means
+Claude should check realm sync, service-account audience, the saved key, rate
+limit and daily budget privately. See the [Control Centre guide](services/control-centre/README.md)
+for 71's STOP messages; a changed client secret needs private inspection.
 
 ## Stage 1 — Control Centre
 
@@ -723,8 +771,9 @@ Keycloak realm import creates the initial realm. The realm-sync script then
 requires every client to exist and looks up mappers by name. It creates missing
 audience mappers, updates
 changed audience mappers individually by ID and skips equal entries. Unwanted
-audience mappers are removed, including Control Centre's self and Model Gateway
-audiences. Verification reads both included client and custom audiences and
+audience mappers are removed, including the Control Centre's self audience.
+Its Model Gateway audience is retained for the restricted pinned test call.
+Verification reads both included client and custom audiences and
 ignores harmless extra config defaults. Admin Console expects only
 `ooh-control-centre`. Other mapper types, users and existing client credentials
 are preserved. It uses Keycloak's own admin CLI inside
@@ -740,7 +789,9 @@ Public clients use PKCE S256. The realm includes confidential service clients
 for Harness API, Control Centre and Model Gateway. Workspace tokens target
 Harness API; Admin Console tokens target Control Centre. Harness API service
 tokens target Control Centre and Model Gateway; Model Gateway service tokens
-target Control Centre. Control Centre has no explicit audience mapper.
+target Control Centre. Control Centre service tokens target Model Gateway for
+only the pinned, non-streamed fixed test call; the mapper adds the audience to
+access tokens, not ID tokens.
 `ooh.smoke` carries free-form test messages, without an event envelope.
 
 ## Versions

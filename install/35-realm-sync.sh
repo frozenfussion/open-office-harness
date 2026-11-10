@@ -59,6 +59,8 @@ rows="$(awk '
 ' deploy/platform/keycloak/realm-ooh.yaml)"
 desired="$(jq -Rn '[inputs | split("\t")] | reduce .[] as $row ({}; if $row[0] == "CLIENT" then .[$row[1]] = [] else .[$row[1]] += [$row[2]] end)' <<< "$rows")"
 jq -e 'keys | sort == (["ooh-workspace","ooh-admin-console","ooh-harness-api","ooh-control-centre","ooh-model-gateway"] | sort)' <<< "$desired" >/dev/null || stop "realm client format changed; check realm-ooh.yaml before syncing"
+jq -e '.["ooh-control-centre"] == ["ooh-model-gateway"]' <<< "$desired" >/dev/null ||
+  stop "realm client format changed; check realm-ooh.yaml before syncing"
 config_dir=''
 cleanup() {
   if [[ "$config_dir" =~ ^/tmp/ooh-realm-sync\.[a-zA-Z0-9]+$ ]]; then

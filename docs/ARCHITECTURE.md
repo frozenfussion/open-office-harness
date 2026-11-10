@@ -13,7 +13,7 @@ database rather than shared tables.
 |---|---|---|
 | Workspace (Angular 22) | Sign-in, allowed tiers, conversations and streamed chat; uploads and approvals later | Contact Kafka, models or the Control Centre database |
 | Admin Console (Angular 22) | Models & tiers, encrypted key entry and tier grants; other screens later | Contact the Harness directly |
-| Control Centre (.NET 10 modular monolith) | Deterministic rights, model and skill registries, encrypted provider keys, approval rules, its own append-only change log and audit query | Call AI models |
+| Control Centre (.NET 10 modular monolith) | Deterministic rights, model and skill registries, encrypted provider keys, approval rules, its own append-only change log and audit query | Call AI outside the Gateway's pinned test call |
 | Harness API (Python 3.14) | Conversations, last 20 completed messages, rights checks, allowed tools and streaming; classifier later | Decide rights or store secrets |
 | Model Gateway (Python 3.14) | Purpose/tier routing, rate limits, cost and failover; uses per-call keys read from the Control Centre, which holds them encrypted | Know who the user is beyond user_id for cost |
 | Skill workers (Python 3.14) | One skill each; requests, files and results | Check rights after a job is published |
@@ -85,6 +85,23 @@ seconds of completed/failed usage. Per-entry budgets use the UTC day's cost.
 When every entry is over budget, the Harness can fall back to the lowest allowed
 tier and includes a note. Usage and calculated cost live in the Gateway's own
 append-only database; no Kafka messages are produced for chat in Stage 2.
+
+**Test connection (Stage 2):** the Control Centre calls AI only through the
+Gateway's pinned test call. An admin presses Test beside a model entry with a
+saved key. The public admin route sends that entry's purpose, tier and ID to
+`/v1/call` with `stream: false`, no tools, a user ID starting `admin-test-` and
+exactly one user message: `Reply with the single word OK.` The Gateway refuses
+any other Control Centre call, including classification. The Control Centre's
+service token carries the Gateway audience through an access-token-only realm
+mapper. Ordinary Harness calls keep their existing rules.
+
+The call is paid and counts toward the entry's daily budget and rate limit.
+The console shows timing, a short plain-text reply, tokens and cost, or a plain
+failure reason and a redacted provider message. Keys never reach the browser.
+The Control Centre audits `model.tested` with entry ID, result, reason and duration;
+it logs neither reply nor provider message. Script 71 copies the client secret
+once and refuses a changed existing value. Without service credentials, the
+Control Centre starts normally and the test returns a setup failure.
 
 **Tier routing (Stage 3):** a classifier score may suggest a higher tier. The
 Harness will check `chat.tier` before using it. The planned classifier fallback
