@@ -152,10 +152,11 @@ rc=0
 ingresses="$(kubectl get ingress --all-namespaces -o json)" || rc=1
 jq -e 'all(.items[]; (.spec.defaultBackend.service.name != "model-gateway") and all(.spec.rules[]?.http.paths[]?; .backend.service.name != "model-gateway"))' <<< "$ingresses" >/dev/null || rc=1
 result "$rc" 'Gateway has no public ingress' 'remove any Gateway ingress before using provider keys'
-payload='{"purpose":"chat","tier":98,"user_id":"stage-check-'"$(cat /proc/sys/kernel/random/uuid)"'","messages":[{"role":"user","content":"Reply with the single word OK."}],"stream":false}'
+payload='{"purpose":"chat","tier":98,"user_id":"admin-test-stage-check-'"$(cat /proc/sys/kernel/random/uuid)"'","messages":[{"role":"user","content":"Reply with the single word OK."}],"stream":false}'
 rc=0
-request ooh-control-centre POST http://127.0.0.1:18080/v1/call "$payload" && [[ "$status" == 401 || "$status" == 403 ]] || rc=1
-result "$rc" 'Gateway refuses Control Centre caller' 'expected HTTP 401 or 403; check caller validation'
+request ooh-control-centre POST http://127.0.0.1:18080/v1/call "$payload" && [[ "$status" == 403 ]] &&
+  jq -e '.code == "forbidden"' <<< "$body" >/dev/null || rc=1
+result "$rc" 'Gateway refuses unpinned Control Centre call' 'expected HTTP 403 forbidden; check the Control Centre test-call restriction'
 payload="$(jq -c --arg user "stage-check-$(cat /proc/sys/kernel/random/uuid)" '.user_id = $user' <<< "$payload")"
 rc=0
 request ooh-harness-api POST http://127.0.0.1:18080/v1/call "$payload" && [[ "$status" == 404 ]] &&
@@ -169,8 +170,36 @@ for ((tier=1; tier<=20; tier++)); do
   require "$rc" "read chat tier $tier" 'expected registry array on internal port 8081; check Gateway token and Control Centre'
   entries="$(printf '%s\n%s\n' "$entries" "$body" | jq -cs '.[0] + [.[1][] | select(.has_key == true and .deleted_at == null)] | unique_by(.model_entry_id)')"
 done
-[[ "$(jq length <<< "$entries")" != 0 ]] || stop "no chat entry with a saved key in tiers 1 to 20; add models in the Admin Console first"
 call_users='[]'
+centre_entry="$(jq -c 'first // null' <<< "$entries")"
+centre_id="$(jq -r '.model_entry_id // empty' <<< "$centre_entry")"
+centre_tier="$(jq -r '.tier // 98' <<< "$centre_entry")"
+# A valid but absent ID still lets the caller rules be checked when no key is saved.
+centre_pin="${centre_id:-$(cat /proc/sys/kernel/random/uuid)}"
+centre_user="admin-test-stage-check-$(cat /proc/sys/kernel/random/uuid)"
+centre_payload="$(jq -cn --arg id "$centre_pin" --arg user "$centre_user" --argjson tier "$centre_tier" \
+  '{purpose:"chat",tier:$tier,user_id:$user,model_entry_id:$id,messages:[{role:"user",content:"Reply with the single word OK."}],stream:false}')"
+for refusal in streamed other-messages; do
+  if [[ "$refusal" == streamed ]]; then
+    refused_payload="$(jq -c '.stream = true' <<< "$centre_payload")"
+  else
+    refused_payload="$(jq -c '.messages = [{role:"user",content:"Reply with a different word."}]' <<< "$centre_payload")"
+  fi
+  rc=0
+  request ooh-control-centre POST http://127.0.0.1:18080/v1/call "$refused_payload" && [[ "$status" == 403 ]] &&
+    jq -e '.code == "forbidden"' <<< "$body" >/dev/null || rc=1
+  result "$rc" "Gateway refuses $refusal Control Centre call" 'expected HTTP 403 forbidden; check the Control Centre test-call restriction'
+done
+if [[ -n "$centre_id" ]]; then
+  call_users="$(jq -c --arg user "$centre_user" '. + [$user]' <<< "$call_users")"
+  rc=0
+  request ooh-control-centre POST http://127.0.0.1:18080/v1/call "$centre_payload" && [[ "$status" == 200 ]] &&
+    jq -e --arg id "$centre_id" '.model_entry_id == $id and (.content | type == "string" and length > 0)' <<< "$body" >/dev/null || rc=1
+  result "$rc" 'Control Centre pinned test call' 'expected HTTP 200 and nonempty content; check realm sync, the saved key, rate limit and daily budget privately'
+else
+  printf 'NOTE Control Centre pinned test call skipped: no keyed chat entry in tiers 1 to 20\n'
+fi
+[[ "$(jq length <<< "$entries")" != 0 ]] || stop "no chat entry with a saved key in tiers 1 to 20; add models in the Admin Console first"
 call_entry() {
   local entry="$1" stream="$2" id title tier payload user rc=0
   id="$(jq -er '.model_entry_id' <<< "$entry")"
