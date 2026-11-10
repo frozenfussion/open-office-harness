@@ -11,9 +11,9 @@ database rather than shared tables.
 
 | Module | Owns | Never does |
 |---|---|---|
-| Workspace (Angular 22) | Sign-in, allowed tiers, conversations and streamed chat; uploads and approvals later | Contact Kafka, models or the Control Centre database |
-| Admin Console (Angular 22) | Models & tiers, encrypted key entry and tier grants; other screens later | Contact the Harness directly |
-| Control Centre (.NET 10 modular monolith) | Deterministic rights, model and skill registries, encrypted provider keys, approval rules, its own append-only change log and audit query | Call AI outside the Gateway's pinned test call |
+| Workspace (Angular 22) | Sign-in, access-state screens, allowed tiers, conversations and streamed chat; uploads and approvals later | Contact Kafka, models or the Control Centre database |
+| Admin Console (Angular 22) | Models & tiers, access requests, encrypted key entry and tier grants; other screens later | Contact the Harness directly |
+| Control Centre (.NET 10 modular monolith) | Deterministic rights, access approvals, model and skill registries, encrypted provider keys, approval rules, its own append-only change log and audit query | Call AI outside the Gateway's pinned test call |
 | Harness API (Python 3.14) | Conversations, last 20 completed messages, rights checks, allowed tools and streaming; classifier later | Decide rights or store secrets |
 | Model Gateway (Python 3.14) | Purpose/tier routing, rate limits, cost and failover; uses per-call keys read from the Control Centre, which holds them encrypted | Know who the user is beyond user_id for cost |
 | Skill workers (Python 3.14) | One skill each; requests, files and results | Check rights after a job is published |
@@ -62,17 +62,78 @@ The Control Centre handles the admin's decision through the Admin Console and
 publishes approval.decided. Only an approved request with valid rights proceeds;
 a rejected request never becomes a skill job. The UI shows awaiting approval.
 
+**Request access (Stage 2):** Keycloak owns registration and password entry.
+Its email-as-username policy, English Request access link and managed user profile
+collect names, work email, organisation and optional reason. Only organisation
+and reason have extra access-token mappers on the Workspace client; ordinary
+profile scopes supply name, email and given name. Email verification and reset
+mail are off, while the Account Console remains reachable. Script 35 updates
+existing realm settings, texts and the two profile attributes, preserves all
+other attributes and unmanaged policy, and can close registration with
+`--registration off` (default/no flag or `--registration on` opens it).
+
+The Harness observes each verified user's exact sub and trimmed, bounded token
+claims in the Control Centre before returning `/api/me`. A verified admin role
+is passed as `is_admin`. The Control Centre keeps pending, approved and rejected
+access rows; at 100 waiting rows it creates nothing and returns closed. The
+Workspace sends no conversation requests unless `/api/me.access` is approved.
+Pending, rejected and closed people see only their state message and Sign out;
+an observe failure produces a red notice and fails closed.
+
+Only approved people receive rights or skills, including Everyone grants.
+Approval with a chosen existing tier and adding a person by user ID create the
+user's grant and approve access in one transaction. Admins are approved
+when observed. Pre-migration people and active user grants are backfilled;
+Everyone-only users must request approval once. Reject or Revoke denies access;
+rejected requests can be approved later. Access-request lists/counts hide
+stage-check- users and mark emails unverified. Pending profile changes can update
+request details, but cannot change approved/rejected decisions. Access audit
+records contain only user ID, status, decider and approved tier, never names,
+emails, organisation, reason, passwords or tokens. Rows have deleted_at and
+no-DELETE/TRUNCATE protections. No external admin notification or mail service
+is introduced.
+
+Deployment for this change is 61 → 67 → 35 → 68 → 69 → 62 → 70, so approval
+and observation exist before registrations open. Check 70 reads the registration
+form and observes only the fixed stage-check-access user; it creates no Keycloak
+person. Everyone-gate checks belong to 62.
+
 **Chat (Stage 2):** both apps sign in through Keycloak with code + PKCE S256
 and session storage. Each reads its issuer, client ID and same-host API path from
 `/config.json`. Workspace shows only allowed chat tiers and the user's ID with a
-copy button for grants. It sends a question to its own Harness API. The Harness
+copy button for grants. The chat model picker uses the tier's main title and
+shows a Thinking switch only when that main entry supports it. The browser
+remembers the choice per tier and forwards it with the question. Completion
+metadata identifies the actual answering model and reports when thinking-off
+was requested but unsupported, including backup/fallback answers. This notice
+is live metadata rather than stored history. Request another model opens a
+small panel using requestable_tiers from the Harness. Requests go through the
+Harness as the verified person; the Control Centre enforces approved access,
+excludes granted tiers and tier 99, prevents duplicate pending requests, caps
+pending requests at 20 and enforces seven days after rejection before retry.
+Reasons are plain text and never logged. It sends a question to its own Harness API. The Harness
 checks the conversation owner and asks the Control Centre for `chat.tier` with
 the selected tier. Missing policy fails closed. A refused tier is a 403 with a
-plain message; it is not sent to a model. The browser renders all chat text as
-plain text with line breaks and reads the POST answer using fetch and SSE.
+plain message; it is not sent to a model. The browser reads the POST answer using fetch and SSE. User messages stay
+plain text. Assistant messages render Markdown and LaTeX maths while streaming
+and after completion, at most ten full renders per second while streaming.
+Raw HTML remains inert text and outside images are suppressed. DOMPurify first
+sanitizes Markdown with the forbidden-tag policy and HTTP/HTTPS/mailto-only
+links. KaTeX uses `throwOnError: false` and `trust: false`, and its generated
+HTML/MathML/SVG is sanitized separately. Code remains literal and incomplete
+maths stays text. CSS, fonts and licences ship locally. Every message shows
+browser-local date/time and a Copy button for original source; code blocks have
+a separate copy control. Stored timestamps survive reload, while new messages
+use send/completion times.
 
 The Harness sends the last 20 completed, nonempty conversation messages,
-starting with a user message, then the new question, with no system message.
+starting with a user message, then the new question. Part B's HA_SYSTEM_PROMPT
+adds the configured reply-language system message. After the first completed
+assistant answer, a separate title call may generate a short title using the
+answering tier and its own system message, with a 20-second limit. Completed
+enables the Workspace composer immediately; an optional later title event
+updates only its conversation's heading/list without changing updated_at.
+Failure keeps the default title and completed answer.
 Only allowed skills are offered as tools. A tool request produces a fixed
 sentence saying skills arrive in the next stage; it runs no job. Conversations
 belong to the Harness database, and messages cannot be updated or deleted.

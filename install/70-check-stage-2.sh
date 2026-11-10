@@ -13,7 +13,7 @@ source "$ROOT/deploy/values/do.env"
 for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE; do
   [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/do.env"
 done
-for tool in kubectl curl jq date mktemp; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
+for tool in kubectl curl jq date mktemp openssl tr; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 failed=0
 result() {
@@ -132,6 +132,25 @@ request() {
   status="${reply##*$'\n'}"
   body="${reply%$'\n'*}"
 }
+registration_verifier="$(openssl rand -hex 32)"
+registration_challenge="$(printf '%s' "$registration_verifier" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
+registration_query="$(jq -rn --arg redirect "https://harness.$DOMAIN/" --arg challenge "$registration_challenge" '
+  {client_id:"ooh-workspace",redirect_uri:$redirect,response_type:"code",scope:"openid profile",code_challenge:$challenge,code_challenge_method:"S256",ui_locales:"en"} |
+  to_entries | map(.key + "=" + (.value | @uri)) | join("&")')"
+rc=0
+registration_reply="$(curl --connect-timeout 10 --max-time 30 -sS -L -w '\n%{http_code}' \
+  "$issuer/protocol/openid-connect/registrations?$registration_query" 2>/dev/null)" || rc=1
+registration_status="${registration_reply##*$'\n'}"
+registration_page="${registration_reply%$'\n'*}"
+[[ "$registration_status" == 200 && "$registration_page" == *'Request access'* &&
+   "$registration_page" == *'name="organisation"'* && "$registration_page" == *'name="access_reason"'* ]] || rc=1
+result "$rc" 'Workspace registration page' 'expected HTTP 200, Request access and both extra fields; check realm sync and whether registration is switched off'
+unset registration_verifier registration_challenge registration_reply registration_page
+rc=0
+request ooh-harness-api POST "https://admin.$DOMAIN/api/access/observe" \
+  '{"user_id":"stage-check-access","name":null,"email":null,"organisation":null,"access_reason":null,"is_admin":false}' && [[ "$status" == 200 ]] &&
+  jq -e '.status == "pending" or .status == "rejected" or .status == "closed"' <<< "$body" >/dev/null || rc=1
+result "$rc" 'access check user is not approved' 'expected pending, rejected or closed; inspect the Control Centre observe route and reserved stage-check-access row'
 for app in workspace admin-console; do
   host=harness
   [[ "$app" != admin-console ]] || host="admin"
@@ -202,17 +221,23 @@ fi
 [[ "$(jq length <<< "$entries")" != 0 ]] || stop "no chat entry with a saved key in tiers 1 to 20; add models in the Admin Console first"
 call_entry() {
   local entry="$1" stream="$2" id title tier payload user rc=0
+  local prompt='Reply with the single word OK.' events reason delta_count last_event http_status
+  local budget_exceeded=false
+  [[ "$stream" != true ]] || prompt='Count from 1 to 20, separated by spaces.'
   id="$(jq -er '.model_entry_id' <<< "$entry")"
   title="$(jq -r '.title' <<< "$entry")"
   tier="$(jq -er '.tier' <<< "$entry")"
   user="stage-check-$(cat /proc/sys/kernel/random/uuid)"
   call_users="$(jq -c --arg user "$user" '. + [$user]' <<< "$call_users")"
-  payload="$(jq -cn --arg id "$id" --arg user "$user" --argjson tier "$tier" --argjson stream "$stream" \
-    '{purpose:"chat",tier:$tier,user_id:$user,model_entry_id:$id,messages:[{role:"user",content:"Reply with the single word OK."}],stream:$stream}')"
+  payload="$(jq -cn --arg id "$id" --arg user "$user" --arg prompt "$prompt" --argjson tier "$tier" --argjson stream "$stream" \
+    '{purpose:"chat",tier:$tier,user_id:$user,model_entry_id:$id,messages:[{role:"user",content:$prompt}],stream:$stream}')"
   request ooh-harness-api POST http://127.0.0.1:18080/v1/call "$payload" || rc=1
   if [[ "$status" == 503 ]] && jq -e '.code == "budget_exceeded"' <<< "$body" >/dev/null 2>&1; then
-    result 1 "$title" 'over its daily budget today'
-    return
+    if [[ "$stream" == false ]]; then
+      result 1 "$title" 'over its daily budget today'
+      return
+    fi
+    budget_exceeded=true
   fi
   [[ "$status" == 200 ]] || rc=1
   if [[ "$stream" == false ]]; then
@@ -230,7 +255,19 @@ call_entry() {
       last.type == "completed" and last.model_entry_id == $id and
       ([.[] | select(.type == "completed")] | length == 1) and
       all(.[0:-1][]; .type == "delta")' <<< "$events" >/dev/null 2>&1 || rc=1
-    result "$rc" "$title streamed answer" 'expected at least two deltas then completed; inspect stream buffering and provider settings'
+    reason='expected at least two deltas then completed; inspect stream buffering and provider settings'
+    [[ "$budget_exceeded" != true ]] || reason='over its daily budget today'
+    if [[ "$rc" != 0 ]]; then
+      delta_count="$(jq -sr '[.[] | select(.type == "delta")] | length' <<< "$events" 2>/dev/null)" || delta_count=0
+      last_event="$(jq -sr '
+        if length == 0 then "none"
+        elif (last.type == "delta" or last.type == "completed" or last.type == "failed" or last.type == "tool_call") then last.type
+        else "unknown" end' <<< "$events" 2>/dev/null)" || last_event=invalid
+      http_status="${status:-000}"
+      [[ "$http_status" =~ ^[0-9]{3}$ ]] || http_status=000
+      reason+=" ($delta_count deltas, last event $last_event, HTTP $http_status)"
+    fi
+    result "$rc" "$title streamed answer" "$reason"
   fi
 }
 while IFS= read -r entry; do call_entry "$entry" false; done < <(jq -c '.[]' <<< "$entries")

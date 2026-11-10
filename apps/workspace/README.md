@@ -29,12 +29,39 @@
 
 3. **Use chat.** Open <https://harness.faysalaziz.com>. Click **Sign in with
    company account**, then sign in on Keycloak with your account password.
-   Choose a tier, type a question and press Enter (Shift+Enter adds a line).
-   The answer appears as text while it streams. The line beneath it shows
-   tier, model title and token counts. Pick a recent conversation to reopen it;
-   reloading keeps the selected conversation. **New chat** starts another one.
+   Choose a **Chat model**, type a question and press Enter (Shift+Enter adds a line).
+   The picker shows the tier's main model title followed by `- Tier N`, or just
+   `Tier N` if no title is available. Only your allowed tiers appear.
+   When the chosen model offers a **Thinking** switch, click it to turn thinking
+   on or off. Your browser remembers the choice for each tier. A backup model
+   might not support turning thinking off; the answer's meta line says so.
+   Choose **Request another model…** at the end of the picker to ask for access.
+   Pick a model, optionally give a reason (up to 300 characters), then click
+   **Send request**. Pending models show **Requested**. A rejected model shows
+   **Not approved** and can be requested again seven days after the last answer.
+   The API enforces the wait and shows a plain notice if it refuses.
+
+   The answer
+   appears while it streams. Assistant replies support Markdown headings,
+   lists, tables, links, code blocks and LaTeX maths. Your own messages stay
+   plain text. Each message shows its date and time in your browser's time zone.
+   **Copy** copies the original message, including Markdown and maths delimiters;
+   **Copied** appears for two seconds. Code blocks have their own **Copy code**
+   button. The line beneath the answer shows tier, model title and token counts. Pick a recent conversation to reopen it;
+   reloading keeps the selected conversation. After the first completed answer,
+   its AI title updates the heading and recent list when available. You can send
+   again as soon as the answer finishes; title generation may take another
+   20 seconds. If it fails, the first words of your question remain the title. **New chat** starts another one.
    Under your name, find **About me · Your user ID** and click **Copy user ID**
    to give an admin your ID. **Sign out** ends the Keycloak session.
+
+   Newcomers use **Need access? Request access** on Keycloak's login page after
+   the sign-in button. Enter names, work email, organisation, an optional reason
+   and a chosen password twice. Pending, rejected and closed requests show only
+   their message and Sign out. An approved request opens chat. Refresh after the
+   admin approves. If the access service fails, a red notice appears. See the
+   [root guide](../../README.md#request-access-and-approvals) for approval,
+   registration controls and password resets.
 
 4. **Read status and the running image.** Type this in your harness terminal,
    Shell tile, plain shell. No password. This shows the running app; good result
@@ -90,7 +117,8 @@
    The Control Centre check asks for browser admin sign-in. Good result:
    every check prints `PASS`, each script ends with `DONE`.
    **Each run of 70 makes one short paid call per entry with a key, plus one
-   streamed paid call per connection type in use.** It tests chat tiers 1–20.
+   streamed paid call per connection type in use and one pinned paid call as
+   the Control Centre.** It tests chat tiers 1–20.
 
    ```bash
    cd ~/projects/worktrees/stage-2
@@ -136,8 +164,20 @@
 | `sign-out redirect is not enabled` from 35 | Check the existing public client's logout attribute and repeat realm sync. |
 
 The SSE parser handles UTF-8 byte boundaries, split lines and CRLF, using fetch
-for POST streams. Chat content is interpolated as text, never HTML or Markdown.
-OIDC uses authorization code + PKCE S256, refresh tokens and the library's default
+for POST streams. User messages use plain-text interpolation. Assistant Markdown
+is parsed with marked, with raw HTML escaped as text and images suppressed.
+DOMPurify sanitizes it with the row 22 forbidden-tag list. Only HTTP, HTTPS and
+mailto links remain, opening with `target="_blank" rel="noopener noreferrer"`.
+Closed maths delimiters (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`) become
+KaTeX output with `throwOnError: false` and `trust: false`, then a separate
+DOMPurify pass admits KaTeX's generated HTML, MathML and SVG. Unfinished maths
+stays literal text; code never gets maths parsing. Nothing bypasses sanitization.
+Streaming rendering runs at most once per 100 ms, with an immediate final pass.
+The renderer loads on demand; no rendering code or prompt text is logged.
+KaTeX CSS and all fonts are local build assets, with no CDN. Its MIT licence is
+copied beside the other font licences at `/design-system/licenses/MIT-katex.txt`.
+Timestamps use stored `created_at` for history and browser send/completion times
+for new messages. OIDC uses authorization code + PKCE S256, refresh tokens and the library's default
 session storage. `/config.json` supplies all deployment addresses. The static
 server logs only its service name and status code. Nginx error diagnostics are
 suppressed to avoid recording callback URLs; use pod events for startup failures.
@@ -161,3 +201,34 @@ The sign-in setup follows the library's [configuration](https://www.angular-auth
 and [session storage](https://www.angular-auth-oidc-client.com/docs/documentation/custom-storage)
 documentation. Tests use the [Angular CLI unit-test builder](https://angular.dev/guide/testing)
 with its default Vitest runner and jsdom.
+
+Row 17 dependencies, checked on npm on 10 Nov 2026: marked **18.2.0** (Markdown),
+DOMPurify **3.4.17** (HTML sanitization), KaTeX **0.19.1** (maths, with bundled
+TypeScript declarations). Exact versions and transitive resolutions are locked.
+The implementation follows the [marked extension API](https://marked.js.org/using_pro),
+[DOMPurify sanitizer API](https://github.com/cure53/DOMPurify) and
+[KaTeX options](https://katex.org/docs/options).
+
+Thinking-off settings are configured on the model entry in the Admin Console.
+Use the shape supported by that connection, with your configured model ID;
+there are no provider/model addresses or names built into the Workspace:
+
+| Connection type | Example settings when thinking is off |
+|---|---|
+| `openai_chat_completions` | For a service supporting the field: `{"thinking":{"type":"disabled"}}` or `{"reasoning_effort":"low"}` |
+| `openai_responses` | `{"reasoning":{"effort":"low"}}` |
+| `anthropic_messages` | Leave empty when the configured model has no off switch. |
+
+The switch describes the tier's main entry; the meta line identifies the actual
+answering model. The Gateway reports `thinking_applied` for the live answer;
+this support notice is not saved in conversation history. Browser storage holds
+only each tier's on/off preference, never a prompt, reason or token.
+
+The reply-language system message is configured by Part B's `HA_SYSTEM_PROMPT`
+in `deploy/apps/harness-api/configmap.yaml`. To change it, edit that file and
+follow the Harness API deployment step in the [root guide](../../README.md),
+which runs `install/67-harness-api-deploy.sh`. A live cluster edit is
+overwritten by the next deploy. The title call uses its own system message.
+Model requests go only through the same-host Harness API with the signed-in
+user's identity; no user ID is sent from this form. The Control Centre decides
+approval, eligibility, the seven-day rejection wait and the 20-pending limit.

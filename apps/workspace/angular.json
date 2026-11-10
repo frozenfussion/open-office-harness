@@ -23,9 +23,15 @@
                 "glob": "**/*",
                 "input": "public",
                 "followSymlinks": true
+              },
+              {
+                "glob": "MIT-katex.txt",
+                "input": "licenses",
+                "output": "design-system/licenses"
               }
             ],
             "styles": [
+              "node_modules/katex/dist/katex.css",
               "src/styles.css"
             ]
           },
