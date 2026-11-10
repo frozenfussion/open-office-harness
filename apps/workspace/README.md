@@ -175,7 +175,7 @@ stays literal text; code never gets maths parsing. Nothing bypasses sanitization
 Streaming rendering runs at most once per 100 ms, with an immediate final pass.
 The renderer loads on demand; no rendering code or prompt text is logged.
 KaTeX CSS and all fonts are local build assets, with no CDN. Its MIT licence is
-copied beside the other font licences at `/design-system/licenses/LICENSE`.
+copied beside the other font licences at `/design-system/licenses/MIT-katex.txt`.
 Timestamps use stored `created_at` for history and browser send/completion times
 for new messages. OIDC uses authorization code + PKCE S256, refresh tokens and the library's default
 session storage. `/config.json` supplies all deployment addresses. The static

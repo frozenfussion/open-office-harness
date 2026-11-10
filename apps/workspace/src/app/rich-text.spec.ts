@@ -21,6 +21,16 @@ describe('safe Markdown and maths', () => {
     expect(result.fragment.querySelector('math')).not.toBeNull();
     expect(Boolean(result.fragment.querySelector('.katex-display'))).toBe(source.startsWith('$$') || source.startsWith('\\['));
   });
+  it.each([
+    'It costs $5 and the upgrade is $10',
+    'Opening $ x$ stays plain',
+    'Closing $x $ stays plain',
+    'A closing digit $x$2 stays plain',
+  ])('keeps single-dollar text outside the Pandoc maths rules literal: %s', source => {
+    const result = renderRichText(source);
+    expect(result.fragment.querySelector('.katex')).toBeNull();
+    expect(result.fragment.textContent?.trim()).toBe(source);
+  });
   it('renders adjacent inline formulae without treating their boundary as display maths', () => {
     const result = renderRichText('Terms $x$$y$ together');
     expect(result.fragment.querySelectorAll('.katex')).toHaveLength(2);

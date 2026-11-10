@@ -22,10 +22,11 @@ function escaped(source: string, index: number): boolean {
 }
 function mathToken(source: string): MathToken | undefined {
   const open = ['$$', '\\[', '\\(', '$'].find(delimiter => source.startsWith(delimiter));
-  if (!open) return undefined;
+  if (!open || (open === '$' && /\s/u.test(source[1] ?? ''))) return undefined;
   const close = open === '\\[' ? '\\]' : open === '\\(' ? '\\)' : open;
   let end = source.indexOf(close, open.length);
-  while (end !== -1 && escaped(source, end)) {
+  while (end !== -1 && (escaped(source, end) ||
+    (open === '$' && (/\s/u.test(source[end - 1]) || /[0-9]/u.test(source[end + 1] ?? ''))))) {
     end = source.indexOf(close, end + close.length);
   }
   return {
