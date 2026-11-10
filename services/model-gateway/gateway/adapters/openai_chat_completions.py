@@ -10,6 +10,14 @@ from gateway.models import Call, Entry
 from .common import ProviderError, check_response, request_body, sse, tool_event
 
 
+def reasoning_text(message: dict[str, Any]) -> str | None:
+    for field in ("reasoning_content", "reasoning"):
+        text = message.get(field)
+        if isinstance(text, str) and text:
+            return text
+    return None
+
+
 async def run(
     client: httpx.AsyncClient, entry: Entry, key: str, call: Call
 ) -> AsyncIterator[dict[str, Any]]:
@@ -44,6 +52,8 @@ async def run(
         if not call.stream:
             result = json.loads(await response.aread())
             message = result["choices"][0]["message"]
+            if text := reasoning_text(message):
+                yield {"type": "thinking", "text": text}
             if message.get("content"):
                 yield {"type": "delta", "text": message["content"]}
             for tool in message.get("tool_calls", []):
@@ -70,6 +80,8 @@ async def run(
                 if choice.get("finish_reason") is not None:
                     finished = True
                 delta = choice.get("delta", {})
+                if text := reasoning_text(delta):
+                    yield {"type": "thinking", "text": text}
                 if delta.get("content"):
                     yield {"type": "delta", "text": delta["content"]}
                 for part in delta.get("tool_calls", []):

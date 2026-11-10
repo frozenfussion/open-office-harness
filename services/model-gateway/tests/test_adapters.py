@@ -458,3 +458,416 @@ def test_thinking_defaults_true_and_registry_off_settings_are_objects(
                 entry.model_dump(by_alias=True)
                 | {"request_settings_thinking_off": invalid}
             )
+
+
+def thinking_chunks(kind: str) -> list[dict]:
+    if kind == "openai_chat_completions":
+        return [
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "reasoning_content": "",
+                            "signature": "private-signature",
+                        }
+                    }
+                ]
+            },
+            {"choices": [{"delta": {"reasoning_content": "Consider "}}]},
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "content": "Hello ",
+                            "encrypted_reasoning": "private-encrypted",
+                        }
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {
+                        "delta": {"reasoning_content": "this", "content": "world"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 8, "completion_tokens": 3},
+            },
+        ]
+    if kind == "openai_responses":
+        return [
+            {"type": "future.event", "text": "private-unknown"},
+            {"type": "response.reasoning_text.delta", "delta": "private-raw"},
+            {
+                "type": "response.output_item.added",
+                "item": {
+                    "type": "reasoning",
+                    "encrypted_content": "private-encrypted",
+                    "summary": [{"text": "private-not-delta"}],
+                },
+            },
+            {"type": "response.reasoning_summary_text.delta", "delta": ""},
+            {"type": "response.reasoning_summary_text.delta", "delta": "Consider "},
+            {"type": "response.output_text.delta", "delta": "Hello "},
+            {"type": "response.reasoning_summary_text.done", "text": "private-done"},
+            {"type": "response.reasoning_summary_text.delta", "delta": "this"},
+            {"type": "response.output_text.delta", "delta": "world"},
+            {
+                "type": "response.completed",
+                "response": {"usage": {"input_tokens": 8, "output_tokens": 3}},
+            },
+            {"type": "response.reasoning_summary_text.delta", "delta": "private-late"},
+        ]
+    return [
+        {"type": "message_start", "message": {"usage": {"input_tokens": 8}}},
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "private-signature",
+            },
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": ""},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": "Consider "},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "signature_delta", "signature": "private-signature"},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {"type": "text_delta", "text": "Hello "},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": "this"},
+        },
+        {
+            "type": "content_block_start",
+            "index": 2,
+            "content_block": {
+                "type": "redacted_thinking",
+                "data": "private-redacted",
+                "thinking": "private-redacted",
+            },
+        },
+        {
+            "type": "content_block_delta",
+            "index": 2,
+            "delta": {"type": "thinking_delta", "thinking": "private-redacted"},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {"type": "text_delta", "text": "world"},
+        },
+        {"type": "message_delta", "usage": {"output_tokens": 3}},
+        {"type": "message_stop"},
+    ]
+
+
+def thinking_answer(kind: str) -> dict:
+    if kind == "openai_chat_completions":
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": "Hello world",
+                        "reasoning_content": "Consider this",
+                        "signature": "private-signature",
+                        "encrypted_reasoning": "private-encrypted",
+                    }
+                }
+            ],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 3},
+        }
+    if kind == "openai_responses":
+        return {
+            "output": [
+                {
+                    "type": "reasoning",
+                    "summary": [
+                        {"text": "Consider "},
+                        {"text": ""},
+                        {"text": {"data": "private-object"}},
+                        {"text": "this"},
+                    ],
+                    "encrypted_content": "private-encrypted",
+                },
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "Hello world"}],
+                },
+            ],
+            "usage": {"input_tokens": 8, "output_tokens": 3},
+        }
+    return {
+        "content": [
+            {"type": "thinking", "thinking": "", "signature": "private-signature"},
+            {
+                "type": "thinking",
+                "thinking": "Consider ",
+                "signature": "private-signature",
+            },
+            {"type": "text", "text": "Hello "},
+            {
+                "type": "redacted_thinking",
+                "data": "private-redacted",
+                "thinking": "private-redacted",
+            },
+            {"type": "thinking", "thinking": "this", "signature": "private-signature"},
+            {"type": "text", "text": "world"},
+        ],
+        "usage": {"input_tokens": 8, "output_tokens": 3},
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", TYPES)
+@pytest.mark.parametrize("stream", [False, True])
+async def test_visible_thinking_events_and_private_blocks(
+    entry: Entry, call: Call, kind: str, stream: bool
+) -> None:
+    entry = entry.model_copy(
+        update={
+            "api_type": kind,
+            "request_settings": {
+                "thinking": {"type": "enabled", "display": "summarized"},
+                "reasoning": {"summary": "auto"},
+            },
+        }
+    )
+    call = call.model_copy(update={"stream": stream})
+    response = (
+        httpx.Response(
+            200,
+            text="".join(
+                "data: " + json.dumps(event) + "\n\n" for event in thinking_chunks(kind)
+            ),
+        )
+        if stream
+        else httpx.Response(200, json=thinking_answer(kind))
+    )
+    with respx.mock as mock:
+        route = mock.post(url__startswith="https://example.invalid/").mock(
+            return_value=response
+        )
+        async with httpx.AsyncClient() as client:
+            events = [
+                event async for event in resolve(entry)(client, entry, "fake-key", call)
+            ]
+        body = json.loads(route.calls[0].request.content)
+        assert body["thinking"] == {"type": "enabled", "display": "summarized"}
+        assert body["reasoning"] == {"summary": "auto"}
+    assert "".join(
+        event["text"] for event in events if event["type"] == "thinking"
+    ) == (
+        "Consider \n\nthis"
+        if not stream and kind != "openai_chat_completions"
+        else "Consider this"
+    )
+    assert (
+        "".join(event["text"] for event in events if event["type"] == "delta")
+        == "Hello world"
+    )
+    assert events[-1] == {"type": "usage", "input_tokens": 8, "output_tokens": 3}
+    assert all(event.get("text") != "" for event in events)
+    assert "private-" not in json.dumps(events)
+    if stream:
+        assert [event["type"] for event in events] == [
+            "thinking",
+            "delta",
+            "thinking",
+            "delta",
+            "usage",
+        ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_responses_without_summary_setting_suppresses_reasoning(
+    entry: Entry, call: Call, stream: bool
+) -> None:
+    entry = entry.model_copy(update={"api_type": "openai_responses"})
+    call = call.model_copy(update={"stream": stream})
+    if stream:
+        values = [
+            {
+                "type": "response.reasoning_summary_text.delta",
+                "delta": "private-summary",
+            },
+            {
+                "type": "response.output_item.added",
+                "item": {"type": "reasoning", "encrypted_content": "private-encrypted"},
+            },
+            *chunks("openai_responses"),
+        ]
+        response = httpx.Response(
+            200, text="".join("data: " + json.dumps(event) + "\n\n" for event in values)
+        )
+    else:
+        value = answer("openai_responses")
+        value["output"].insert(
+            0,
+            {
+                "type": "reasoning",
+                "summary": [{"text": "private-summary"}],
+                "encrypted_content": "private-encrypted",
+            },
+        )
+        response = httpx.Response(200, json=value)
+    with respx.mock as mock:
+        mock.post("https://example.invalid/responses").mock(return_value=response)
+        async with httpx.AsyncClient() as client:
+            events = [
+                event async for event in resolve(entry)(client, entry, "fake-key", call)
+            ]
+    assert not [event for event in events if event["type"] == "thinking"]
+    assert "private-" not in json.dumps(events)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize(
+    "fields,expected",
+    [
+        ({"reasoning": "Consider this"}, "Consider this"),
+        (
+            {"reasoning_content": "Consider this", "reasoning": "private-alternate"},
+            "Consider this",
+        ),
+        ({"reasoning_content": "", "reasoning": "Consider this"}, "Consider this"),
+        (
+            {
+                "reasoning_content": {"data": "private-object"},
+                "reasoning": "Consider this",
+            },
+            "Consider this",
+        ),
+        (
+            {
+                "reasoning": {"data": "private-object"},
+                "reasoning_details": [{"text": "private-details"}],
+            },
+            None,
+        ),
+        ({"reasoning_content": {"data": "private-object"}, "reasoning": None}, None),
+    ],
+)
+async def test_chat_reasoning_names_and_string_only_forms(
+    entry: Entry, call: Call, stream: bool, fields: dict, expected: str | None
+) -> None:
+    call = call.model_copy(update={"stream": stream})
+    if stream:
+        response = httpx.Response(
+            200,
+            text="data: "
+            + json.dumps(
+                {
+                    "choices": [
+                        {
+                            "delta": fields | {"content": "Hello world"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 8, "completion_tokens": 3},
+                }
+            )
+            + "\n\n",
+        )
+    else:
+        response = httpx.Response(
+            200,
+            json={
+                "choices": [{"message": fields | {"content": "Hello world"}}],
+                "usage": {"prompt_tokens": 8, "completion_tokens": 3},
+            },
+        )
+    with respx.mock as mock:
+        mock.post("https://example.invalid/chat/completions").mock(
+            return_value=response
+        )
+        async with httpx.AsyncClient() as client:
+            events = [
+                event async for event in resolve(entry)(client, entry, "fake-key", call)
+            ]
+    thinking = [event["text"] for event in events if event["type"] == "thinking"]
+    assert thinking == ([expected] if expected else [])
+    assert "private-" not in json.dumps(events)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", TYPES)
+async def test_unknown_provider_events_are_ignored(
+    entry: Entry, call: Call, kind: str
+) -> None:
+    entry = entry.model_copy(update={"api_type": kind})
+    events = [{"type": "future.event", "text": "private-unknown"}, *chunks(kind)]
+    with respx.mock as mock:
+        mock.post(url__startswith="https://example.invalid/").mock(
+            return_value=httpx.Response(
+                200,
+                text="".join("data: " + json.dumps(event) + "\n\n" for event in events),
+            )
+        )
+        async with httpx.AsyncClient() as client:
+            result = [
+                event async for event in resolve(entry)(client, entry, "fake-key", call)
+            ]
+    assert "private-unknown" not in json.dumps(result)
+    assert (
+        "".join(event["text"] for event in result if event["type"] == "delta")
+        == "Hello world"
+    )
+    assert result[-1] == {"type": "usage", "input_tokens": 8, "output_tokens": 3}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_responses_summary_uses_effective_request_settings(
+    entry: Entry, call: Call, stream: bool
+) -> None:
+    entry = entry.model_copy(
+        update={
+            "api_type": "openai_responses",
+            "request_settings": {"reasoning": {"summary": "auto"}},
+            "request_settings_thinking_off": {"reasoning": {"effort": "low"}},
+        }
+    )
+    call = call.model_copy(update={"stream": stream, "thinking": False})
+    response = (
+        httpx.Response(
+            200,
+            text="".join(
+                "data: " + json.dumps(event) + "\n\n"
+                for event in thinking_chunks("openai_responses")
+            ),
+        )
+        if stream
+        else httpx.Response(200, json=thinking_answer("openai_responses"))
+    )
+    with respx.mock as mock:
+        route = mock.post("https://example.invalid/responses").mock(
+            return_value=response
+        )
+        async with httpx.AsyncClient() as client:
+            result = [
+                event async for event in resolve(entry)(client, entry, "fake-key", call)
+            ]
+        assert json.loads(route.calls[0].request.content)["reasoning"] == {
+            "effort": "low"
+        }
+    assert not [event for event in result if event["type"] == "thinking"]
+    assert "private-" not in json.dumps(result)

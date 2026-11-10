@@ -121,11 +121,14 @@ def create_app(config: Config | None = None) -> FastAPI:
                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
             )
         content, tools, completed = "", [], None
+        thinking: list[str] = []
         try:
             event = first
             while True:
                 if event["type"] == "delta":
                     content += event["text"]
+                elif event["type"] == "thinking":
+                    thinking.append(event["text"])
                 elif event["type"] == "tool_call":
                     tools.append(
                         {key: value for key, value in event.items() if key != "type"}
@@ -148,6 +151,7 @@ def create_app(config: Config | None = None) -> FastAPI:
             )
         return {
             "content": content,
+            "thinking": "".join(thinking) or None,
             "tool_calls": tools,
             **{key: value for key, value in completed.items() if key != "type"},
         }

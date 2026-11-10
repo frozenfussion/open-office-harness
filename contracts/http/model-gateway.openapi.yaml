@@ -90,6 +90,13 @@ paths:
                     description: Whether the caller thinking choice was honoured.
                       True when thinking is true or absent; when false, true only
                       if the answering entry has a request_settings_thinking_off object.
+                  thinking:
+                    type:
+                    - string
+                    - 'null'
+                    minLength: 1
+                    description: Concatenated visible thinking text, separate from
+                      content; null when no non-empty thinking was returned.
                 required:
                 - content
                 - tool_calls
@@ -99,6 +106,7 @@ paths:
                 - usage
                 - cost_usd
                 - thinking_applied
+                - thinking
                 additionalProperties: false
             text/event-stream:
               schema:
@@ -184,6 +192,17 @@ paths:
                   required:
                   - type
                   - error
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: thinking
+                    text:
+                      type: string
+                      minLength: 1
+                  required:
+                  - type
+                  - text
                   additionalProperties: false
         '400':
           description: Invalid input
@@ -330,7 +349,15 @@ paths:
         including thinking. thinking_applied reports whether the caller choice was
         honoured: true when thinking is true or omitted; otherwise true only when
         the answering entry has an off-settings object. It reflects the actual answering
-        entry after failover.'
+        entry after failover. Visible thinking is emitted as thinking/text SSE events
+        before or between answer deltas, never after completed; empty strings are
+        dropped. Non-streamed thinking is a separate string or null. Signatures, encrypted
+        reasoning and redacted blocks are never forwarded. openai_responses forwards
+        visible reasoning summaries only when effective request settings ask for reasoning.summary;
+        encrypted_content is never forwarded. Chat-completions prefers reasoning_content,
+        then string reasoning, and ignores reasoning_details/object forms. Unknown
+        event types are ignored. Thinking is never logged; token usage remains as
+        reported by the provider.'
   /v1/classify:
     post:
       operationId: post_v1_classify

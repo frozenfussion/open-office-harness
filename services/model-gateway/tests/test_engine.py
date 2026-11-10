@@ -269,3 +269,62 @@ async def test_thinking_application_comes_from_answering_backup(
     assert events[-1]["model_entry_id"] == str(backup.id)
     assert events[-1]["thinking_applied"] is backup_supports
     assert body.get("extra") == ("backup-off" if backup_supports else None)
+
+
+@pytest.mark.anyio
+async def test_no_failover_after_first_thinking_output(
+    entry: Entry, call: Call, caplog: pytest.LogCaptureFixture
+) -> None:
+    backup = entry.model_copy(
+        update={
+            "id": UUID(int=2),
+            "role": "backup",
+            "endpoint_url": "https://backup.invalid",
+        }
+    )
+    db = FakeDatabase()
+    caplog.set_level(logging.DEBUG, logger="gateway")
+    with respx.mock as mock:
+        mock.post("https://example.invalid/chat/completions").mock(
+            return_value=httpx.Response(
+                200,
+                text='data: {"choices":[{"delta":{"reasoning_content":"private-thinking"}}]}\n\ndata: {"error":{"message":"private-error"}}\n\n',
+            )
+        )
+        async with httpx.AsyncClient() as client:
+            events = [
+                event
+                async for event in Engine(
+                    client, FakeRegistry([entry, backup]), db
+                ).events(call)
+            ]
+        assert len(mock.calls) == 1
+    assert [event["type"] for event in events] == ["thinking", "failed"]
+    assert len(db.rows) == 1 and db.rows[0][2] == "failed"
+    assert "private-" not in repr([record.__dict__ for record in caplog.records])
+
+
+@pytest.mark.anyio
+async def test_engine_ignores_unknown_adapter_events(
+    entry: Entry, call: Call, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from collections.abc import AsyncIterator
+    from typing import Any
+
+    async def adapter(
+        client: httpx.AsyncClient, selected: Entry, key: str, body: Call
+    ) -> AsyncIterator[dict[str, Any]]:
+        yield {"type": "future.event", "text": "private-unknown"}
+        yield {"type": "delta", "text": "ok"}
+        yield {"type": "usage", "input_tokens": 8, "output_tokens": 3}
+
+    monkeypatch.setattr("gateway.engine.resolve", lambda _: adapter)
+    async with httpx.AsyncClient() as client:
+        events = [
+            event
+            async for event in Engine(
+                client, FakeRegistry([entry]), FakeDatabase()
+            ).events(call)
+        ]
+    assert [event["type"] for event in events] == ["delta", "completed"]
+    assert "private-unknown" not in json.dumps(events)

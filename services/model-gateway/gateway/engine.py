@@ -98,7 +98,7 @@ class Engine:
                                 event["input_tokens"],
                                 event["output_tokens"],
                             )
-                        else:
+                        elif event["type"] in {"delta", "thinking", "tool_call"}:
                             started = True
                             yield event
                 provider_finished = True
