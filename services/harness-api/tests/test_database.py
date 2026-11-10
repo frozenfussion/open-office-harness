@@ -96,25 +96,42 @@ class Borrowed:
 
 
 @pytest.fixture
+def db_user() -> str:
+    return "stage-check-" + str(uuid4())
+
+
+@pytest.fixture
 async def store(
-    db_settings: tuple[str, str], monkeypatch: pytest.MonkeyPatch
+    db_settings: tuple[str, str], monkeypatch: pytest.MonkeyPatch, db_user: str
 ) -> AsyncIterator[Store]:
-    db = await psycopg.AsyncConnection.connect(
-        db_settings[1], row_factory=psycopg.rows.dict_row
-    )
-    async with db:
-        async with db.transaction(force_rollback=True):
+    original_connect = psycopg.AsyncConnection.connect
+    db = await original_connect(db_settings[1], row_factory=psycopg.rows.dict_row)
+    try:
+        await db.execute("BEGIN")
+        try:
+            with monkeypatch.context() as patch:
 
-            async def connect(*args: Any, **kwargs: Any) -> Borrowed:
-                return Borrowed(db)
+                async def connect(*args: Any, **kwargs: Any) -> Borrowed:
+                    return Borrowed(db)
 
-            monkeypatch.setattr(psycopg.AsyncConnection, "connect", connect)
-            yield Store(db_settings[1])
+                patch.setattr(psycopg.AsyncConnection, "connect", connect)
+                yield Store(db_settings[1])
+        finally:
+            await db.rollback()
+    finally:
+        await db.close()
+    async with await original_connect(db_settings[1]) as observer:
+        cursor = await observer.execute(
+            "SELECT (SELECT count(*) FROM conversations WHERE user_id=%s), "
+            "(SELECT count(*) FROM messages WHERE created_by=%s)",
+            (db_user, db_user),
+        )
+        assert await cursor.fetchone() == (0, 0), "Storage test rows escaped rollback"
 
 
 @pytest.mark.anyio
-async def test_store_ownership_history_and_metadata(store: Store) -> None:
-    user = "stage-check-" + str(uuid4())
+async def test_store_ownership_history_and_metadata(store: Store, db_user: str) -> None:
+    user = db_user
     identifier = await store.create(user)
     newer = await store.create(user)
     assert [row["id"] for row in await store.listing(user, 1, None)] == [newer]
@@ -172,8 +189,8 @@ async def test_store_ownership_history_and_metadata(store: Store) -> None:
 
 
 @pytest.mark.anyio
-async def test_history_starts_at_user(store: Store) -> None:
-    user = "stage-check-" + str(uuid4())
+async def test_history_starts_at_user(store: Store, db_user: str) -> None:
+    user = db_user
     identifier = await store.create(user)
     await store.append(identifier, user, "user", "Old question", "completed", 1)
     await store.append(

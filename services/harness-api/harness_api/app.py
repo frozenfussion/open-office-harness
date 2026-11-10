@@ -19,6 +19,8 @@ from starlette.types import Receive, Scope, Send
 
 from .auth import Auth
 from .config import Settings
+from .diagnostics import JsonFormatter
+from .diagnostics import failure as record_failure
 from .errors import ApiError, gateway_error
 from .store import Store
 from .upstream import GatewayStream, Upstream
@@ -93,16 +95,35 @@ def create_app(
 
     @app.exception_handler(ApiError)
     async def api_error(request: Request, error: ApiError) -> JSONResponse:
+        if error.code == "unauthorized":
+            event = "authentication_error"
+        elif error.code in {"rights_unavailable", "tier_not_allowed", "no_tier"}:
+            event = "rights_error"
+        elif error.code in {
+            "no_model",
+            "rate_limited",
+            "budget_exceeded",
+            "unavailable",
+        }:
+            event = "gateway_error"
+        else:
+            event = "request_error"
+        record_failure(event, error.code)
         return JSONResponse(error.body(), status_code=error.status)
 
     @app.exception_handler(RequestValidationError)
     async def invalid(request: Request, error: RequestValidationError) -> JSONResponse:
+        record_failure("request_error", "invalid_input")
         return JSONResponse(
             {"code": "invalid_input", "message": "Invalid input."}, status_code=400
         )
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, error: HTTPException) -> JSONResponse:
+        record_failure(
+            "request_error",
+            "not_found" if error.status_code == 404 else "invalid_input",
+        )
         return JSONResponse(
             {
                 "code": "not_found" if error.status_code == 404 else "invalid_input",
@@ -115,6 +136,7 @@ def create_app(
 
     @app.exception_handler(psycopg.Error)
     async def db_error(request: Request, error: psycopg.Error) -> JSONResponse:
+        record_failure("database_error", "unavailable")
         return JSONResponse(
             {
                 "code": "unavailable",
@@ -235,6 +257,11 @@ def create_app(
                     case "failed":
                         raise gateway_error(event["error"]["code"], tier)
                 event = await anext(stream.events)
+        except psycopg.Error:
+            record_failure("database_error", "unavailable")
+            yield data(
+                {"type": "failed", "error": gateway_error("unavailable", tier).body()}
+            )
         except (
             ApiError,
             httpx.HTTPError,
@@ -243,12 +270,13 @@ def create_app(
             TypeError,
             StopAsyncIteration,
         ) as error:
-            failure = (
+            error_response = (
                 error
                 if isinstance(error, ApiError)
                 else gateway_error("unavailable", tier)
             )
-            yield data({"type": "failed", "error": failure.body()})
+            record_failure("gateway_error", error_response.code, tier)
+            yield data({"type": "failed", "error": error_response.body()})
         finally:
             # A browser disconnect cancels the generator; keep its partial answer.
             with anyio.CancelScope(shield=True):
@@ -256,16 +284,20 @@ def create_app(
                     await stream.close()
                 finally:
                     if not saved:
-                        await database.append(
-                            identifier,
-                            user_id,
-                            "assistant",
-                            content,
-                            "failed",
-                            tier,
-                            metadata,
-                            note,
-                        )
+                        try:
+                            await database.append(
+                                identifier,
+                                user_id,
+                                "assistant",
+                                content,
+                                "failed",
+                                tier,
+                                metadata,
+                                note,
+                            )
+                        except psycopg.Error:
+                            record_failure("database_error", "unavailable")
+                            raise
 
     @app.post("/api/conversations/{id}/messages")
     async def send(
@@ -299,6 +331,7 @@ def create_app(
                 lower = [value for value in tiers if value < tier]
                 if error.code != "budget_exceeded" or not lower:
                     raise
+                record_failure("gateway_error", error.code, tier)
                 original = tier
                 tier = lower[0]
                 await upstream.check(user_id, tier)
@@ -338,18 +371,6 @@ def create_app(
         raise ApiError(503, "not_built_yet", "Files and job events arrive in Stage 3.")
 
     return app
-
-
-class JsonFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        # Never include exception strings or third-party request details.
-        return json.dumps(
-            {
-                "level": record.levelname.lower(),
-                "event": "service_log",
-                "logger": record.name,
-            }
-        )
 
 
 def factory() -> FastAPI:

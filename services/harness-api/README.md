@@ -27,7 +27,7 @@
    uv run pytest
    ```
 
-   Good result: both Ruff checks pass and pytest has no failures or skips. Database protection checks run as the owner and app roles, and roll back their test rows. Without the two `HA_TEST_DB_*` settings, database checks are explicitly skipped; that is not a full pass.
+   Good result: both Ruff checks pass and pytest has no failures or skips. Database protection checks run as the owner and app roles. Storage checks use a shared transaction that is always rolled back; a separate connection then verifies that none of that test user's conversations or messages remain. Without the two `HA_TEST_DB_*` settings, database checks are explicitly skipped; that is not a full pass.
 
 3. **Deploy the image.**
 
@@ -60,7 +60,7 @@
    kubectl -n ooh-apps logs deployment/harness-api -c harness-api --tail=100
    ```
 
-   Logs contain no prompts, answers or credentials. Access logs are disabled.
+   Logs identify failures with fixed event names and codes (and a tier for stream failures or budget fallback). They contain no prompts, answers, user IDs or credentials. Access logs are disabled.
 
 6. **Read migration logs if deployment stops.**
 
@@ -144,9 +144,9 @@ Neither script needs sudo. Resolve the named problem and run the same script aga
 
 ## API and storage
 
-Every `/api` route requires a signed, unexpired Keycloak user token with audience `ooh-harness-api`, issuer `HA_OIDC_ISSUER`, non-empty `sub` and client `ooh-workspace`. Health alone is public and checks PostgreSQL. Unknown inputs return `400` JSON without echoing the input. Files, uploads and job events return `503 not_built_yet` after authentication; Stage 3 builds them.
+Every `/api` route requires a signed, unexpired Keycloak user token with audience `ooh-harness-api`, issuer `HA_OIDC_ISSUER` and non-empty `sub`. Health alone is public and checks PostgreSQL. Unknown inputs return `400` JSON without echoing the input. Files, uploads and job events return `503 not_built_yet` after authentication; Stage 3 builds them.
 
-`GET /api/me` returns the token's user ID and name, plus rights and allowed skill titles from the Control Centre. No supplied body or query can change the user's ID. Conversations belong to that ID; other users see `404`. The conversation list orders by updated time, then ID, newest first. It defaults to 20 rows and accepts `limit=1..100`; `before` is the ID of an owned conversation from the preceding page (Aziz approved this pagination during the build).
+`GET /api/me` returns the token's user ID and name, plus rights and allowed skill titles from the Control Centre. No supplied body or query can change the user's ID. Conversations belong to that ID; other users see `404`. The conversation list orders by updated time, then ID, newest first. It defaults to 20 rows and accepts `limit=1..100`; `before` is the ID of an owned conversation from the preceding page (the spec author agreed to this pagination during the build).
 
 Messages go to the Gateway as purpose `chat`, by tier, without any model identifier or provider setting. The lowest allowed tier is used when omitted. Rights are checked afresh for the selected tier and again before a budget fallback. Failed rights calls fail closed. Allowed skills are intersected with the user's rights; only locally bundled schemas become tools. The schema copy is tested byte for byte against the contract. A requested tool produces the fixed Stage 2 sentence, with the skill's title, followed by completion; no tool is executed.
 
@@ -166,7 +166,7 @@ SSE uses JSON `data:` lines, without `event:` lines, and ends with `completed` o
 
 ## Configuration and builds
 
-The ConfigMap supplies `HA_OIDC_ISSUER`, `HA_OIDC_AUDIENCE`, `HA_CLIENT_ID`, `HA_CONTROL_CENTRE_URL` (port 8080), and `HA_GATEWAY_URL`. Secret `harness-api-db` supplies `HA_DB_CONNECTION` to the app and `HA_DB_MIGRATE_CONNECTION` only to the migration container. Secret `harness-api-oidc` supplies `HA_CLIENT_SECRET`. Keys stay in the Control Centre and never enter the Harness. Service tokens are cached until 30 seconds before expiry; realm signing keys are cached for five minutes and refreshed for an unknown key ID. Outgoing redirects are refused.
+The ConfigMap supplies `HA_OIDC_ISSUER`, `HA_OIDC_AUDIENCE`, `HA_CLIENT_ID`, `HA_CONTROL_CENTRE_URL` (port 8080), and `HA_GATEWAY_URL`. Secret `harness-api-db` supplies `HA_DB_CONNECTION` to the app and `HA_DB_MIGRATE_CONNECTION` only to the migration container. Secret `harness-api-oidc` supplies `HA_CLIENT_SECRET`. Keys stay in the Control Centre and never enter the Harness. Service tokens are cached until 30 seconds before expiry; realm signing keys are cached for five minutes and refreshed for an unknown key ID at most once every 30 seconds, including failed fetches. Outgoing redirects are refused.
 
 Python is 3.14.10. The image uses `python:3.14.10-slim-trixie` for both stages; uv 0.13.7 is digest-pinned and present only in the build stage. The runtime uses user 10001, a read-only root, disabled bytecode writes and unbuffered stdout. `/tmp` is a bounded memory volume. The workflow builds, loads, checks the runtime, then pushes its 12-character commit tag. Runtime dependencies and all transitive versions are fixed in `uv.lock`.
 

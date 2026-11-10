@@ -225,7 +225,7 @@ paths:
       description: 'SSE: one JSON object per data line, no event lines; delta events
         then completed or failed. Rights are checked before storing the user message.
         Gateway errors before the first event are JSON. Headers: Cache-Control: no-store,
-        X-Accel-Buffering: no. Only user tokens from ooh-workspace with audience ooh-harness-api
+        X-Accel-Buffering: no. Only user tokens with audience ooh-harness-api
         are accepted. No caller-supplied user_id.'
       parameters:
       - name: id

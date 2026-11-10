@@ -58,7 +58,6 @@ async def test_every_route_needs_token(
         {"iss": "https://wrong.test"},
         {"exp": int(time.time()) - 300},
         {"sub": ""},
-        {"azp": "ooh-control-centre"},
     ],
 )
 async def test_bad_claims(h: Harness, changes: dict[str, Any]) -> None:
@@ -439,6 +438,7 @@ async def test_upstream_token_and_jwks_cache(h: Harness) -> None:
     assert h.token_route.call_count == 1
     h.app.state.auth.token_until = 0
     h.app.state.auth.keys_until = 0
+    h.app.state.auth.keys_refresh_after = 0
     await h.client.get("/api/me")
     assert h.jwks.call_count == 2
     assert h.token_route.call_count == 2
@@ -481,3 +481,160 @@ async def test_logs_never_include_text_or_credentials(
 
 async def test_upload_bad_query(h: Harness) -> None:
     assert (await h.client.post("/api/uploads?user_id=other")).status_code == 400
+
+
+@pytest.mark.parametrize("azp", [None, "another-client"])
+async def test_audience_does_not_require_workspace_client(
+    h: Harness, azp: str | None
+) -> None:
+    import jwt
+
+    claims = jwt.decode(h.token(), options={"verify_signature": False})
+    if azp is None:
+        claims.pop("azp")
+    else:
+        claims["azp"] = azp
+    token = jwt.encode(
+        claims, h.private_key, algorithm="RS256", headers={"kid": "test"}
+    )
+    h.client.headers["Authorization"] = f"Bearer {token}"
+    assert (await h.client.get("/api/me")).status_code == 200
+
+
+async def test_lowest_tier_from_unsorted_rights(h: Harness) -> None:
+    identifier = await h.conversation()
+    h.rights.respond(json={"chat_tiers": [3, 1], "skills": []})
+    response = await h.send(identifier)
+    assert response.status_code == 200
+    assert events(response)[-1]["tier"] == 1
+    assert json.loads(h.gateway.calls[-1].request.content)["tier"] == 1
+    assert json.loads(h.check.calls[-1].request.content)["target"] == "1"
+
+
+async def test_unknown_signing_keys_are_throttled(
+    h: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    import jwt
+
+    import harness_api.auth as auth_module
+
+    now = 1000.0
+    monkeypatch.setattr(auth_module, "time", SimpleNamespace(monotonic=lambda: now))
+    assert (await h.client.get("/api/me")).status_code == 200
+    for index in range(5):
+        claims = jwt.decode(h.token(), options={"verify_signature": False})
+        token = jwt.encode(
+            claims,
+            h.private_key,
+            algorithm="RS256",
+            headers={"kid": f"unknown-{index}"},
+        )
+        h.client.headers["Authorization"] = f"Bearer {token}"
+        assert (await h.client.get("/api/me")).status_code == 401
+    assert h.jwks.call_count == 1
+    now += 31
+    assert (await h.client.get("/api/me")).status_code == 401
+    assert h.jwks.call_count == 2
+    assert (await h.client.get("/api/me")).status_code == 401
+    assert h.jwks.call_count == 2
+    h.client.headers["Authorization"] = f"Bearer {h.token()}"
+    assert (await h.client.get("/api/me")).status_code == 200
+
+
+async def test_failed_signing_key_fetch_is_throttled(
+    h: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    import jwt
+
+    import harness_api.auth as auth_module
+
+    now = 1000.0
+    monkeypatch.setattr(auth_module, "time", SimpleNamespace(monotonic=lambda: now))
+    h.jwks.respond(503)
+    for _ in range(3):
+        assert (await h.client.get("/api/me")).status_code == 401
+    assert h.jwks.call_count == 1
+    now += 31
+    h.jwks.respond(
+        json={
+            "keys": [
+                {
+                    **json.loads(
+                        jwt.algorithms.RSAAlgorithm.to_jwk(h.private_key.public_key())
+                    ),
+                    "kid": "test",
+                    "alg": "RS256",
+                }
+            ]
+        }
+    )
+    assert (await h.client.get("/api/me")).status_code == 200
+    assert h.jwks.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "problem,expected",
+    [
+        ("rights", ("rights_error", "rights_unavailable")),
+        ("gateway", ("gateway_error", "no_model")),
+        ("stream", ("gateway_error", "unavailable")),
+        ("database", ("database_error", "unavailable")),
+        ("token", ("token_error", "unavailable")),
+        ("authentication", ("authentication_error", "unauthorized")),
+    ],
+)
+async def test_fixed_failure_logs(
+    h: Harness,
+    caplog: pytest.LogCaptureFixture,
+    problem: str,
+    expected: tuple[str, str],
+) -> None:
+    from harness_api.diagnostics import JsonFormatter
+
+    identifier = await h.conversation()
+    if problem == "rights":
+        h.rights.mock(side_effect=httpx.ConnectError("synthetic-private-upstream"))
+    elif problem == "gateway":
+        h.gateway.respond(
+            404, json={"code": "no_model", "message": "synthetic-private-upstream"}
+        )
+    elif problem == "stream":
+        h.gateway.respond(
+            stream=Broken(), headers={"Content-Type": "text/event-stream"}
+        )
+    elif problem == "database":
+        h.store.fail_health = True
+    elif problem == "token":
+        h.token_route.respond(503, json={"message": "fake-client-credential"})
+    else:
+        h.client.headers.clear()
+    if problem == "database":
+        response = await h.client.get("/health")
+    else:
+        response = await h.send(identifier, content="synthetic-private-chat-content")
+    assert response.status_code in {200, 401, 503}
+    lines = [
+        JsonFormatter().format(record)
+        for record in caplog.records
+        if record.name == "harness_api"
+    ]
+    parsed = [json.loads(line) for line in lines]
+    assert any((line["event"], line["code"]) == expected for line in parsed)
+    for line in parsed:
+        assert set(line) <= {"level", "event", "code", "tier"}
+    combined = "\n".join(lines)
+    for sensitive in (
+        "synthetic-private-chat-content",
+        "synthetic-private-upstream",
+        "fake-client-credential",
+        "fake-service-token",
+        "test-user",
+        h.client.headers.get("Authorization", "not-a-real-token"),
+    ):
+        assert sensitive not in combined
+    if problem == "stream":
+        assert parsed[-1]["tier"] == 1
