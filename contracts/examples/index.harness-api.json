@@ -195,6 +195,15 @@
       "kind": "response",
       "media_type": "application/json",
       "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.200.title.sse.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
     }
   ]
 }

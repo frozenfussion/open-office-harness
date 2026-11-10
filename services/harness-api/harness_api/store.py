@@ -94,6 +94,36 @@ class Store:
             rows.pop(0)
         return rows
 
+    async def title_source(
+        self, identifier: UUID, user: str, message_id: UUID
+    ) -> dict[str, str] | None:
+        async with await psycopg.AsyncConnection.connect(
+            self.connection, row_factory=dict_row
+        ) as db:
+            cursor = await db.execute(
+                "SELECT question.content AS question, answer.content AS answer "
+                "FROM conversations c "
+                "JOIN LATERAL (SELECT id,content FROM messages "
+                "WHERE conversation_id=c.id AND role='assistant' "
+                "AND outcome='completed' ORDER BY created_at,id LIMIT 1) "
+                "answer ON answer.id=%s "
+                "JOIN LATERAL (SELECT content FROM messages "
+                "WHERE conversation_id=c.id AND role='user' "
+                "ORDER BY created_at,id LIMIT 1) question ON true "
+                "WHERE c.id=%s AND c.user_id=%s AND c.deleted_at IS NULL",
+                (message_id, identifier, user),
+            )
+            return await cursor.fetchone()
+
+    async def set_title(self, identifier: UUID, user: str, title: str) -> bool:
+        async with await psycopg.AsyncConnection.connect(self.connection) as db:
+            cursor = await db.execute(
+                "UPDATE conversations SET title=%s,updated_by=%s "
+                "WHERE id=%s AND user_id=%s AND deleted_at IS NULL",
+                (title, user, identifier, user),
+            )
+            return cursor.rowcount == 1
+
     async def append(
         self,
         identifier: UUID,

@@ -82,6 +82,31 @@ class MemoryStore:
             messages.pop(0)
         return messages
 
+    async def title_source(
+        self, identifier: UUID, user: str, message_id: UUID
+    ) -> dict[str, str] | None:
+        await self.conversation(identifier, user)
+        messages = self.rows[identifier]["messages"]
+        answer = next(
+            (
+                message
+                for message in messages
+                if message["role"] == "assistant" and message["outcome"] == "completed"
+            ),
+            None,
+        )
+        question = next(
+            (message for message in messages if message["role"] == "user"), None
+        )
+        if answer is None or question is None or answer["id"] != message_id:
+            return None
+        return {"question": question["content"], "answer": answer["content"]}
+
+    async def set_title(self, identifier: UUID, user: str, title: str) -> bool:
+        await self.conversation(identifier, user)
+        self.rows[identifier]["title"] = title
+        return True
+
     async def append(
         self,
         identifier: UUID,
@@ -153,6 +178,11 @@ class Harness:
         )
         self.check = router.post("http://centre.test/api/rights/check").respond(
             json={"allowed": True}
+        )
+        self.title_gateway = router.post(
+            "http://gateway.test/v1/call", json__stream=False
+        ).respond(
+            503, json={"code": "unavailable", "message": "Synthetic title failure"}
         )
         self.gateway = router.post("http://gateway.test/v1/call").respond(
             text=self.sse([{"type": "delta", "text": "Hello"}, self.completed()]),

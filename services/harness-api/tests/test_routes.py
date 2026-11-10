@@ -300,6 +300,7 @@ async def test_budget_fallback_and_recheck(h: Harness) -> None:
     assert [json.loads(call.request.content)["target"] for call in h.check.calls] == [
         "3",
         "1",
+        "1",
     ]
     assert (
         events(response)[-1]["note"]

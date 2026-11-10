@@ -12,6 +12,15 @@ from .auth import Auth
 from .config import Settings
 from .errors import ApiError, gateway_error
 
+TITLE_PROMPT = (
+    "Write a short title (3 to 6 words) for this conversation. "
+    "Reply with the title only, no quotes, no full stop."
+)
+
+
+class TitleContent(BaseModel):
+    content: str
+
 
 class AccessStatus(BaseModel):
     status: Literal["approved", "pending", "rejected", "closed"]
@@ -207,6 +216,48 @@ class Upstream:
                 }
             )
         return tools
+
+    async def title(self, user: str, tier: int, question: str, answer: str) -> str:
+        response = await self.client.post(
+            f"{self.settings.gateway}/v1/call",
+            headers=await self.headers(),
+            json={
+                "purpose": "chat",
+                "tier": tier,
+                "user_id": user,
+                "messages": [
+                    {"role": "system", "content": TITLE_PROMPT},
+                    {"role": "user", "content": question[:2000]},
+                    {"role": "assistant", "content": answer[:2000]},
+                ],
+                "tools": [],
+                "stream": False,
+            },
+            timeout=httpx.Timeout(10, read=910),
+        )
+        if response.status_code != 200:
+            body = response.json()
+            code = (
+                body.get("code", "unavailable")
+                if isinstance(body, dict)
+                else "unavailable"
+            )
+            if not isinstance(code, str):
+                code = "unavailable"
+            raise ApiError(response.status_code, code, "Title could not be made.")
+        content = TitleContent.model_validate(response.json()).content
+        title = (
+            content.strip()
+            .strip("\"'“”‘’")
+            .strip()
+            .removesuffix(".")
+            .strip()
+            .strip("\"'“”‘’")
+            .strip()[:60]
+        )
+        if not title:
+            raise ValueError("Empty title")
+        return title
 
     async def open(
         self,

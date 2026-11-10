@@ -198,6 +198,30 @@ def create_app(
         query(request)
         return await database.conversation(id, claims["sub"])
 
+    async def make_title(
+        identifier: UUID, user_id: str, message_id: UUID
+    ) -> str | None:
+        try:
+            source = await database.title_source(identifier, user_id, message_id)
+            if source is None:
+                return None
+            allowed, _, _ = await upstream.permissions(user_id)
+            if not allowed:
+                raise ApiError(403, "no_tier", "No chat tier is allowed.")
+            tier = allowed[0]
+            await upstream.check(user_id, tier)
+            title = await upstream.title(
+                user_id, tier, source["question"], source["answer"]
+            )
+            if not await database.set_title(identifier, user_id, title):
+                raise ValueError("Conversation is no longer available")
+            return title
+        except ApiError as error:
+            record_failure("title_failed", error.code)
+        except httpx.HTTPError, ValueError, KeyError, TypeError, psycopg.Error:
+            record_failure("title_failed", "unavailable")
+        return None
+
     async def browser_stream(
         stream: GatewayStream,
         first: dict[str, Any],
@@ -256,6 +280,15 @@ def create_app(
                                 "note": note,
                             }
                         )
+                        title = await make_title(identifier, user_id, message_id)
+                        if title is not None:
+                            yield data(
+                                {
+                                    "type": "title",
+                                    "conversation_id": str(identifier),
+                                    "title": title,
+                                }
+                            )
                         return
                     case "failed":
                         raise gateway_error(event["error"]["code"], tier)

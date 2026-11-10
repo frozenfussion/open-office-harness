@@ -208,3 +208,41 @@ async def test_history_starts_at_user(store: Store, db_user: str) -> None:
     assert len(history) == 19
     assert history[0] == {"role": "user", "content": "Question 0"}
     assert history[-1] == {"role": "user", "content": "Newest question"}
+
+
+@pytest.mark.anyio
+async def test_title_source_and_update_preserve_ownership_and_order(
+    store: Store, db_user: str
+) -> None:
+    identifier = await store.create(db_user)
+    await store.append(identifier, db_user, "user", "First question", "completed", 3)
+    failed = await store.append(
+        identifier, db_user, "assistant", "Partial", "failed", 3
+    )
+    tool = await store.append(
+        identifier, db_user, "assistant", "Tool", "tool_requested", 3
+    )
+    await store.append(identifier, db_user, "user", "Next question", "completed", 1)
+    first = await store.append(
+        identifier, db_user, "assistant", "First answer", "completed", 1
+    )
+    assert await store.title_source(identifier, db_user, failed) is None
+    assert await store.title_source(identifier, db_user, tool) is None
+    assert await store.title_source(identifier, "other-user", first) is None
+    assert await store.title_source(identifier, db_user, first) == {
+        "question": "First question",
+        "answer": "First answer",
+    }
+    before = (await store.listing(db_user, 20, None))[0]["updated_at"]
+    assert not await store.set_title(identifier, "other-user", "Wrong title")
+    assert await store.set_title(identifier, db_user, "A useful short title")
+    assert (await store.listing(db_user, 20, None))[0]["updated_at"] == before
+    row = await store.conversation(identifier, db_user)
+    assert row["title"] == "A useful short title"
+    assert len(row["messages"]) == 5
+    later = await store.append(
+        identifier, db_user, "assistant", "Later answer", "completed", 1
+    )
+    assert await store.title_source(identifier, db_user, later) is None
+    other = await store.create(db_user)
+    assert await store.title_source(other, db_user, first) is None

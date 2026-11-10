@@ -186,6 +186,22 @@ paths:
                   - type
                   - error
                   additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: title
+                    conversation_id:
+                      type: string
+                      format: uuid
+                    title:
+                      type: string
+                      minLength: 1
+                      maxLength: 60
+                  required:
+                  - type
+                  - conversation_id
+                  - title
+                  additionalProperties: false
         '400':
           description: Invalid input
           content:
@@ -223,13 +239,23 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       description: 'SSE: one JSON object per data line, no event lines; delta events
-        then completed or failed. Rights are checked before storing the user message.
-        Gateway errors before the first event are JSON. Headers: Cache-Control: no-store,
-        X-Accel-Buffering: no. Only user tokens with audience ooh-harness-api are
-        accepted. No caller-supplied user_id. Every Gateway call prepends one system
-        message from HA_SYSTEM_PROMPT, including budget fallback; an empty setting
-        omits it. The default asks the assistant to reply in the language of the latest
-        user message. The system prompt is never logged or stored in history.'
+        then completed or failed, with one optional final title event after completed.
+        Rights are checked before storing the user message. Gateway errors before
+        the first event are JSON. Headers: Cache-Control: no-store, X-Accel-Buffering:
+        no. Only user tokens with audience ooh-harness-api are accepted. No caller-supplied
+        user_id. Every streamed chat call prepends one system message from HA_SYSTEM_PROMPT,
+        including budget fallback; an empty setting omits it. The default asks the
+        assistant to reply in the language of the latest user message. The system
+        prompt is never logged or stored in history. After the first assistant answer
+        stored as completed, one extra non-streamed title call uses the user''s freshly
+        checked lowest allowed tier and same user_id; the first user message and first
+        completed answer are each cut to 2000 characters. The fixed title instruction
+        overrides HA_SYSTEM_PROMPT for this call. A generated title is trimmed, stripped
+        of surrounding quotes and a final full stop, cut to 60 characters and saved
+        without changing updated_at. Failure keeps the initial title, logs title_failed
+        with a safe code, and emits no title or failed event after completed. Later
+        answers do not retry. Failed and tool_requested answers do not trigger title
+        generation.'
       parameters:
       - name: id
         in: path
