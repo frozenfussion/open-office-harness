@@ -191,11 +191,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '503':
-          description: budget_exceeded, unavailable or registry_unavailable
+          description: budget_exceeded, unavailable or registry_unavailable. PinnedError
+            is returned only to the authorized Control Centre test call; Harness responses
+            remain Error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                oneOf:
+                - $ref: '#/components/schemas/Error'
+                - $ref: '#/components/schemas/PinnedError'
         '404':
           description: 'no_model: no active supported matching entry'
           content:
@@ -291,11 +295,17 @@ paths:
                   properties:
                     tier:
                       type: 'null'
-      description: 'Only azp ooh-harness-api with audience ooh-model-gateway. Active
-        entries: main before backup, then priority, then created_at. model_entry_id
-        pins one matching entry; rate and budget still apply. Before first output
-        failures may fail over; after output, emit failed. Registry cache 30 seconds;
-        key cache 60 seconds.'
+      description: 'Audience ooh-model-gateway. The Harness service account may make
+        purpose calls. The Control Centre service account may only make a pinned non-streamed
+        test: messages exactly [{"role":"user","content":"Reply with the single word
+        OK."}], no tools, user_id starting admin-test-. Every other caller or Control
+        Centre request is forbidden. Active entries: main before backup, then priority,
+        then created_at. model_entry_id pins one matching entry; rate and budget still
+        apply. Before first output failures may fail over; after output, emit failed.
+        Registry cache 30 seconds; key cache 60 seconds. Only the Control Centre test
+        receives provider_status and scrubbed provider_message on 503. Provider error
+        reads are bounded to 4 KiB and messages to 300 characters. Keys, their substrings
+        of at least eight characters, and sk- tokens are replaced with [removed].'
   /v1/classify:
     post:
       operationId: post_v1_classify
@@ -376,4 +386,28 @@ components:
       required:
       - code
       - message
+      additionalProperties: false
+    PinnedError:
+      type: object
+      properties:
+        code:
+          type: string
+          minLength: 1
+        message:
+          type: string
+          minLength: 1
+        provider_status:
+          type:
+          - integer
+          - 'null'
+        provider_message:
+          type:
+          - string
+          - 'null'
+          maxLength: 300
+      required:
+      - code
+      - message
+      - provider_status
+      - provider_message
       additionalProperties: false

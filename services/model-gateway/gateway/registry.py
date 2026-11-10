@@ -72,17 +72,46 @@ class Registry:
         cached = self.keys.get(entry.id)
         if cached and time.monotonic() < cached[0]:
             return cached[1]
-        token = await self.identity.service_token()
-        response = await self.client.get(
-            f"{self.config.registry_url}/api/models/{entry.id}/key",
-            headers={"Authorization": "Bearer " + token},
-        )
-        if response.status_code == 404 and not entry.has_key:
-            self.keys[entry.id] = time.monotonic() + 60, ""
-            return ""
-        response.raise_for_status()
-        key = response.json()["api_key"]
-        if not isinstance(key, str) or not key:
-            raise ValueError()
-        self.keys[entry.id] = time.monotonic() + 60, key
-        return key
+        status = None
+        try:
+            token = await self.identity.service_token()
+            response = await self.client.get(
+                f"{self.config.registry_url}/api/models/{entry.id}/key",
+                headers={"Authorization": "Bearer " + token},
+            )
+            status = response.status_code
+            if response.status_code == 404 and not entry.has_key:
+                self.keys[entry.id] = time.monotonic() + 60, ""
+                return ""
+            response.raise_for_status()
+            key = response.json()["api_key"]
+            if not isinstance(key, str) or not key:
+                raise ValueError()
+            self.keys[entry.id] = time.monotonic() + 60, key
+            return key
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
+            status = (
+                error.response.status_code
+                if isinstance(error, httpx.HTTPStatusError)
+                else status
+            )
+            reason = (
+                "unauthorized"
+                if status in (401, 403)
+                else "missing"
+                if status == 404
+                else "unreachable"
+                if isinstance(error, httpx.RequestError)
+                else "bad answer"
+            )
+            logger.warning(
+                json.dumps(
+                    {
+                        "message": "key unavailable",
+                        "model_entry_id": str(entry.id),
+                        "status": status,
+                        "reason": reason,
+                    }
+                )
+            )
+            raise

@@ -7,7 +7,7 @@ import httpx
 
 from gateway.models import Call, Entry
 
-from .common import ProviderError, settings, sse, tool_event
+from .common import ProviderError, check_response, settings, sse, tool_event
 
 
 async def run(
@@ -40,7 +40,7 @@ async def run(
         json=body,
         timeout=entry.timeout_seconds,
     ) as response:
-        response.raise_for_status()
+        await check_response(response, key)
         if not call.stream:
             result = json.loads(await response.aread())
             message = result["choices"][0]["message"]

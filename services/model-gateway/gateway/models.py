@@ -73,8 +73,17 @@ class Entry(BaseModel):
 
 
 class GatewayError(Exception):
-    def __init__(self, status: int, code: str, message: str) -> None:
+    def __init__(
+        self,
+        status: int,
+        code: str,
+        message: str,
+        *,
+        provider_status: int | None = None,
+        provider_message: str | None = None,
+    ) -> None:
         self.status, self.code, self.message = status, code, message
+        self.provider_status, self.provider_message = provider_status, provider_message
         super().__init__(code)
 
     def body(self) -> dict[str, str]:
