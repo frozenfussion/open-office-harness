@@ -8,7 +8,7 @@ Written 2026-11-08, adapted from the HOORA AI method.
 
 | Who | Does |
 |---|---|
-| **Aziz** | Owns every decision. Runs every `sudo` line and every deploy to the cluster himself, in a plain terminal. Sets up the Droplet, DNS and DigitalOcean resources by hand. Tests each stage. Says when a stage is accepted. |
+| **Aziz** | Owns every decision. Runs every `sudo` line himself, in a plain terminal; from Stage 2 Claude runs the non-sudo deploy and check scripts in his shell tile where he watches (Aziz, 10 Nov 2026). Sets up the Droplet, DNS and DigitalOcean resources by hand. Tests each stage. Says when a stage is accepted. |
 | **Claude** (orchestrator) | Writes the stage specs, splits each spec into Parts, keeps `docs/STATUS.md` and the plan in step. Does not write product code. |
 | **Codex** (builder, one window per Part) | Builds exactly what its Part of the spec says, in its own worktree on the Droplet `harness`. Writes code, manifests, scripts, tests and docs. Runs only checks that need no `sudo` and change nothing in the cluster. Reports back in the format in section 7. |
 | **Opus** (reviewer) | Reviews each finished Part against its spec and this file, with the checklist in section 8, before Aziz tests. |

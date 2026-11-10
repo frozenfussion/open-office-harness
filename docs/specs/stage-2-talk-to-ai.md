@@ -248,3 +248,81 @@ Skill jobs on Kafka and the Slides worker, uploads, files and job events, the st
 
 | # | Change | Who / when |
 |---|---|---|
+| 1 | Spec review by Claude Code before the builders started (38 findings, `reviews/stage-2-spec-review` in the course folder): every finding is resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 10 Nov 14:05 |
+
+## 15. Decisions from the spec review (binding; override anything above that disagrees)
+
+**Who deploys.** Claude runs the non-sudo deploy and check scripts in tile 3 where Aziz watches (Aziz, 10 Nov 13:41, "all for your new plan"); Aziz keeps sudo, the reboot, sign-ins, passwords, the GitHub package switches and "accepted". The global rules section 1 now says so.
+
+**Any number of models per tier** (Aziz, 13:32: "as many as I want in whichever tier"). Part D adds a migration that drops the unique index `models_active` on (purpose, tier, role) and adds `priority` int not null default 100 (1–1000) to `model_entries`. `role` stays (main / backup) as a label. The Gateway tries the active entries of a purpose and tier in this order: role `main` before `backup`, then `priority` ascending, then `created_at`. The Admin Console shows and edits `priority` ("Order within the tier, lowest first").
+
+**Stage 1 check keeps passing.** `install/62-check-control-centre.sh` moves to Part D: its check model entry uses tier **99** (not 2) and its rights checks use `chat.tier` target `"99"`, so real tiers and "Everyone" grants never collide with it. Spec files belong to the spec author: Part D notes the change in its report and the spec author adds a row to Stage 1 section 14 at merge.
+
+**Gateway-only routes are not public.** The Control Centre listens on a second port **8081** that has no Ingress (Service `control-centre` gains port `internal` 8081). `GET /api/models/{id}/key` and `GET /api/models` (Gateway registry) are served **only** on 8081 and answer 404 on 8080. The Gateway uses `http://control-centre.<apps namespace>.svc:8081`. Part D: Program, deployment.yaml, service.yaml, tests (each Gateway-only route 404 on 8080). `deploy/apps/control-centre/service.yaml` joins Part D's list. 62's Gateway registry check runs through a short-lived `kubectl port-forward` to 8081.
+
+**Keys follow their address.** Changing `endpoint_url` or `api_type` on an entry with a saved key removes the key unless a new key is typed in the same save; the Admin Console says so next to the key field. AES-GCM uses the model entry id as associated data (a key copied to another row cannot be decrypted). Audit detail: `"api_key": "set"`, `"changed"` or `"removed"`; never a value; a test proves the audit `View` never contains the key or the encrypted text.
+
+**Lost encryption key.** If the Secret `control-centre-keys` is lost, the saved provider keys are re-typed in the Admin Console (provider keys can always be re-issued). `63` refuses to overwrite an existing Secret; the README says this plainly and how to copy the Secret to a private place if Aziz wants a backup.
+
+**User IDs for grants.** The Workspace shows "Your user ID" (from `/api/me`) on a small "About me" line under the user's name, with a copy button, so a user can send it to an admin. People's names and emails in the Control Centre stay in Stage 3 (STATUS is corrected at merge).
+
+**Asking for a tier you do not have** returns 403 `tier_not_allowed` "You don't have tier N. An admin can grant it." (the Workspace only offers allowed tiers, so this happens only for crafted requests). The classifier's fallback-with-a-note in ARCHITECTURE.md is Stage 3 routing; Part C rewrites that paragraph to say so.
+
+**Anthropic.** Keep `anthropic-version: 2023-06-01` with `x-api-key` (both accepted by Anthropic and DeepSeek today); the builder confirms on the day. The README warns that `temperature`, `top_p` and `top_k` added through extra request settings may be refused by newer Anthropic versions.
+
+**Files with no owner, now owned:**
+- `contracts/identity.md` → Part D (Gateway service-account row: registry and key routes on port 8081; keys encrypted in the Control Centre; device sign-in on `ooh-admin-console` stays until Stage 3).
+- `install/61-control-centre-deploy.sh` → Part D (also checks Secret `control-centre-keys`: `STOP: run install/63-control-centre-keys.sh`; also applies the Service change).
+- `install/62-check-control-centre.sh` → Part D (tier 99; registry check through port 8081).
+- Root README: each Part writes its STOP/FAIL rows and its everyday commands in its own `services/*/README.md` or `apps/*/README.md`; Part C's root Quick Guide links to them and lists the stage order. The merge step may also copy those rows into the root README (merge writes STATUS.md and that README section only).
+- Leftover placeholder ConfigMap `control-centre-api` → deleted by `69` (Part D).
+- `35-realm-sync.sh` may run any time after the merge; it runs before the browser tests.
+
+**Names fixed.** ConfigMaps: `model-gateway-config`, `harness-api-config`, `workspace-config`, `admin-console-config`. Deployment selectors are exactly `matchLabels: {app: <deployment name>}`, nothing else (the placeholders use the same selector, so the apply replaces them). Every real Deployment also carries the pod label `ooh/app: real`; `30` and `40` tell real from placeholder by that label (Deployment exists and its template has `ooh/app: real`).
+
+**GitHub packages.** The four new packages start private. After the first green run of each workflow Claude opens each package's settings page in a new tab of Aziz's browser and Aziz clicks Change visibility → Public (same as Stage 1). This step is in the stage order before `65`.
+
+**Grants per tier.** Part D adds `GET /api/admin/grants?right_key=&limit=&after=` (admin) → active grants of that right, ordered by id. The Admin Console uses it for the "Who may use this tier" row.
+
+**Gateway order** is decided by the Gateway as above, never by the registry's answer order.
+
+**Harness answers when the Gateway says no** (all JSON before any stream byte, `{code, message}`):
+| Gateway | Harness to browser |
+|---|---|
+| 404 `no_model` | 503 `no_model` "No model is set up for tier N yet. An admin can add one." |
+| 429 `rate_limited` | 429 `rate_limited` "You are sending messages too fast for tier N. Wait a minute." |
+| 503 `budget_exceeded` | the budget fallback to the lowest allowed tier with its note; when there is no lower tier: 503 `budget_exceeded` "Tier N has used its daily budget. Try again tomorrow or ask an admin." |
+| 503 `unavailable` | 503 `unavailable` "The model did not answer. Try again." |
+| 503 `registry_unavailable` or no answer | 503 `unavailable` (same text) |
+A failure after the stream started is a `failed` event with the same codes and texts.
+
+**Rights check body** is exactly `{"user_id":"<sub>","action":"chat.tier","target":"<tier as a string>"}`.
+
+**History sent to the model.** No system message in Stage 2. The last 20 messages of the conversation with outcome `completed` (user messages always count) and non-empty content, oldest first, starting at a user message; then the new user message.
+
+**Tool call in a stream.** The fixed sentence goes out as one `delta` (after any text already streamed), then `completed`; the stored assistant content is the streamed text plus the sentence, outcome `tool_requested`.
+
+**Rate limit counts** usage rows with outcome `ok` or `failed` only; calls still streaming have no row yet (accepted).
+
+**Gateway pin for checks.** `/v1/call` takes an optional `model_entry_id`: when given, only that entry is tried (no failover). Used by `70` (and by Stage 3's Test connection). Only the Harness service account may call `/v1/call` at all.
+
+**`70-check-stage-2.sh` changes:**
+- Tiers to test: as the Gateway's service account through the port-forward to the Control Centre's port 8081, `GET /api/models?purpose=chat&tier=N` for N = 1..20; every active entry found with `has_key` true is called pinned by `model_entry_id`; a streamed call per connection type in use.
+- `user_id` for the check calls: `stage-check-<uuid>`.
+- The README says each run of 70 makes one short paid call per entry with a key.
+- Item 3 becomes: no Ingress in any namespace has a backend Service `model-gateway`.
+- Item 6: usage rows counted from a short-lived check pod as the `modelgateway_app` role, password from its Secret through the environment (as 40 does), never on a command line.
+- Item 7: no admin view (the Control Centre tests cover it); the key search covers the Control Centre, Gateway and Harness logs since the check began; each key is read through the 8081 route into a variable and compared inside bash (`[[ $logs == *"$key"* ]]`), never printed, never an argument.
+- Every token comes from client secrets read inside the Keycloak pod as 62 does.
+
+**Security of chat text.** Assistant and user text is shown as plain text with line breaks (`white-space: pre-wrap`); no HTML, no Markdown library, no `innerHTML`.
+
+**Python images.** `ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1`; `uv` comes from `ghcr.io/astral-sh/uv:0.13.7` pinned by digest in the build stage only; the run stage has no uv; read-only root works (report how it was checked).
+
+**Connection types: exact handling** (from the providers' pages on 10 Nov 2026; builders re-check on the day):
+- `openai_chat_completions`: take the last non-null `usage` seen in any chunk (`prompt_tokens`, `completion_tokens`); join `delta.tool_calls[]` pieces per `index` (`id`, `function.name`, `function.arguments` string pieces); send no `max_tokens`/`max_completion_tokens` unless `request_settings` sets one.
+- `openai_responses`: text from `response.output_text.delta` (`delta`); tool calls from `response.output_item.added` (type `function_call`, `call_id`, `name`) plus `response.function_call_arguments.delta`/`.done`; finish on `response.completed`; `response.failed`, `response.incomplete` and `error` are failures (or, after output began, a `failed` event); usage `response.usage.input_tokens` / `output_tokens`; tools sent with `strict: false`; length limit `max_output_tokens` only when `request_settings` sets it.
+- `anthropic_messages`: input tokens from `message_start` (`message.usage.input_tokens`); output tokens = the last `message_delta` usage value (a running total, never summed); tool calls from `content_block_start` (type `tool_use`, `id`, `name`) plus `input_json_delta.partial_json` pieces; `error` event = failure; `ping` and unknown events ignored.
+- The reason we need OpenAI Responses: OpenAI's newest models need it for tool calls; chat completions stays for every other OpenAI-compatible service. Neither type is forced on all OpenAI models: the admin picks per entry.
+
+**Kept simple.** The key cache is 60 s, with no retry rule. Health reporting from the Gateway moves to Stage 3 with Test connection: no health route, no health state in Stage 2 (the `health` field keeps its value). The budget fallback stays (Aziz's approved form). `request_settings` must be a JSON object (the Admin Console and the Control Centre both refuse anything else).
