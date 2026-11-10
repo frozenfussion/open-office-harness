@@ -136,7 +136,7 @@ jq -e --argjson registration "$registration_allowed" '
   .passwordPolicy == "length(12) and notUsername and notEmail and maxLength(128)"' <<< "$realm_settings" >/dev/null ||
   stop "registration settings could not be verified; inspect realm ooh and re-run realm sync"
 profile_attributes='[
-  {"name":"organisation","displayName":"Organisation or team","required":{"roles":["user"]},"permissions":{"view":["admin","user"],"edit":["admin","user"]},"validations":{"length":{"min":1,"max":100}}},
+  {"name":"organisation","displayName":"Organisation or team","permissions":{"view":["admin","user"],"edit":["admin","user"]},"validations":{"length":{"min":1,"max":100}}},
   {"name":"access_reason","displayName":"Why do you need access?","permissions":{"view":["admin","user"],"edit":["admin","user"]},"validations":{"length":{"min":0,"max":300}}}
 ]'
 profile_before="$(kcadm get users/profile -r ooh)"

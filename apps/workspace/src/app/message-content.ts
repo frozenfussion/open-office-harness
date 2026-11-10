@@ -10,6 +10,14 @@ export function formatMessageTime(value: string): string {
 @Component({
   selector: 'app-message-content',
   template: `
+    @if (role() === 'assistant' && thinking()) {
+      <details class="thinking">
+        <summary><span class="thinking-chevron" aria-hidden="true">›</span>{{ streaming() ? 'Thinking…' : 'Thinking' }}</summary>
+        <pre>{{ thinking() }}</pre>
+        <button class="ooh-btn ooh-btn--ghost ooh-btn--sm" (click)="copyThinking()">{{ thinkingCopied() ? 'Copied' : 'Copy thinking' }}</button>
+      </details>
+    }
+    @if (role() === 'user' || content()) {
     <div class="ooh-msg__body">
       @if (role() === 'assistant') {
         <div #rich class="ooh-markdown" (click)="copyCode($event)"></div>
@@ -19,18 +27,25 @@ export function formatMessageTime(value: string): string {
     <div class="message-actions ooh-msg__meta">
       <time [attr.datetime]="createdAt()">{{ timestamp() }}</time>
       <button class="ooh-btn ooh-btn--ghost ooh-btn--sm" (click)="copyMessage()">{{ copied() ? 'Copied' : 'Copy' }}</button>
-      @if (copyFailed()) { <span role="status">Copy failed. Try again.</span> }
-    </div>`,
-  styles: `:host{display:block;max-width:100%}.plain-message{white-space:pre-wrap}.message-actions{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2)}`,
+    </div>
+    }
+    @if (copyFailed()) { <span role="status">Copy failed. Try again.</span> }`,
+  styles: `:host{display:block;max-width:100%}.plain-message{white-space:pre-wrap}.message-actions{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2)}
+    .thinking{margin-bottom:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md);padding:var(--space-3)}
+    summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:var(--space-2);color:var(--ink-muted)}
+    summary::-webkit-details-marker{display:none}.thinking-chevron{display:inline-block}details[open] .thinking-chevron{transform:rotate(90deg)}
+    pre{white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--font-sans);margin:var(--space-3) 0}`,
 })
 export class MessageContent implements OnDestroy {
   readonly content = input('');
+  readonly thinking = input<string | null>(null);
   readonly role = input<'user' | 'assistant'>('assistant');
   readonly createdAt = input('');
   readonly streaming = input(false);
   readonly rendered = output<void>();
   readonly timestamp = computed(() => formatMessageTime(this.createdAt()));
   readonly copied = signal(false);
+  readonly thinkingCopied = signal(false);
   readonly copyFailed = signal(false);
   private readonly pendingTasks = inject(PendingTasks);
   private renderer?: typeof import('./rich-text');
@@ -39,13 +54,14 @@ export class MessageContent implements OnDestroy {
   private destroyed = false;
   private readonly rich = viewChild<ElementRef<HTMLElement>>('rich');
   private renderTimer?: ReturnType<typeof setTimeout>;
+  private thinkingCopyTimer?: ReturnType<typeof setTimeout>;
   private copyTimer?: ReturnType<typeof setTimeout>;
   private readonly codeTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private codeBlocks: string[] = [];
   private lastRender = -Infinity;
   constructor() {
     afterRenderEffect(() => {
-      this.content(); this.role(); this.streaming();
+      this.content(); this.thinking(); this.role(); this.streaming();
       this.requestRender();
     });
   }
@@ -102,6 +118,15 @@ export class MessageContent implements OnDestroy {
       this.copyTimer = setTimeout(() => this.copied.set(false), 2000);
     } catch { this.copyFailed.set(true); }
   }
+  async copyThinking(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(this.thinking() ?? '');
+      if (this.destroyed) return;
+      this.copyFailed.set(false); this.thinkingCopied.set(true);
+      clearTimeout(this.thinkingCopyTimer);
+      this.thinkingCopyTimer = setTimeout(() => this.thinkingCopied.set(false), 2000);
+    } catch { this.copyFailed.set(true); }
+  }
   async copyCode(event: Event): Promise<void> {
     const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button[data-code-copy]') : null;
     if (!button || !this.rich()?.nativeElement.contains(button)) return;
@@ -122,7 +147,7 @@ export class MessageContent implements OnDestroy {
   }
   ngOnDestroy(): void {
     this.destroyed = true;
-    clearTimeout(this.renderTimer); clearTimeout(this.copyTimer);
+    clearTimeout(this.renderTimer); clearTimeout(this.copyTimer); clearTimeout(this.thinkingCopyTimer);
     for (const timer of this.codeTimers.values()) clearTimeout(timer);
   }
 }

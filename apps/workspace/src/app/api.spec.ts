@@ -37,6 +37,14 @@ describe('Workspace API model controls', () => {
       headers: {Authorization: 'Bearer test-token', 'Content-Type': 'application/json'},
     });
   });
+  it('reads nullable stored thinking separately from answer content', async () => {
+    const history = {id: 'test-conversation', title: 'Test title', messages: [
+      {id: 'user-message', role: 'user', content: 'Question', thinking: null, created_at: '2026-11-10T08:00:00Z'},
+      {id: 'assistant-message', role: 'assistant', content: 'Answer only', thinking: 'Stored thought', created_at: '2026-11-10T08:00:01Z'},
+    ]};
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(history)));
+    expect(await api().conversation('test-conversation')).toEqual(history);
+  });
   it('preserves refusal codes for the seven-day notice', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"code":"too_soon","message":"Test refusal"}', {status: 409}));
     await expect(api().requestTier(5, '')).rejects.toMatchObject(new ApiError(409, 'Test refusal', 'too_soon'));

@@ -3,14 +3,14 @@ import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { App, metaLine } from './app';
+import { App, greeting, metaLine } from './app';
 import { Api, ApiError } from './api';
 import { ChatEvent, readStream, SseParser } from './sse';
 import { CONFIG, readConfig } from './config';
 import { appConfig } from './app.config';
 
 describe('Workspace', () => {
-  afterEach(() => { vi.restoreAllMocks(); TestBed.resetTestingModule(); window.history.replaceState(null, '', '/'); localStorage.clear(); });
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); TestBed.resetTestingModule(); window.history.replaceState(null, '', '/'); localStorage.clear(); });
   it('parses SSE across byte and line boundaries, CRLF and final chunks', async () => {
     const events: unknown[] = [];
     const bytes = new TextEncoder().encode('data: {"type":"delta","text":"你"}\r\n\r\ndata: {"type":"failed","error":{"code":"unavailable","message":"Try again"}}\n\n');
@@ -35,6 +35,50 @@ describe('Workspace', () => {
     }}), event => events.push(event));
     expect(events.map(event => event.type)).toEqual(['completed', 'title']);
     expect(events[1]).toEqual({type: 'title', conversation_id: 'test-conversation', title: 'A short conversation title'});
+  });
+  it.each([
+    [0, 0, 'Good morning.'], [11, 59, 'Good morning.'],
+    [12, 0, 'Good afternoon.'], [17, 59, 'Good afternoon.'],
+    [18, 0, 'Good evening.'], [23, 59, 'Good evening.'],
+  ])('greets using browser local time at %s:%s', (hour, minute, expected) => {
+    expect(greeting(new Date(2026, 10, 10, hour, minute))).toBe(expected);
+  });
+  it.each([
+    [11, 59, 'Good morning.'], [12, 0, 'Good afternoon.'],
+    [17, 59, 'Good afternoon.'], [18, 0, 'Good evening.'],
+  ])('captures the greeting when sign-in is shown at %s:%s without live updates', (hour, minute, expected) => {
+    vi.useFakeTimers({toFake: ['Date']}); vi.setSystemTime(new Date(2026, 10, 10, hour, minute));
+    TestBed.configureTestingModule({imports: [App], providers: [
+      {provide: OidcSecurityService, useValue: {checkAuth: () => of({isAuthenticated: false}), isAuthenticated$: of({isAuthenticated: false})}},
+      {provide: Api, useValue: {}},
+    ]});
+    const view = TestBed.createComponent(App); view.detectChanges();
+    expect(view.nativeElement.querySelector('h1').textContent).toBe(expected);
+    vi.setSystemTime(new Date(2026, 10, 11, 0, 0));
+    view.componentInstance.notice.set('Another render'); view.detectChanges();
+    expect(view.nativeElement.querySelector('h1').textContent).toBe(expected);
+  });
+  it('ignores unknown SSE event types between known events', () => {
+    const events: ChatEvent[] = [];
+    const parser = new SseParser(event => events.push(event));
+    parser.push('data: {"type":"future","text":"Ignore"}\n\ndata: {"type":"thinking","text":"Thought"}\n\n');
+    parser.push('data: {"type":"future_final"}\n\ndata: {"type":"delta","text":"Answer"}\n\n', true);
+    expect(events).toEqual([{type: 'thinking', text: 'Thought'}, {type: 'delta', text: 'Answer'}]);
+  });
+  it('starts direct Workspace registration with prompt=create and preserves ordinary sign-in', async () => {
+    const authorize = vi.fn();
+    TestBed.configureTestingModule({imports: [App], providers: [
+      {provide: OidcSecurityService, useValue: {authorize, checkAuth: () => of({isAuthenticated: false}), isAuthenticated$: of({isAuthenticated: false})}},
+      {provide: Api, useValue: {}},
+    ]});
+    const view = TestBed.createComponent(App); view.detectChanges();
+    const buttons = view.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>;
+    expect(buttons[0].textContent).toBe('Sign in with company account');
+    expect(buttons[1].textContent).toBe('Request access');
+    buttons[1].click();
+    expect(authorize).toHaveBeenLastCalledWith(undefined, {customParams: {prompt: 'create'}});
+    buttons[0].click(); expect(authorize).toHaveBeenLastCalledWith();
+    expect(view.nativeElement.querySelector('h1').textContent).toBe(greeting());
   });
   it('formats the meta line and budget note', () => {
     expect(metaLine({role: 'assistant', content: '', created_at: '2026-11-10T08:00:00Z', tier: 2, model_title: 'Test entry', input_tokens: 12, output_tokens: 24}))
@@ -246,6 +290,42 @@ describe('Workspace', () => {
     await view.componentInstance.send();
     expect(view.componentInstance.title()).toBe('Default title');
     expect(view.componentInstance.notice()).toBe('');
+  });
+  it('parses and fills thinking events before and between answer deltas', async () => {
+    const wire = [
+      {type: 'thinking', text: '<b>First thought</b> '}, {type: 'delta', text: 'First answer '},
+      {type: 'thinking', text: 'next thought'}, {type: 'delta', text: 'next answer'}, completion,
+    ].map(event => 'data: ' + JSON.stringify(event) + '\n\n').join('');
+    const send = vi.fn(async (_id, _content, _tier, _signal, receive) => {
+      const bytes = new TextEncoder().encode(wire);
+      await readStream(new ReadableStream({start(controller) {
+        for (const byte of bytes) controller.enqueue(new Uint8Array([byte]));
+        controller.close();
+      }}), receive);
+    });
+    const view = await fixture(send); view.componentInstance.draft = 'Question';
+    await view.componentInstance.send(); view.detectChanges(); await view.whenStable(); view.detectChanges();
+    const answer = view.componentInstance.messages().at(-1)!;
+    expect(answer.thinking).toBe('<b>First thought</b> next thought');
+    expect(answer.content).toBe('First answer next answer');
+    expect(answer.outcome).toBe('completed');
+    expect(view.nativeElement.querySelector('details pre').textContent).toBe(answer.thinking);
+    expect(view.nativeElement.querySelector('details b')).toBeNull();
+    expect(view.nativeElement.querySelector('details').open).toBe(false);
+  });
+  it('keeps failed thinking with an empty answer and displays only thinking and the outcome', async () => {
+    const view = await fixture(vi.fn(async (_id, _content, _tier, _signal, receive) => {
+      receive({type: 'thinking', text: 'Partial thought'});
+      receive({type: 'failed', error: {code: 'unavailable', message: 'The model did not answer. Try again.'}});
+    }));
+    view.componentInstance.draft = 'Question'; await view.componentInstance.send();
+    view.detectChanges(); await view.whenStable(); view.detectChanges();
+    const answer = view.componentInstance.messages().at(-1)!;
+    expect(answer.content).toBe(''); expect(answer.thinking).toBe('Partial thought'); expect(answer.outcome).toBe('failed');
+    const article = view.nativeElement.querySelector('.ooh-msg--assistant');
+    expect(article.querySelector('details pre').textContent).toBe('Partial thought');
+    expect(article.querySelector('.ooh-msg__body,.message-actions,time')).toBeNull();
+    expect(article.querySelector('.ooh-msg__meta').textContent).toContain('Answer interrupted');
   });
   async function accessFixture(access: 'approved' | 'pending' | 'rejected' | 'closed' | 'unavailable') {
     const api = {

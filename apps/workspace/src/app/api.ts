@@ -12,7 +12,7 @@ export interface Message {
   id?: string; role: 'user' | 'assistant'; content: string; created_at: string;
   tier?: number | null; model_title?: string | null;
   input_tokens?: number | null; output_tokens?: number | null; note?: string | null;
-  outcome?: string; thinking?: boolean; thinking_applied?: boolean;
+  outcome?: string; thinking?: string | null; thinkingRequested?: boolean; thinking_applied?: boolean;
 }
 export class ApiError extends Error {
   constructor(readonly status: number, message: string, readonly code?: string) { super(message); }

@@ -246,7 +246,7 @@ A newcomer opens <https://harness.faysalaziz.com> and clicks **Sign in with
 company account**. On Keycloak's login page, **Need access? Request access** opens
 the registration form. The apps keep their single sign-in button; passwords
 are entered only in Keycloak. Enter first name, last name, work email (also the
-username), organisation or team, an optional reason of at most 300 characters,
+username), an optional organisation or team, an optional reason of at most 300 characters,
 and a chosen password twice. Passwords must be 12–128 characters and cannot be
 the username or email. There is no email verification or password-reset mail.
 

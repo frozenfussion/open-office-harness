@@ -28,6 +28,57 @@ describe('message content', () => {
     expect(time.textContent).toBe(expected);
     expect(formatMessageTime('invalid')).toBe('Time unavailable');
   });
+  it('shows stored thinking collapsed above the answer as plain text, with independent copying', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText}});
+    const view = await fixture('assistant', '**Answer only**');
+    const text = '<script>alert(1)</script> **Thought** $x$\nNext line';
+    view.componentRef.setInput('thinking', text); view.detectChanges();
+    const details = view.nativeElement.querySelector('details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.querySelector('summary')?.textContent).toContain('Thinking');
+    expect(details.querySelector('pre')?.textContent).toBe(text);
+    expect(details.querySelector('script,strong,.katex')).toBeNull();
+    expect(details.compareDocumentPosition(view.nativeElement.querySelector('.ooh-msg__body')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    details.open = true;
+    vi.useFakeTimers();
+    (details.querySelector('button') as HTMLButtonElement).click(); await Promise.resolve(); view.detectChanges();
+    expect(writeText).toHaveBeenLastCalledWith(text);
+    expect(details.querySelector('button')?.textContent).toBe('Copied');
+    vi.advanceTimersByTime(2000); view.detectChanges();
+    expect(details.querySelector('button')?.textContent).toBe('Copy thinking');
+    view.nativeElement.querySelector('.message-actions button').click(); await Promise.resolve();
+    expect(writeText).toHaveBeenLastCalledWith('**Answer only**');
+  });
+  it('fills thinking live without reopening or resetting the disclosure', async () => {
+    const view = await fixture('assistant', '', true);
+    expect(view.nativeElement.querySelector('details')).toBeNull();
+    view.componentRef.setInput('thinking', 'First thought'); view.detectChanges();
+    const details = view.nativeElement.querySelector('details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.querySelector('summary')?.textContent).toContain('Thinking…');
+    details.open = true;
+    view.componentRef.setInput('thinking', 'First thought, next thought'); view.detectChanges();
+    expect(details.open).toBe(true);
+    expect(details.querySelector('pre')?.textContent).toBe('First thought, next thought');
+    view.componentRef.setInput('streaming', false); view.detectChanges();
+    expect(details.querySelector('summary')?.textContent?.trim()).toBe('›Thinking');
+  });
+  it('omits answer controls and the empty answer body when there is thinking only', async () => {
+    const view = await fixture('assistant', '');
+    view.componentRef.setInput('thinking', 'Thought only'); view.detectChanges();
+    expect(view.nativeElement.querySelector('details pre').textContent).toBe('Thought only');
+    expect(view.nativeElement.querySelector('.ooh-msg__body,.message-actions,time')).toBeNull();
+    expect(view.nativeElement.querySelectorAll('button')).toHaveLength(1);
+    expect(view.nativeElement.querySelector('button').textContent).toBe('Copy thinking');
+  });
+  it('never shows thinking for user messages or empty assistant thinking', async () => {
+    const view = await fixture('user', 'Question');
+    view.componentRef.setInput('thinking', 'Ignored'); view.detectChanges();
+    expect(view.nativeElement.querySelector('details')).toBeNull();
+    view.componentRef.setInput('role', 'assistant'); view.componentRef.setInput('thinking', ''); view.detectChanges();
+    expect(view.nativeElement.querySelector('details')).toBeNull();
+  });
   it('keeps user Markdown and HTML as original plain text', async () => {
     const content = '# Heading\n<script>alert(1)</script> $x^2$';
     const view = await fixture('user', content);
