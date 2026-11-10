@@ -5,5 +5,8 @@
   "skills": [
     "slides"
   ],
-  "image": false
+  "image": false,
+  "chat_tier_titles": {
+    "1": "Synthetic chat model"
+  }
 }

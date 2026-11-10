@@ -117,7 +117,7 @@ public sealed class AccessTests
         var decision = await Object(await f.Harness.PostAsJsonAsync("/api/rights/check", new { user_id = user, action = "chat.tier", target = tier.ToString() }));
         Assert.False(decision["allowed"]!.GetValue<bool>());
         var me = await Object(await f.Harness.GetAsync("/api/rights/me?user_id=" + user));
-        Assert.Empty(me["chat_tiers"]!.AsArray()); Assert.Empty(me["skills"]!.AsArray()); Assert.False(me["image"]!.GetValue<bool>());
+        Assert.Empty(me["chat_tiers"]!.AsArray()); Assert.Empty(me["chat_tier_titles"]!.AsObject()); Assert.Empty(me["skills"]!.AsArray()); Assert.False(me["image"]!.GetValue<bool>());
         Assert.Empty((await f.Harness.GetFromJsonAsync<JsonArray>("/api/skills?user_id=" + user))!);
       }
       var approved = f.User("approved"); await f.Observe(approved, true);
@@ -223,6 +223,45 @@ public sealed class AccessTests
     Assert.Equal("approved", (await f.Observe(f.User("admin-at-cap"), true))["status"]!.GetValue<string>());
     await using var check = Database(); Assert.Equal(100, await check.AccessRequests.CountAsync(x => x.Status == "pending" && x.DeletedAt == null));
     Assert.False(await check.AccessRequests.AnyAsync(x => x.UserId == refused)); Assert.False(await check.Audit.AnyAsync(x => x.Target == refused));
+  }
+  [DatabaseFact]
+  public async Task TierTitlesUseOnlyAllowedActiveMainModelsByPriorityThenCreationTime()
+  {
+    await using var f = await Fixture.Create(); var user = f.User("titles");
+    var tier = await f.Tier(); var backupTier = await f.Tier(); var emptyTier = await f.Tier(); var forbiddenTier = await f.Tier();
+    foreach (var allowed in new[] { tier, backupTier, emptyTier })
+      await Object(await f.Admin.PostAsJsonAsync("/api/admin/grants", new { right_key = "chat.tier." + allowed, subject_type = "user", subject_id = user }), HttpStatusCode.Created);
+    await using var db = Database(); var at = DateTimeOffset.UtcNow;
+    void Add(string title, int modelTier, string role, int priority, DateTimeOffset created, bool removed = false) => db.Models.Add(new ModelEntry
+    {
+      Title = title,
+      Purpose = "chat",
+      Tier = modelTier,
+      Role = role,
+      Priority = priority,
+      CreatedAt = created,
+      DeletedAt = removed ? at : null,
+      Location = "cloud",
+      ApiType = "synthetic",
+      ModelId = "synthetic-" + Guid.NewGuid(),
+      EndpointUrl = "https://synthetic-model.invalid",
+      RateLimitPerMinute = 1
+    });
+    Add("Older but lower priority", tier, "main", 200, at.AddMinutes(-10));
+    Add("Earlier preferred main", tier, "main", 10, at.AddMinutes(-2));
+    Add("Later preferred main", tier, "main", 10, at.AddMinutes(-1));
+    Add("Backup is not a picker title", tier, "backup", 1, at.AddMinutes(-20));
+    Add("Removed main", tier, "main", 1, at.AddMinutes(-30), true);
+    Add("Backup-only tier", backupTier, "backup", 1, at.AddMinutes(-20));
+    Add("Unallowed main", forbiddenTier, "main", 1, at.AddMinutes(-20));
+    await db.SaveChangesAsync();
+    var me = await Object(await f.Harness.GetAsync("/api/rights/me?user_id=" + user));
+    var titles = me["chat_tier_titles"]!.AsObject(); Assert.Single(titles);
+    Assert.Equal("Earlier preferred main", titles[tier.ToString(System.Globalization.CultureInfo.InvariantCulture)]!.GetValue<string>());
+    Assert.False(titles.ContainsKey(backupTier.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+    Assert.False(titles.ContainsKey(emptyTier.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+    Assert.False(titles.ContainsKey(forbiddenTier.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+    Assert.DoesNotContain("https://synthetic-model.invalid", me.ToJsonString());
   }
   [DatabaseFact]
   public async Task BackfillIncludesOnlyPeopleAndActiveGrantsBeforeItsCutoff()

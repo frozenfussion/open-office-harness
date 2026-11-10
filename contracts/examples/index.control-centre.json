@@ -661,6 +661,24 @@
       "kind": "response",
       "media_type": "application/json",
       "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-rights-me.200.no-main.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.get-rights-me.200.unapproved.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/rights/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
     }
   ]
 }

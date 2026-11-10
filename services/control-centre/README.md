@@ -272,3 +272,19 @@ suite includes backfill boundary checks, atomic concurrent admission at the
 100-request boundary, status/grant behavior, audit privacy and owner/app-role
 no-removal checks. Test requests left pending are rejected through audited
 cleanup; no test data is deleted. End checks with `dotnet build-server shutdown`.
+
+
+# Rows 15–16: model titles
+
+`GET /api/rights/me` always includes `chat_tier_titles`, an object keyed by the
+allowed chat tier as a string. For each tier it selects an active main chat
+entry by lowest priority, then earliest creation time; entry ID breaks exact
+ties. Backup entries and removed entries cannot supply picker titles. A tier
+with no active main entry has no map key, so the Workspace can show just its
+tier number. Unapproved users receive an empty map along with no rights.
+The map contains titles only, never registry addresses or credentials. It names
+the preferred main entry for the picker; the actual answering model remains
+the truth in the answer metadata when a backup is used.
+
+Row 16's reply-language system message is owned by Part B; the Control Centre
+does not add or log a system prompt. No model is called to choose a title here.

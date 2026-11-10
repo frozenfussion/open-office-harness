@@ -126,10 +126,22 @@ paths:
                       minLength: 1
                   image:
                     type: boolean
+                  chat_tier_titles:
+                    type: object
+                    propertyNames:
+                      pattern: ^[1-9][0-9]*$
+                    additionalProperties:
+                      type: string
+                    description: 'Titles only for allowed tiers with an active main
+                      chat entry: lowest priority, then earliest created_at. Exact
+                      ties use entry ID. Tiers with no active main entry have no key;
+                      unapproved users get an empty object. The answering-model metadata
+                      can differ after failover.'
                 required:
                 - chat_tiers
                 - skills
                 - image
+                - chat_tier_titles
                 additionalProperties: false
         '400':
           description: Invalid input
