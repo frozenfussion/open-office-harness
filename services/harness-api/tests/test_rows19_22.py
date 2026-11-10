@@ -322,3 +322,68 @@ async def test_title_uses_actual_budget_fallback_tier(h: Harness) -> None:
         "1",
         "1",
     ]
+
+
+@pytest.mark.parametrize("partial", [False, True])
+async def test_missing_thinking_applied_is_an_unexpected_answer(
+    h: Harness, partial: bool
+) -> None:
+    identifier = await h.conversation()
+    completion = h.completed()
+    completion.pop("thinking_applied")
+    prefix = [{"type": "delta", "text": "Partial answer"}] if partial else []
+    h.gateway.respond(
+        text=h.sse([*prefix, completion]), headers={"Content-Type": "text/event-stream"}
+    )
+    response = await h.send(identifier)
+    if partial:
+        assert response.status_code == 200
+        result = events(response)
+        assert [event["type"] for event in result] == ["delta", "failed"]
+        assert result[-1]["error"]["code"] == "unavailable"
+    else:
+        assert response.status_code == 503
+        assert response.json()["code"] == "unavailable"
+    assert h.store.rows[UUID(identifier)]["messages"][-1]["outcome"] == "failed"
+    assert not h.title_gateway.called
+
+
+@pytest.mark.parametrize(
+    "answer,status",
+    [
+        ("success", 201),
+        ("invalid_input", 400),
+        ("unauthorized", 401),
+        ("not_approved", 403),
+        ("tier_not_requestable", 400),
+        ("already_requested", 409),
+        ("too_many_requests", 429),
+        ("unavailable", 503),
+    ],
+)
+async def test_marked_tier_reason_absent_from_every_log_record(
+    h: Harness, caplog: pytest.LogCaptureFixture, answer: str, status: int
+) -> None:
+    import logging
+
+    marker = "MARKED_TIER_REASON_NEVER_LOG_7f3c19"
+    caplog.set_level(logging.DEBUG)
+    body = {"tier": 2, "reason": marker}
+    if answer == "unauthorized":
+        h.client.headers.clear()
+    elif answer == "invalid_input":
+        body["tier"] = 0
+    elif answer != "success":
+        h.tier_requests.respond(status, json={"code": answer, "message": marker})
+    response = await h.client.post("/api/tier-requests", json=body)
+    assert response.status_code == status
+    if h.tier_requests.called:
+        assert (
+            json.loads(h.tier_requests.calls.last.request.content)["reason"] == marker
+        )
+    assert caplog.records
+    assert marker not in caplog.text
+    for record in caplog.records:
+        assert marker not in record.getMessage()
+        assert marker not in repr(record.__dict__)
+        assert marker not in JsonFormatter().format(record)

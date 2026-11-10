@@ -79,7 +79,7 @@ class Completed(BaseModel):
     model_title: str
     tier: Annotated[StrictInt, Field(gt=0)]
     usage: Usage
-    thinking_applied: StrictBool = False
+    thinking_applied: StrictBool
 
 
 class ErrorBody(BaseModel):

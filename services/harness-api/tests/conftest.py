@@ -233,6 +233,7 @@ class Harness:
             "model_title": "Example model",
             "tier": tier,
             "usage": {"input_tokens": 4, "output_tokens": 2},
+            "thinking_applied": False,
             "cost_usd": "0",
         }
 
