@@ -37,7 +37,15 @@
    kubectl -n ooh-apps logs deployment/model-gateway -c model-gateway --since=10m
    ```
 
-   Good result: JSON lines without prompts, answers, keys or tokens. For a migration failure, use `kubectl -n ooh-apps logs deployment/model-gateway -c migrate` in the same plain shell and folder.
+   Good result: JSON lines without prompts, answers, keys or tokens.
+
+   Type this in your harness terminal, in the plain shell, if migration failed. It reads migration logs. No password is needed; the folder does not matter for this command.
+
+   ```bash
+   kubectl -n ooh-apps logs deployment/model-gateway -c migrate
+   ```
+
+   Good result: a JSON line saying migrations completed, or a clear failure without credentials.
 
 6. Type this in your harness terminal, in the plain shell. This restarts the Gateway. No password is needed; the folder does not matter for this command. Claude runs it while Aziz watches.
 
@@ -54,7 +62,15 @@
    kubectl -n ooh-apps scale deployment/model-gateway --replicas=0
    ```
 
-   Good result: deployment scaled. To start it again, type `kubectl -n ooh-apps scale deployment/model-gateway --replicas=1` in the same plain shell and folder, then use the status step. Good result: one Ready pod.
+   Good result: deployment scaled.
+
+   Type this in your harness terminal, in the plain shell. This starts the Gateway again. No password is needed; the folder does not matter for this command. Claude runs it while Aziz watches.
+
+   ```bash
+   kubectl -n ooh-apps scale deployment/model-gateway --replicas=1
+   ```
+
+   Good result: deployment scaled; the status step shows one Ready pod.
 
 8. Type this in your harness terminal, in the plain shell. This runs the builder checks with fake providers and the isolated test database. No password is needed. Run setup first; never print or paste the private settings.
 
@@ -68,7 +84,7 @@
    uv run pytest
    ```
 
-   Good result: all checks pass, with no database test skipped. The test migrates only `modelgateway_test`; protection checks run as owner and application roles inside rolled-back transactions. Without the settings it skips the database test and says why. The pinned framework emits a TestClient deprecation warning; no extra dependency is added for it.
+   Good result: all checks pass, with no database tests skipped. The test migrates only `modelgateway_test`; protection checks run as owner and application roles inside rolled-back transactions. Without the settings it skips the database tests and says why. The pinned framework emits a TestClient deprecation warning; no extra dependency is added for it.
 
 9. Type this in your harness terminal, in the plain shell. This checks the contracts and scripts without changing the cluster. No password is needed.
 
