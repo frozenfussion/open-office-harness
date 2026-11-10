@@ -44,12 +44,15 @@ forward() {
   if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
     stop "local port $port is busy; stop the old port-forward (pkill -f \"port-forward.*$port\") and re-run"
   fi
+  # Create the log synchronously before the child can race the readiness read.
+  : >"$tmp/forward-$port.log" || stop "port-forward for $service could not start; check service readiness and local port $port"
   kubectl -n "$APPS_NAMESPACE" port-forward --address 127.0.0.1 "service/$service" "$port:$target" >"$tmp/forward-$port.log" 2>&1 &
   pid=$!
   forward_pids+=("$pid")
   for ((attempt=0; attempt<30; attempt++)); do
     kill -0 "$pid" 2>/dev/null || break
-    output="$(<"$tmp/forward-$port.log")"
+    output="$(<"$tmp/forward-$port.log")" ||
+      stop "port-forward for $service could not start; check service readiness and local port $port"
     if [[ "$output" == *"Forwarding from 127.0.0.1:$port"* ]]; then ready=true; break; fi
     sleep 1
   done
