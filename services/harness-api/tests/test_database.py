@@ -234,9 +234,15 @@ async def test_title_source_and_update_preserve_ownership_and_order(
         "answer": "First answer",
     }
     before = (await store.listing(db_user, 20, None))[0]["updated_at"]
-    assert not await store.set_title(identifier, "other-user", "Wrong title")
-    assert await store.set_title(identifier, db_user, "A useful short title")
+    assert not await store.set_title(
+        identifier, "other-user", "Wrong title", "First question"
+    )
+    assert await store.set_title(
+        identifier, db_user, "A useful short title", "First question"
+    )
     assert (await store.listing(db_user, 20, None))[0]["updated_at"] == before
+    assert await store.title_source(identifier, db_user, first) is None
+    assert not await store.set_title(identifier, db_user, "Overwrite", "First question")
     row = await store.conversation(identifier, db_user)
     assert row["title"] == "A useful short title"
     assert len(row["messages"]) == 5

@@ -110,17 +110,20 @@ class Store:
                 "JOIN LATERAL (SELECT content FROM messages "
                 "WHERE conversation_id=c.id AND role='user' "
                 "ORDER BY created_at,id LIMIT 1) question ON true "
-                "WHERE c.id=%s AND c.user_id=%s AND c.deleted_at IS NULL",
+                "WHERE c.id=%s AND c.user_id=%s AND c.deleted_at IS NULL "
+                "AND c.title=left(question.content,60)",
                 (message_id, identifier, user),
             )
             return await cursor.fetchone()
 
-    async def set_title(self, identifier: UUID, user: str, title: str) -> bool:
+    async def set_title(
+        self, identifier: UUID, user: str, title: str, default_title: str
+    ) -> bool:
         async with await psycopg.AsyncConnection.connect(self.connection) as db:
             cursor = await db.execute(
                 "UPDATE conversations SET title=%s,updated_by=%s "
-                "WHERE id=%s AND user_id=%s AND deleted_at IS NULL",
-                (title, user, identifier, user),
+                "WHERE id=%s AND user_id=%s AND deleted_at IS NULL AND title=%s",
+                (title, user, identifier, user, default_title),
             )
             return cursor.rowcount == 1
 

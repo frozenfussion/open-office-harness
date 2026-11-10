@@ -26,10 +26,23 @@ class AccessStatus(BaseModel):
     status: Literal["approved", "pending", "rejected", "closed"]
 
 
+class RequestableTier(BaseModel):
+    tier: Annotated[StrictInt, Field(gt=0)]
+    title: str
+    requested: Literal["pending", "rejected"] | None
+
+
+class TierRequestResult(BaseModel):
+    id: UUID
+    status: Literal["pending"]
+
+
 class Rights(BaseModel):
     chat_tiers: list[Annotated[StrictInt, Field(gt=0)]]
     skills: list[str]
     chat_tier_titles: dict[str, str] = Field(default_factory=dict)
+    chat_tier_thinking_switch: dict[str, StrictBool] = Field(default_factory=dict)
+    requestable_tiers: list[RequestableTier] = Field(default_factory=list)
 
 
 class Skill(BaseModel):
@@ -66,6 +79,7 @@ class Completed(BaseModel):
     model_title: str
     tier: Annotated[StrictInt, Field(gt=0)]
     usage: Usage
+    thinking_applied: StrictBool = False
 
 
 class ErrorBody(BaseModel):
@@ -150,9 +164,7 @@ class Upstream:
         except httpx.HTTPError, ValueError, KeyError, TypeError:
             raise self.rights_error() from None
 
-    async def permissions(
-        self, user: str
-    ) -> tuple[list[int], list[Skill], dict[str, str]]:
+    async def permissions(self, user: str) -> tuple[Rights, list[Skill]]:
         try:
             headers = await self.headers()
             rights = await self.client.get(
@@ -173,7 +185,8 @@ class Upstream:
                 for skill in SKILLS.validate_python(skills.json())
                 if skill.name in body.skills
             ]
-            return sorted(set(body.chat_tiers)), allowed, body.chat_tier_titles
+            body.chat_tiers = sorted(set(body.chat_tiers))
+            return body, allowed
         except httpx.HTTPError, ValueError, KeyError, TypeError:
             raise self.rights_error() from None
 
@@ -217,6 +230,41 @@ class Upstream:
             )
         return tools
 
+    async def request_tier(
+        self, user: str, tier: int, reason: str | None
+    ) -> dict[str, Any]:
+        try:
+            response = await self.client.post(
+                f"{self.settings.control_centre}/api/tier-requests",
+                headers=await self.headers(),
+                json={"user_id": user, "tier": tier, "reason": reason},
+            )
+            if response.status_code == 201:
+                return TierRequestResult.model_validate(response.json()).model_dump(
+                    mode="json"
+                )
+            errors = {
+                (
+                    403,
+                    "not_approved",
+                ): "Your access must be approved before requesting a model.",
+                (400, "tier_not_requestable"): "This tier cannot be requested.",
+                (409, "already_requested"): "You have already requested this tier.",
+                (
+                    429,
+                    "too_many_requests",
+                ): "You already have 20 pending model requests.",
+            }
+            body = response.json()
+            code = body.get("code") if isinstance(body, dict) else None
+            if not isinstance(code, str) or (response.status_code, code) not in errors:
+                raise ValueError("Unexpected tier request response")
+            raise ApiError(
+                response.status_code, code, errors[(response.status_code, code)]
+            )
+        except httpx.HTTPError, ValueError, KeyError, TypeError:
+            raise self.rights_error() from None
+
     async def title(self, user: str, tier: int, question: str, answer: str) -> str:
         response = await self.client.post(
             f"{self.settings.gateway}/v1/call",
@@ -224,7 +272,7 @@ class Upstream:
             json={
                 "purpose": "chat",
                 "tier": tier,
-                "user_id": user,
+                "user_id": f"title-{user}",
                 "messages": [
                     {"role": "system", "content": TITLE_PROMPT},
                     {"role": "user", "content": question[:2000]},
@@ -233,7 +281,7 @@ class Upstream:
                 "tools": [],
                 "stream": False,
             },
-            timeout=httpx.Timeout(10, read=910),
+            timeout=httpx.Timeout(20),
         )
         if response.status_code != 200:
             body = response.json()
@@ -265,6 +313,7 @@ class Upstream:
         tier: int,
         messages: list[dict[str, str]],
         tools: list[dict[str, Any]],
+        thinking: bool = True,
     ) -> GatewayStream:
         response = None
         try:
@@ -284,6 +333,7 @@ class Upstream:
                     + messages,
                     "tools": tools,
                     "stream": True,
+                    "thinking": thinking,
                 },
                 timeout=httpx.Timeout(10, read=910),
             )

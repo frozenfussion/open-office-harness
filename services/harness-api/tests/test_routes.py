@@ -73,6 +73,8 @@ async def test_me_and_own_conversations(h: Harness) -> None:
         "access": "approved",
         "chat_tiers": [1, 2, 3],
         "chat_tier_titles": {"1": "Example model"},
+        "chat_tier_thinking_switch": {"1": True},
+        "requestable_tiers": [],
         "skills": [{"name": "slides", "title": "Example skill"}],
     }
     first = await h.conversation()

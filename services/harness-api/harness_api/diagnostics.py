@@ -37,6 +37,10 @@ CODES = frozenset(
         "not_built_yet",
         "registry_unavailable",
         "forbidden",
+        "not_approved",
+        "tier_not_requestable",
+        "already_requested",
+        "too_many_requests",
     }
 )
 

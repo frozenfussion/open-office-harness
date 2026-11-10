@@ -98,12 +98,21 @@ class MemoryStore:
         question = next(
             (message for message in messages if message["role"] == "user"), None
         )
-        if answer is None or question is None or answer["id"] != message_id:
+        if (
+            answer is None
+            or question is None
+            or answer["id"] != message_id
+            or self.rows[identifier]["title"] != question["content"][:60]
+        ):
             return None
         return {"question": question["content"], "answer": answer["content"]}
 
-    async def set_title(self, identifier: UUID, user: str, title: str) -> bool:
+    async def set_title(
+        self, identifier: UUID, user: str, title: str, default_title: str
+    ) -> bool:
         await self.conversation(identifier, user)
+        if self.rows[identifier]["title"] != default_title:
+            return False
         self.rows[identifier]["title"] = title
         return True
 
@@ -130,7 +139,11 @@ class MemoryStore:
                 "outcome": outcome,
                 "tier": tier,
                 "note": note,
-                **(metadata or {}),
+                **{
+                    key: value
+                    for key, value in (metadata or {}).items()
+                    if key != "thinking_applied"
+                },
             }
         )
         row["updated_at"] = datetime.now(UTC)
@@ -156,6 +169,12 @@ class Harness:
         self.token_route = router.post(
             f"{SETTINGS.issuer}/protocol/openid-connect/token"
         ).respond(json={"access_token": "fake-service-token", "expires_in": 300})
+        self.tier_requests = router.post(
+            "http://centre.test/api/tier-requests"
+        ).respond(
+            201,
+            json={"id": "00000000-0000-4000-8000-000000000010", "status": "pending"},
+        )
         self.observe = router.post("http://centre.test/api/access/observe").respond(
             json={"status": "approved"}
         )
@@ -164,6 +183,8 @@ class Harness:
                 "chat_tiers": [3, 1, 2],
                 "skills": ["slides"],
                 "chat_tier_titles": {"1": "Example model"},
+                "chat_tier_thinking_switch": {"1": True},
+                "requestable_tiers": [],
             }
         )
         self.skills = router.get("http://centre.test/api/skills").respond(

@@ -22,7 +22,7 @@ render() {
   done < "$source" > "$target"
 }
 [[ $# -le 1 ]] || stop "usage: install/67-harness-api-deploy.sh [12-character-image-tag]"
-for tool in kubectl curl jq git sed mktemp; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
+for tool in kubectl curl jq git sed mktemp sha256sum; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 tag="${1:-$(git rev-parse --short=12 HEAD)}"
 [[ "$tag" =~ ^[a-f0-9]{12}$ ]] || stop "image tag must be the first 12 characters of the image commit hash"
 image="ghcr.io/frozenfussion/ooh-harness-api:$tag"
@@ -58,6 +58,10 @@ for file in deploy/apps/harness-api/*.yaml; do
   render "$file" "$tmp/apps/$(basename "$file")"
   sed -i "s/\${IMAGE_TAG}/$tag/g" "$tmp/apps/$(basename "$file")"
 done
+config_hash="$(sha256sum "$tmp/apps/configmap.yaml")"
+config_hash="${config_hash%% *}"
+[[ "$config_hash" =~ ^[a-f0-9]{64}$ ]] || stop "configuration hash could not be made; check sha256sum and retry"
+sed -i "s/\${CONFIG_HASH}/$config_hash/g" "$tmp/apps/deployment.yaml"
 kubectl apply -f "$tmp/apps/configmap.yaml" -f "$tmp/apps/service.yaml" -f "$tmp/apps/deployment.yaml"
 printf 'Waiting for migrations and the new Harness API pod revision (%s)\n' "$tag"
 kubectl -n "$APPS_NAMESPACE" rollout status deployment/harness-api --timeout=600s ||

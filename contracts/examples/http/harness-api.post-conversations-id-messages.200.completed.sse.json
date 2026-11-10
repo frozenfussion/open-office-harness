@@ -7,5 +7,6 @@
     "input_tokens": 4,
     "output_tokens": 2
   },
-  "note": null
+  "note": null,
+  "thinking_applied": false
 }

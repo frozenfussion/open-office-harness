@@ -13,7 +13,7 @@ from harness_api.upstream import TITLE_PROMPT
 pytestmark = pytest.mark.anyio
 
 
-async def test_title_after_completed_uses_lowest_tier_and_preserves_updated_time(
+async def test_title_after_completed_uses_answering_tier_and_preserves_updated_time(
     h: Harness,
 ) -> None:
     identifier = await h.conversation()
@@ -43,8 +43,8 @@ async def test_title_after_completed_uses_lowest_tier_and_preserves_updated_time
     body = json.loads(call.content)
     assert body == {
         "purpose": "chat",
-        "tier": 1,
-        "user_id": "test-user",
+        "tier": 3,
+        "user_id": "title-test-user",
         "stream": False,
         "tools": [],
         "messages": [
@@ -56,7 +56,7 @@ async def test_title_after_completed_uses_lowest_tier_and_preserves_updated_time
     assert call.headers["Authorization"] == "Bearer fake-service-token"
     assert [json.loads(call.request.content)["target"] for call in h.check.calls] == [
         "3",
-        "1",
+        "3",
     ]
     row = h.store.rows[UUID(identifier)]
     assert row["title"] == "A useful short title"
@@ -183,30 +183,15 @@ async def test_invalid_title_response_is_best_effort(h: Harness, failure: str) -
     assert h.store.rows[UUID(identifier)]["title"] == "Question"
 
 
-@pytest.mark.parametrize(
-    "failure", ["no_tiers", "rights_unavailable", "check_denied", "check_unavailable"]
-)
+@pytest.mark.parametrize("failure", ["check_denied", "check_unavailable"])
 async def test_title_rights_are_rechecked_fail_closed(h: Harness, failure: str) -> None:
     identifier = await h.conversation()
-    if failure in {"no_tiers", "rights_unavailable"}:
-        second = (
-            httpx.Response(200, json={"chat_tiers": [], "skills": []})
-            if failure == "no_tiers"
-            else httpx.Response(503)
-        )
-        h.rights.mock(
-            side_effect=[
-                httpx.Response(200, json={"chat_tiers": [1], "skills": []}),
-                second,
-            ]
-        )
-    else:
-        second = (
-            httpx.Response(200, json={"allowed": False})
-            if failure == "check_denied"
-            else httpx.Response(503)
-        )
-        h.check.mock(side_effect=[httpx.Response(200, json={"allowed": True}), second])
+    second = (
+        httpx.Response(200, json={"allowed": False})
+        if failure == "check_denied"
+        else httpx.Response(503)
+    )
+    h.check.mock(side_effect=[httpx.Response(200, json={"allowed": True}), second])
     response = await h.send(identifier)
     assert response.status_code == 200
     assert events(response)[-1]["type"] == "completed"
