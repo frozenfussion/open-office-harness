@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+using System.Diagnostics;
+using System.Text.Json;
 using ControlCentre.Platform;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.EntityFrameworkCore;
@@ -57,6 +59,38 @@ public sealed class StartupConfigurationTests
         AssertGssDisabled(scope.ServiceProvider.GetRequiredService<CentreDb>());
       }
     });
+  }
+  [Theory]
+  [InlineData(null)]
+  [InlineData("")]
+  [InlineData("synthetic-invalid-key")]
+  [InlineData("YWJj")]
+  public async Task InvalidEncryptionKeyStopsStartupWithOneJsonLog(string? value)
+  {
+    var start = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+    start.ArgumentList.Add(typeof(Program).Assembly.Location);
+    start.Environment["CC_DB_CONNECTION"] = "Host=127.0.0.1;Port=1;Database=controlcentre_test;Timeout=1";
+    if (value is null) start.Environment.Remove("CC_KEY_ENCRYPTION_KEY");
+    else start.Environment["CC_KEY_ENCRYPTION_KEY"] = value;
+    using var process = Process.Start(start)!;
+    try
+    {
+      var output = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+      var errors = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+      using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+      await process.WaitForExitAsync(timeout.Token);
+      Assert.NotEqual(0, process.ExitCode);
+      var line = Assert.Single((await output).Split('\n', StringSplitOptions.RemoveEmptyEntries));
+      using var entry = JsonDocument.Parse(line);
+      Assert.Equal("error", entry.RootElement.GetProperty("level").GetString());
+      Assert.Equal("CC_KEY_ENCRYPTION_KEY must contain 32 bytes encoded as base64", entry.RootElement.GetProperty("message").GetString());
+      Assert.Equal("", await errors);
+      if (!string.IsNullOrEmpty(value)) Assert.DoesNotContain(value, line);
+    }
+    finally
+    {
+      if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(TestContext.Current.CancellationToken); }
+    }
   }
   private static void AssertGssDisabled(CentreDb db)
   {

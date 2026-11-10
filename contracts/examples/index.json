@@ -1121,15 +1121,6 @@
       "status": "503"
     },
     {
-      "file": "examples/http/control-centre.post-admin-models.409.json",
-      "openapi": "http/control-centre.openapi.yaml",
-      "path": "/api/admin/models",
-      "method": "post",
-      "kind": "response",
-      "media_type": "application/json",
-      "status": "409"
-    },
-    {
       "file": "examples/http/control-centre.get-admin-models-id.parameters.json",
       "openapi": "http/control-centre.openapi.yaml",
       "path": "/api/admin/models/{id}",

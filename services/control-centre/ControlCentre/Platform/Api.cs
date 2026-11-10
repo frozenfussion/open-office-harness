@@ -100,10 +100,10 @@ public static class Api
   public static async Task Remove<T>(HttpContext c, CentreDb db, T? row, string target) where T : BusinessRow
   {
     Found(row is not null && row.DeletedAt is null);
-    var before = Encode(row!);
+    var before = Encode(row is ControlCentre.Platform.ModelEntry model ? ControlCentre.Registry.RegistryRoutes.View(model) : row!);
     row!.DeletedAt = DateTimeOffset.UtcNow;
     Stamp(row, Actor(c));
-    Change(db, Actor(c), typeof(T).Name.ToLowerInvariant() + ".removed", target, Correlation(c), new { before = JsonNode.Parse(before), after = row });
+    Change(db, Actor(c), typeof(T).Name.ToLowerInvariant() + ".removed", target, Correlation(c), new { before = JsonNode.Parse(before), after = row is ModelEntry entry ? ControlCentre.Registry.RegistryRoutes.View(entry) : (object)row });
     await db.SaveChangesAsync();
   }
   public static void Change(CentreDb db, string actor, string action, string target, Guid correlation, object detail, string? userId = null)

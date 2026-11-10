@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: admin-console-config
+  namespace: ${APPS_NAMESPACE}
+data:
+  config.json: |
+    {"issuer":"https://auth.${DOMAIN}/realms/ooh","clientId":"ooh-admin-console","apiBase":"/api"}
