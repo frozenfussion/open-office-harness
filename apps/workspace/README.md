@@ -66,7 +66,7 @@
    to give an admin your ID. **Sign out** ends the Keycloak session.
 
    Newcomers can also use **Need access? Request access** on Keycloak's login page after
-   the sign-in button. Enter names, work email, organisation, an optional reason
+   the sign-in button. Enter names, work email, an optional organisation, an optional reason
    and a chosen password twice. Pending, rejected and closed requests show only
    their message and Sign out. An approved request opens chat. Refresh after the
    admin approves. If the access service fails, a red notice appears. See the
