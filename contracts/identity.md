@@ -7,7 +7,7 @@ use approvals. Brute-force protection is on. Access tokens last five minutes.
 | Client | Type | Use |
 |---|---|---|
 | ooh-workspace | Public, authorization code with PKCE S256 | Workspace; redirect URIs on https://harness.faysalaziz.com only |
-| ooh-admin-console | Public, authorization code with PKCE S256; device sign-in during Stage 1 | Admin Console; redirect URIs on https://admin.faysalaziz.com only |
+| ooh-admin-console | Public, authorization code with PKCE S256; device sign-in until Stage 3 | Admin Console; redirect URIs on https://admin.faysalaziz.com only |
 | ooh-harness-api | Confidential, service accounts | Harness service-to-service client credentials |
 | ooh-control-centre | Confidential, service accounts | Control Centre service-to-service client credentials |
 | ooh-model-gateway | Confidential, service accounts | Gateway service-to-service client credentials |
@@ -37,7 +37,7 @@ be refused even if its issuer and signature are valid.
 |---|---|
 | ooh-harness-api | Control Centre rights checks, rights lists and allowed skill manifests; Gateway purpose calls and classification, on behalf of the user |
 | ooh-control-centre | Its Control Centre operations subject to fixed policy; no AI calls |
-| ooh-model-gateway | Control Centre GET /api/models for purpose/tier registry lookup; no rights grants or skill jobs |
+| ooh-model-gateway | Control Centre GET /api/models and GET /api/models/{id}/key on internal port 8081 only; provider keys encrypted in the Control Centre; no rights grants or skill jobs |
 
 The Harness and workers call the Gateway with tokens for ooh-model-gateway.
 Worker service accounts are specified when workers are built. Registry replies
@@ -83,10 +83,10 @@ installation checks and cannot borrow a production service's identity. Its
 short-lived check pods are removed after each check. DLQ screens and replay
 remain deferred even though the Control Centre has the contracted read ACLs.
 
-During Stage 1, device sign-in is enabled on the existing `ooh-admin-console`
+Until Stage 3, device sign-in is enabled on the existing `ooh-admin-console`
 client. Device sign-in sends a PKCE S256 code challenge, because the client
 requires S256; the verifier stays in a shell variable.
 This supports Aziz's browser sign-in during installation checks. Access and refresh
 tokens remain in shell variables and reach HTTP tools on standard input, never
 on a command line or in a saved file. The check refreshes before each admin call.
-Stage 4 disables device sign-in again when the Admin Console is available.
+Stage 3 disables device sign-in again when the Admin Console is available.

@@ -1,0 +1,13 @@
+{
+  "user_id": "example-user",
+  "name": "Example user",
+  "chat_tiers": [
+    1
+  ],
+  "skills": [
+    {
+      "name": "slides",
+      "title": "Presentation (.pptx)"
+    }
+  ]
+}

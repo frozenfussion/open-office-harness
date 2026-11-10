@@ -32,7 +32,7 @@ Not in this stage (section 13): skill jobs on Kafka, uploads and files, classifi
 4. `install/70-check-stage-2.sh` prints `PASS` for every line and ends with `DONE` (section 9).
 5. In the browser, Aziz signs in to the Workspace, picks a tier, asks a question, and the answer streams in word by word; the meta line under the answer shows the tier, the model's title and the token counts; reloading the page shows the conversation.
 6. After `sudo reboot`, `40-check-platform.sh`, `62-check-control-centre.sh` and `70-check-stage-2.sh` pass again without anyone touching the server (allow 5 minutes), and the browser chat works.
-7. In a clean worktree of `stage-2`: every Part's checks (section 7) pass; `uv run --project contracts/check pytest` passes; `bash -n` and `shellcheck` are clean for every `install/*.sh`; `kubeconform -strict` passes on `deploy/`.
+7. In a clean worktree of `stage-2`: every Part's checks (section 7) pass; `uv run --project contracts/check pytest contracts/check/tests` passes; `bash -n` and `shellcheck` are clean for every `install/*.sh`; `kubeconform -strict` passes on `deploy/`.
 8. `README.md` Quick Guide covers section 10; `docs/STATUS.md` says Stage 2 is done and lists what was checked.
 
 ## 3. Prerequisites (before the builders start)
@@ -131,7 +131,7 @@ deploy/platform/postgres/db-modelgateway.yaml    (2 Databases + 4 DatabaseRoles)
 install/64-model-gateway-setup.sh                (database role Secrets, databases, test settings file ~/.config/ooh/model-gateway-test.env, the Gateway's Keycloak client secret copied into Secret model-gateway-oidc; no printing; re-runnable)
 install/65-model-gateway-deploy.sh               (<12-character tag>; image check as 61; apply; wait for the new revision and migrations; DONE)
 ```
-Checks: `uv run ruff check`, `uv run ruff format --check`, `uv run pytest` in `services/model-gateway` (database tests included once 64 has run); `uv run --project contracts/check pytest`; `bash -n` + `shellcheck` on its scripts; `kubeconform -strict` on its manifests.
+Checks: `uv run ruff check`, `uv run ruff format --check`, `uv run pytest` in `services/model-gateway` (database tests included once 64 has run); `uv run --project contracts/check pytest contracts/check/tests`; `bash -n` + `shellcheck` on its scripts; `kubeconform -strict` on its manifests.
 Tests must cover: each adapter's request and streamed answer (respx fakes), tools in and tool calls out per adapter, `request_settings` merge and null removal, main → backup before first output, no failover after first output, rate limit skip, budget skip, cost maths, `daily_budget` 0 = no limit, unsupported `api_type` skipped, wrong caller 403, the key never logged (a test captures logs), registry and key caching, append-only `usage` (database test as owner and as app role, rolled back).
 
 ### Part B — Harness API (branch `stage-2-part-b`, Codex B, tile 1)
@@ -245,7 +245,7 @@ The device sign-in is not needed: every call above uses service accounts; the br
 | Memory | six new pods on 16 GB | Pending pods | requests small (Python 100m/128Mi, apps 10m/32Mi); report actual use |
 
 ## 13. Out of scope for Stage 2
-Skill jobs on Kafka and the Slides worker, uploads, files and job events, the storage contract rewrite, classifier routing and `/v1/classify`, Test connection, health checks on a timer, the Overview, Approvals, People & rights, Audit, Skills and Failed messages screens, branded sign-in, ordinary users' name and email in the Control Centre, an AI-written conversation title, Helm, tracing, AWS. Codex does not pre-build any of it.
+Skill jobs on Kafka and the Slides worker, uploads, files and job events, the storage contract rewrite, classifier routing and `/v1/classify`, health checks on a timer, the Overview, Approvals, People & rights, Audit, Skills and Failed messages screens, branded sign-in, ordinary users' name and email in the Control Centre, an AI-written conversation title, Helm, tracing, AWS. Codex does not pre-build any of it.
 
 ## 14. Changes agreed during the build — these override the sections above
 
@@ -254,6 +254,15 @@ Skill jobs on Kafka and the Slides worker, uploads, files and job events, the st
 | 1 | Spec review by Claude Code before the builders started (38 findings, `reviews/stage-2-spec-review` in the course folder): every finding is resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 10 Nov 14:00 |
 | 2 | Spec re-review (37 of 38 fixed, 8 new small findings, `reviews/stage-2-spec-rereview`): the earlier sections edited in place to agree with section 15; section 15 gains "Re-review additions" | Spec author, 10 Nov 14:04 |
 | 3 | Final check (`reviews/stage-2-spec-final`): section 9 rewritten to match section 15; port 8081 in the Ports row; 62 keeps one check user; tiers with grants but no model stay visible | Spec author, 10 Nov 14:06 |
+| 4 | The Gateway's registry answer (`GET /api/models`, Part D) includes `created_at` (UTC), so the Gateway can order entries by creation time | Spec author, 10 Nov 14:13 (asked by Codex A) |
+| 5 | Conversation paging: `GET /api/conversations?before=<conversation id>` — the id of the last conversation shown; ordered by `updated_at` then `id`, newest first; `limit` default 20, maximum 100. Parts B and C both use it | Spec author, 10 Nov 14:13 (B) and 14:21 (C) |
+| 6 | Part D removes the obsolete duplicate-model 409 entry from `contracts/examples/index.json` and its example file (the one edit Part D makes to `index.json`) | Spec author, 10 Nov 14:13 (asked by Codex D) |
+| 7 | `GET /api/admin/models` gains an optional `after=<model entry id>` cursor (limit and maximum unchanged); with no `after` the answer is exactly as in Stage 1. The Admin Console reads every page, so any number of models can be shown | Spec author, 10 Nov 14:21 (asked by Codex D) |
+| 8 | The contract check runs with the explicit path: `uv run --project contracts/check pytest contracts/check/tests` (the bare command also collects the service tests and fails). Done-when 7 and the Part checks are edited in place | Spec author, 10 Nov 14:33 (review of A and B) |
+| 9 | Gateway, mixed skips: if no entry was called and at least one was skipped for rate, the answer is 429 `rate_limited`; 503 `budget_exceeded` only when every entry was skipped for budget | Spec author, 10 Nov 14:33 (review of A) |
+| 10 | Harness API checks only `aud` `ooh-harness-api` (the extra `azp` check is removed). The Harness image workflow keeps its read-only runtime check before publishing (agreed deviation) | Spec author, 10 Nov 14:33 (review of B) |
+| 11 | Every builder that uses `dotnet` ends its checks with `dotnet build-server shutdown`, so no .NET build daemon outlives a check (global rule: nothing left running in the background) | Spec author, 10 Nov 14:36 (review of D) |
+| 12 | Test connection button moved from Stage 3 into Stage 2 (section 16): Admin Console → Control Centre → Gateway pinned call; Gateway also accepts the Control Centre's service token for pinned, non-streamed calls only, and returns the provider's status and short message on failure | Aziz, 10 Nov 15:38 |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees)
 
@@ -340,3 +349,69 @@ A failure after the stream started is a `failed` event with the same codes and t
 - The Admin Console shows a tier row for every tier that has an active chat model entry **or** an active grant, except tier 99 (the Stage 1 check's tier); a tier with grants but no model shows "No model yet", so grants are never hidden.
 - GitHub packages: Claude opens each package's settings page (`https://github.com/users/frozenfussion/packages/container/<name>/settings`) in a new tab of Aziz's built-in browser on his PC; Aziz clicks Change visibility → Public.
 - Every `kubectl port-forward` in `62` and `70` is started by the script on a fixed local port (`62`: 18081; `70`: 18080 for the Gateway, 18081 for the Control Centre), stopped by a trap on exit, and a busy port is `STOP: local port <n> is busy; stop the old port-forward (pkill -f "port-forward.*<n>") and re-run`.
+
+## 16. Test connection button (added during the build; binding)
+
+**Aziz's words (10 Nov 15:38):** "Since you are fixing it, why not also put a test button? That's pretty important, I think." This moves Stage 3's Test connection into Stage 2. Section 13 no longer lists it.
+
+**What the admin sees.** Each model row in Models & tiers gets a **Test** button in Actions (only when the entry has a saved key; otherwise the button is disabled with the hint "Save a key first"). Pressing it sends one short paid call to that entry only, and shows the result under the row until the next test or reload:
+- success: `Works · <seconds, one decimal> s · reply: "<first 80 characters>" · <input>/<output> tokens · $<cost, 6 decimals>`;
+- failure: `Failed · <reason in plain words> (provider answered <HTTP status>)` plus the provider's own short message when there is one. Reasons: `key refused` (401/403), `model or endpoint not found` (404), `rate limited by the provider` (429), `took longer than its time limit`, `could not reach the endpoint`, `unexpected answer`, `over its daily budget today`, `no key saved`.
+While a test runs the button shows "Testing…" and is disabled. No key is ever shown or sent to the browser.
+
+**Flow.** Admin Console → Control Centre (public port 8080, admin only) → Gateway `/v1/call` pinned with `model_entry_id` → the provider. The Control Centre calls the Gateway with its own service token. Nothing else may call the Gateway as the Control Centre.
+
+**Control Centre (Part D).**
+- `POST /api/admin/models/{id}/test` (role `ooh-admin`, port 8080): 404 if the entry does not exist; 409 `no_key` if it has no key. Otherwise one non-streamed Gateway call: `purpose` and `tier` of the entry, `model_entry_id`, `user_id` `admin-test-<admin's sub>`, messages `[{"role":"user","content":"Reply with the single word OK."}]`, `stream: false`. Answer 200 `{ok: true, model_title, reply, duration_ms, usage: {input_tokens, output_tokens}, cost_usd}` or 200 `{ok: false, reason, provider_status, provider_message}` (the Gateway's error mapped to the reasons above; `provider_status` and `provider_message` null when there is none).
+- One audit row `model.tested` per test: entry id, ok, reason, duration_ms. Never the reply text, the key or the provider message.
+- Service token: client credentials for `ooh-control-centre` from `https://auth.<domain>/realms/ooh`, secret from env `CC_CLIENT_SECRET` (Secret `control-centre-oidc`, key `client-secret`), cached until 30 s before expiry. Gateway address from env `CC_GATEWAY_URL` = `http://model-gateway.${APPS_NAMESPACE}.svc:8080` (ConfigMap `control-centre`). HTTP time limit = the entry's `timeout_seconds` + 10 s.
+- `install/71-control-centre-oidc.sh` (new, Part D): reads the `ooh-control-centre` client secret inside the Keycloak pod as `64` does and creates Secret `control-centre-oidc` once (never overwrites; prints `DONE`). `61` stops with "run install/71-control-centre-oidc.sh" when the Secret is missing.
+- Files added to Part D: `install/71-control-centre-oidc.sh`, `deploy/apps/control-centre/configmap.yaml`. Contract: the route in `contracts/http/control-centre.openapi.yaml` with examples.
+- Tests: success and each failure mapping (fake Gateway), 409 without key, 404, non-admin 403, the audit row has no reply/key/provider message, the token is cached.
+
+**Admin Console (Part D).** The Test button and result line as above; tests for both results, the disabled state without a key and the "Testing…" state.
+
+**Gateway (Part A).**
+- `/v1/call` also accepts the Control Centre service account (`azp` `ooh-control-centre`), **only** when `model_entry_id` is given and `stream` is false; anything else from that caller → 403 `forbidden`. The Harness rules are unchanged.
+- When a pinned call fails, the error body adds `provider_status` (the provider's HTTP status, or null) and `provider_message` (the provider's error message text, at most 300 characters, null when none). Before returning it, the Gateway removes the entry's key from the text if it appears and replaces it with `[removed]`. The `code` stays as section 6 says; a timeout gives code `unavailable` with `provider_status` null and `provider_message` "time limit reached"; an unreachable endpoint gives "could not connect".
+- Usage rows are written as for any call (the test costs money and counts against the entry's daily budget).
+- Tests: the Control Centre caller pinned and non-streamed → allowed; unpinned or streamed → 403; `provider_status` and `provider_message` for 401, 404, 429 and 500 answers per adapter; the key is removed from a provider message that echoes it; timeouts.
+
+**Realm (Part C).** `ooh-control-centre` gets the audience mapper `audience-ooh-model-gateway` (access token only), in `deploy/platform/keycloak/realm-ooh.yaml`; `install/35-realm-sync.sh` already syncs audience mappers for every client and must add this one on an existing realm. `install/70-check-stage-2.sh` step 4 changes: the Control Centre's service token on `/v1/call` **unpinned** → 403, and pinned + streamed → 403.
+
+**Order to deploy.** 35 → 71 → 65 (new Gateway image) → 61 (new Control Centre image) → 69 (new console image) → 70.
+
+### 16.1 Review decisions for section 16 (Claude Code review `reviews/stage-2-test-button-spec-review`; binding, override section 16 where they differ)
+
+1. **Result mapping goes by the Gateway's `code` first**, `provider_status` only when the Gateway passed the provider's answer through:
+
+   | Gateway answer | Reason shown |
+   |---|---|
+   | 401 / 403 from the Gateway itself | the Control Centre could not sign in to the Gateway (also one setup-error log line in the Control Centre) |
+   | `no_model` | entry is not active or its connection type is not supported |
+   | `rate_limited` | over this entry's rate limit; wait a minute |
+   | `budget_exceeded` | over its daily budget today |
+   | `registry_unavailable` | the Control Centre registry did not answer |
+   | `unavailable` + `provider_status` 401 or 403 | key refused |
+   | `unavailable` + 402 | the provider account has no credit |
+   | `unavailable` + 404 | model or endpoint not found |
+   | `unavailable` + 429 | rate limited by the provider |
+   | `unavailable`, no status, "time limit reached" | took longer than its time limit |
+   | `unavailable`, no status, "could not connect" | could not reach the endpoint |
+   | anything else | unexpected answer |
+2. **The Control Centre caller can send only the test call:** `model_entry_id` given, `stream` false, `messages` exactly `[{"role":"user","content":"Reply with the single word OK."}]`, no `tools`, `user_id` starting `admin-test-`. Anything else → 403 `forbidden`; one test per refusal.
+3. `caller()` stays authentication only. One rule after body validation decides: Harness → as today; Control Centre → only the call in item 2; anyone else → 403. `/v1/classify` stays 403 for the Control Centre.
+4. **`provider_message`:** at most 300 characters. Remove the full key, any run of 8 or more characters that appears in the key, and anything matching `sk-[A-Za-z0-9_-]+` or `sk-ant-[A-Za-z0-9_-]+`, each replaced with `[removed]`. The Admin Console shows it as plain text only (no HTML binding). Neither the Gateway nor the Control Centre ever logs `provider_message` or the reply.
+5. **Reading the provider's error:** on a non-2xx answer the adapter reads at most 4 KiB of the body and takes `error.message` (OpenAI and Anthropic shape), else the text. Attached only to pinned calls; the Harness path never receives these fields. **Also, for every failed provider attempt (pinned or not), the Gateway logs one JSON line `{"message":"provider_failed","model_entry_id":...,"provider_status":<int or null>,"reason":"http|timeout|connect|bad_answer"}`, never the body.** (Found live: the first DeepSeek test failed and the logs showed only "failover".)
+6. **Contracts:** Part A adds a `PinnedError` schema (`code`, `message`, `provider_status` int or null, `provider_message` string or null) for 503 answers of pinned calls, with examples in `index.model-gateway.json`. Part D adds the test route's 200 shapes (`ok` true / false), 403, 404 and 409 to the Control Centre contract, with examples in `index.control-centre.json`.
+7. **Overrides Stage 0 section 13 row 6** ("The Control Centre client gets no Model Gateway audience"). Part D updates `contracts/identity.md`: the Control Centre service account may call Gateway `/v1/call` only for the pinned test call. Part C updates `docs/ARCHITECTURE.md`: the Control Centre "calls AI only through the Gateway's pinned test call".
+8. **Files per Part (in addition to section 7):**
+   - Part A: `services/model-gateway/**`, `contracts/http/model-gateway.openapi.yaml`, its examples, `index.model-gateway.json`.
+   - Part C: `deploy/platform/keycloak/realm-ooh.yaml`, `install/35-realm-sync.sh`, `install/70-check-stage-2.sh`, `README.md` (order gains 71: 63 → 71 → 61 → …), `docs/ARCHITECTURE.md`.
+   - Part D: `services/control-centre/**`, `apps/admin-console/**`, `contracts/http/control-centre.openapi.yaml`, its examples, `index.control-centre.json`, `contracts/identity.md`, `deploy/apps/control-centre/configmap.yaml` and `deployment.yaml`, `install/61-control-centre-deploy.sh`, `install/71-control-centre-oidc.sh`.
+9. **Where the work happens:** each Part keeps its branch and worktree (`stage-2-part-a`, `-c`, `-d`), first merges `origin/stage-2-test-button` into it (that is `stage-2` plus this section), builds, runs its section 7 checks, pushes, and reports. Claude Code reviews each Part; then Claude merges the three branches into `stage-2` and reruns the section 2 item 7 checks before deploying.
+10. **`control-centre-oidc`:** 71 behaves like 64: create if missing; if present and different from Keycloak's current secret, `STOP: the Control Centre client secret changed; …`. `CC_CLIENT_SECRET` is **optional** in the Deployment (`optional: true`): without it the Control Centre starts normally and the test route answers `{ok:false, reason:"the Control Centre has no service credentials"}`. 61 does not stop for it.
+11. Token URL = `CC_OIDC_ISSUER` + `/protocol/openid-connect/token`; client ID fixed `ooh-control-centre`; the secret goes only in the form body, never in a URL or log line.
+12. **Audit:** `action` `model.tested`, `target` = the entry's `model_id` (as other model rows), detail `{model_entry_id, ok, reason, duration_ms}`; one row for success and for failure, plus the usual `audit.events` message.
+13. **Time limits:** the Admin Console stops waiting at `timeout_seconds` + 15 s and shows "took longer than its time limit". When the Control Centre's own limit fires it answers 200 `{ok:false, reason:"took longer than its time limit", provider_status:null, provider_message:null}`.
+14. **70 positive check:** the Control Centre's service token, pinned to an entry with a key, the fixed test message, `stream` false → 200 with non-empty content (one paid call, skipped with a note when no keyed entry exists). Plus the refusals: unpinned → 403, streamed → 403, other messages → 403.

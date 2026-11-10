@@ -17,6 +17,7 @@ spec:
     metadata:
       labels:
         app: control-centre
+        ooh/app: real
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -57,12 +58,19 @@ spec:
         ports:
         - name: http
           containerPort: 8080
+        - name: internal
+          containerPort: 8081
         envFrom:
         - configMapRef:
             name: control-centre
         env:
         - name: ASPNETCORE_HTTP_PORTS
-          value: '8080'
+          value: '8080;8081'
+        - name: CC_KEY_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: control-centre-keys
+              key: encryption-key
         - name: CC_DB_CONNECTION
           valueFrom:
             secretKeyRef:

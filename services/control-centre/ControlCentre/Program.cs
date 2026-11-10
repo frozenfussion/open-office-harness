@@ -31,6 +31,15 @@ if (migrate)
   await scope.ServiceProvider.GetRequiredService<CentreDb>().Database.MigrateAsync();
   return;
 }
+try { builder.Services.AddSingleton(new ModelKeys(Environment.GetEnvironmentVariable("CC_KEY_ENCRYPTION_KEY"))); }
+catch (InvalidOperationException)
+{
+  Console.WriteLine(JsonSerializer.Serialize(new { level = "error", message = "CC_KEY_ENCRYPTION_KEY must contain 32 bytes encoded as base64" }));
+  Environment.ExitCode = 1;
+  return;
+}
+if (string.IsNullOrEmpty(builder.Configuration["HTTP_PORTS"]) && string.IsNullOrEmpty(builder.Configuration["URLS"]))
+  builder.Configuration["HTTP_PORTS"] = "8080;8081";
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
   o.SerializerOptions.PropertyNamingPolicy = Api.Json.PropertyNamingPolicy;
@@ -77,6 +86,12 @@ app.Use(async (c, next) =>
     Diagnostics.Failure(app.Logger, "Request could not be completed", error, c.User.Claims.Select(x => x.Value).Append(c.Request.Headers.Authorization.ToString()).Append(c.Request.Headers.Authorization.ToString().Replace("Bearer ", "", StringComparison.OrdinalIgnoreCase)));
     await Api.Error(503, "unavailable", "Control Centre unavailable").ExecuteAsync(c);
   }
+});
+app.Use(async (c, next) =>
+{
+  if ((c.Request.Path == "/api/models" || c.Request.Path.StartsWithSegments("/api/models")) && c.Connection.LocalPort != 8081)
+  { await Api.Error(404, "not_found", "Route not found").ExecuteAsync(c); return; }
+  await next(c);
 });
 app.UseAuthentication();
 app.UseAuthorization();

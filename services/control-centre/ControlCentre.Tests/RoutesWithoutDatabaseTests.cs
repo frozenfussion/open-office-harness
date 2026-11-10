@@ -14,7 +14,7 @@ public sealed class RoutesWithoutDatabaseTests
     {
         { "POST", "/api/rights/check" }, { "GET", "/api/rights/me?user_id=test" }, { "GET", "/api/skills?user_id=test" },
         { "GET", "/api/models?purpose=classification" }, { "GET", "/api/admin/people" }, { "GET", "/api/admin/people/test" },
-        { "GET", "/api/admin/rights" }, { "POST", "/api/admin/grants" }, { "DELETE", "/api/admin/grants/bad" },
+        { "GET", "/api/admin/grants" }, { "GET", "/api/models/bad/key" }, { "GET", "/api/admin/rights" }, { "POST", "/api/admin/grants" }, { "DELETE", "/api/admin/grants/bad" },
         { "GET", "/api/admin/models" }, { "POST", "/api/admin/models" }, { "GET", "/api/admin/models/bad" }, { "PUT", "/api/admin/models/bad" }, { "DELETE", "/api/admin/models/bad" },
         { "GET", "/api/admin/skills" }, { "POST", "/api/admin/skills" }, { "GET", "/api/admin/skills/slides" }, { "PUT", "/api/admin/skills/slides" }, { "DELETE", "/api/admin/skills/slides" },
         { "GET", "/api/admin/approvals" }, { "GET", "/api/admin/approvals/bad" }, { "POST", "/api/admin/approvals/bad/decision" }, { "GET", "/api/admin/audit" }
@@ -83,7 +83,7 @@ public sealed class RoutesWithoutDatabaseTests
   public async Task InvalidQueries(string path)
   {
     using var host = new Host(); using var client = host.Client(path.StartsWith("/api/models", StringComparison.Ordinal) ? "gateway" : "admin");
-    Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync(path, TestContext.Current.CancellationToken)).StatusCode);
+    Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync(path.StartsWith("/api/models", StringComparison.Ordinal) ? "http://localhost:8081" + path : path, TestContext.Current.CancellationToken)).StatusCode);
   }
   [Fact]
   public async Task InternalRightsFailureReturnsUnavailable()
@@ -155,5 +155,5 @@ public sealed class RoutesWithoutDatabaseTests
     { ["action"] = "stage.check", ["details"] = new JsonObject(), ["risk"] = "low", ["requested_by"] = "synthetic-requester" }
   };
   public static Task<HttpResponseMessage> Send(HttpClient client, string method, string path, string body = "{}") =>
-      client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
+      client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path.StartsWith("/api/models", StringComparison.Ordinal) ? "http://localhost:8081" + path : path) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
 }

@@ -107,6 +107,16 @@ public static class RightsRoutes
       Api.Found(person is not null);
       return Results.Ok(await PersonView(db, person!));
     }).RequireAuthorization();
+    app.MapGet("/api/admin/grants", async (HttpContext c, CentreDb db) =>
+    {
+      Api.Authorize(c); Api.Query(c, "right_key", "limit", "after");
+      var query = db.Grants.Where(x => x.DeletedAt == null);
+      if (c.Request.Query.ContainsKey("right_key"))
+      { var key = Api.Q(c, "right_key"); query = query.Where(x => x.RightKey == key); }
+      if (c.Request.Query.ContainsKey("after"))
+      { var after = Api.Id(Api.Q(c, "after")); query = query.Where(x => x.Id.CompareTo(after) > 0); }
+      return Results.Ok(await query.OrderBy(x => x.Id).Take(Api.Limit(c)).ToListAsync());
+    }).RequireAuthorization();
     app.MapPost("/api/admin/grants", async (HttpContext c, CentreDb db) =>
     {
       Api.Authorize(c); Api.Query(c);

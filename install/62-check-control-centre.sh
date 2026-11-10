@@ -25,17 +25,33 @@ require() {
   result "$rc" "$label" "$reason"
   [[ "$rc" == 0 ]] || stop "cannot continue after $label; fix the FAIL line and re-run"
 }
+if (exec 3<>/dev/tcp/127.0.0.1/18081) 2>/dev/null; then
+  stop 'local port 18081 is busy; stop the old port-forward (pkill -f "port-forward.*18081") and re-run'
+fi
 issuer="https://auth.$DOMAIN/realms/ooh"
 base="https://admin.$DOMAIN"
 config_dir=''
 check_pod=''
+forward_pid=''
+forward_dir=''
 cleanup() {
+  if [[ -n "$forward_pid" ]]; then kill "$forward_pid" 2>/dev/null || true; wait "$forward_pid" 2>/dev/null || true; fi
+  if [[ -n "$forward_dir" ]]; then rm -rf -- "$forward_dir"; fi
   if [[ -n "$check_pod" ]]; then kubectl -n "$PLATFORM_NAMESPACE" delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true; fi
   if [[ "$config_dir" =~ ^/tmp/ooh-stage-check\.[a-zA-Z0-9]+$ ]]; then
     kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- rm -rf -- "$config_dir" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
+forward_dir="$(mktemp -d)"
+kubectl -n "$APPS_NAMESPACE" port-forward service/control-centre 18081:8081 >"$forward_dir/log" 2>&1 &
+forward_pid=$!
+for ((attempt=0; attempt<30; attempt++)); do
+  if curl -s --max-time 1 http://127.0.0.1:18081/health >/dev/null; then break; fi
+  kill -0 "$forward_pid" 2>/dev/null || stop "internal port-forward failed; check Control Centre readiness"
+  sleep 1
+done
+curl -s --max-time 2 http://127.0.0.1:18081/health >/dev/null || stop "internal port-forward not ready; check Control Centre readiness"
 form_encode() { jq -sRr @uri; }
 generate_pkce() {
   code_verifier="$(openssl rand -hex 32)"
@@ -99,6 +115,8 @@ request() {
     *) token="$(service_token "$principal")" || stop "service token unavailable; fix the failure above and re-run" ;;
   esac
   [[ -z "$token" || "$token" =~ ^[A-Za-z0-9_.-]+$ ]] || return 1
+  local request_base="$base"
+  [[ "$path" != /api/models* ]] || request_base="http://127.0.0.1:18081"
   reply="$(
     {
       [[ -z "$token" ]] || printf 'header = "Authorization: Bearer %s"\n' "$token"
@@ -107,7 +125,7 @@ request() {
         printf 'data = '
         printf '%s' "$data" | jq -Rs .
       fi
-    } | curl --config - --connect-timeout 10 --max-time 30 -sS -X "$method" "$base$path" -w '\n%{http_code}' 2>/dev/null
+    } | curl --config - --connect-timeout 10 --max-time 30 -sS -X "$method" "$request_base$path" -w '\n%{http_code}' 2>/dev/null
   )" || return 1
   status="${reply##*$'\n'}"
   body="${reply%$'\n'*}"
@@ -147,7 +165,7 @@ rc=0
 request ooh-control-centre GET '/api/rights/me?user_id=x' && [[ "$status" == 401 ]] || rc=1
 require "$rc" 'wrong audience refused' 'expected HTTP 401; check audience mappers and token validation'
 user_id="stage-check-$(cat /proc/sys/kernel/random/uuid)"
-rights_payload="$(jq -cn --arg user "$user_id" '{user_id:$user,action:"chat.tier",target:"2"}')"
+rights_payload="$(jq -cn --arg user "$user_id" '{user_id:$user,action:"chat.tier",target:"99"}')"
 rc=0
 request ooh-harness-api POST /api/rights/check "$rights_payload" && [[ "$status" == 200 ]] &&
   jq -e '.allowed == false and .decided_by == "no-grant"' <<< "$body" >/dev/null || rc=1
@@ -317,16 +335,16 @@ while IFS= read -r old_id; do
   uuid "$old_id" || stop "model response has an invalid id; inspect the API contract"
   expect_request admin DELETE "/api/admin/models/$old_id" 200 'remove earlier check model entry'
 done <<< "$old_models"
-model_payload='{"purpose":"chat","tier":2,"role":"backup","location":"cloud","api_type":"stage-check","endpoint_url":"https://stage-check.invalid","model_id":"stage-check","secret_ref":"stage-check-none","rate_limit_per_minute":1,"daily_budget":0}'
-expect_request admin POST /api/admin/models 201 'create tier 2 check model entry' "$model_payload"
+model_payload='{"purpose":"chat","tier":99,"role":"backup","location":"cloud","api_type":"stage-check","endpoint_url":"https://stage-check.invalid","model_id":"stage-check","secret_ref":"stage-check-none","rate_limit_per_minute":1,"daily_budget":0}'
+expect_request admin POST /api/admin/models 201 'create tier 99 check model entry' "$model_payload"
 model_entry_id="$(jq -er '.model_entry_id' <<< "$body")"
 uuid "$model_entry_id" || stop "model response has an invalid id; inspect the API contract"
 expect_request admin GET '/api/admin/rights?limit=200' 200 'read rights after tier creation'
 rc=0
-jq -e 'any(.[]; .key == "chat.tier.2")' <<< "$body" >/dev/null || rc=1
-require "$rc" 'tier creates its right' 'chat.tier.2 was not returned; inspect the tier creation rule'
-grant_payload="$(jq -cn --arg user "$user_id" '{right_key:"chat.tier.2",subject_type:"user",subject_id:$user}')"
-expect_request admin POST /api/admin/grants 201 'grant tier 2 to check user' "$grant_payload"
+jq -e 'any(.[]; .key == "chat.tier.99")' <<< "$body" >/dev/null || rc=1
+require "$rc" 'tier creates its right' 'chat.tier.99 was not returned; inspect the tier creation rule'
+grant_payload="$(jq -cn --arg user "$user_id" '{right_key:"chat.tier.99",subject_type:"user",subject_id:$user}')"
+expect_request admin POST /api/admin/grants 201 'grant tier 99 to check user' "$grant_payload"
 grant_id="$(jq -er '.id' <<< "$body")"
 uuid "$grant_id" || stop "grant response has an invalid id; inspect the API contract"
 expect_request ooh-harness-api POST /api/rights/check 200 'check granted tier' "$rights_payload"
@@ -425,7 +443,7 @@ require "$rc" 'approval decision published with its correlation id' 'inspect Con
 audit_rows='[]'
 for audit_check in grant model decision slides; do
   case "$audit_check" in
-    grant) path='/api/admin/audit?target=chat.tier.2&action=grant.created&limit=200' ;;
+    grant) path='/api/admin/audit?target=chat.tier.99&action=grant.created&limit=200' ;;
     model) path='/api/admin/audit?target=stage-check&action=model.created&limit=200' ;;
     decision) path="/api/admin/audit?target=$approval_id&action=approval.decided&limit=200" ;;
     slides) path='/api/admin/audit?target=slides&limit=200' ;;
