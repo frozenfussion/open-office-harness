@@ -245,7 +245,7 @@ The device sign-in is not needed: every call above uses service accounts; the br
 | Memory | six new pods on 16 GB | Pending pods | requests small (Python 100m/128Mi, apps 10m/32Mi); report actual use |
 
 ## 13. Out of scope for Stage 2
-Skill jobs on Kafka and the Slides worker, uploads, files and job events, the storage contract rewrite, classifier routing and `/v1/classify`, Test connection, health checks on a timer, the Overview, Approvals, People & rights, Audit, Skills and Failed messages screens, branded sign-in, ordinary users' name and email in the Control Centre, an AI-written conversation title, Helm, tracing, AWS. Codex does not pre-build any of it.
+Skill jobs on Kafka and the Slides worker, uploads, files and job events, the storage contract rewrite, classifier routing and `/v1/classify`, health checks on a timer, the Overview, Approvals, People & rights, Audit, Skills and Failed messages screens, branded sign-in, ordinary users' name and email in the Control Centre, an AI-written conversation title, Helm, tracing, AWS. Codex does not pre-build any of it.
 
 ## 14. Changes agreed during the build — these override the sections above
 
@@ -262,6 +262,7 @@ Skill jobs on Kafka and the Slides worker, uploads, files and job events, the st
 | 9 | Gateway, mixed skips: if no entry was called and at least one was skipped for rate, the answer is 429 `rate_limited`; 503 `budget_exceeded` only when every entry was skipped for budget | Spec author, 10 Nov 14:33 (review of A) |
 | 10 | Harness API checks only `aud` `ooh-harness-api` (the extra `azp` check is removed). The Harness image workflow keeps its read-only runtime check before publishing (agreed deviation) | Spec author, 10 Nov 14:33 (review of B) |
 | 11 | Every builder that uses `dotnet` ends its checks with `dotnet build-server shutdown`, so no .NET build daemon outlives a check (global rule: nothing left running in the background) | Spec author, 10 Nov 14:36 (review of D) |
+| 12 | Test connection button moved from Stage 3 into Stage 2 (section 16): Admin Console → Control Centre → Gateway pinned call; Gateway also accepts the Control Centre's service token for pinned, non-streamed calls only, and returns the provider's status and short message on failure | Aziz, 10 Nov 15:38 |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees)
 
@@ -348,3 +349,34 @@ A failure after the stream started is a `failed` event with the same codes and t
 - The Admin Console shows a tier row for every tier that has an active chat model entry **or** an active grant, except tier 99 (the Stage 1 check's tier); a tier with grants but no model shows "No model yet", so grants are never hidden.
 - GitHub packages: Claude opens each package's settings page (`https://github.com/users/frozenfussion/packages/container/<name>/settings`) in a new tab of Aziz's built-in browser on his PC; Aziz clicks Change visibility → Public.
 - Every `kubectl port-forward` in `62` and `70` is started by the script on a fixed local port (`62`: 18081; `70`: 18080 for the Gateway, 18081 for the Control Centre), stopped by a trap on exit, and a busy port is `STOP: local port <n> is busy; stop the old port-forward (pkill -f "port-forward.*<n>") and re-run`.
+
+## 16. Test connection button (added during the build; binding)
+
+**Aziz's words (10 Nov 15:38):** "Since you are fixing it, why not also put a test button? That's pretty important, I think." This moves Stage 3's Test connection into Stage 2. Section 13 no longer lists it.
+
+**What the admin sees.** Each model row in Models & tiers gets a **Test** button in Actions (only when the entry has a saved key; otherwise the button is disabled with the hint "Save a key first"). Pressing it sends one short paid call to that entry only, and shows the result under the row until the next test or reload:
+- success: `Works · <seconds, one decimal> s · reply: "<first 80 characters>" · <input>/<output> tokens · $<cost, 6 decimals>`;
+- failure: `Failed · <reason in plain words> (provider answered <HTTP status>)` plus the provider's own short message when there is one. Reasons: `key refused` (401/403), `model or endpoint not found` (404), `rate limited by the provider` (429), `took longer than its time limit`, `could not reach the endpoint`, `unexpected answer`, `over its daily budget today`, `no key saved`.
+While a test runs the button shows "Testing…" and is disabled. No key is ever shown or sent to the browser.
+
+**Flow.** Admin Console → Control Centre (public port 8080, admin only) → Gateway `/v1/call` pinned with `model_entry_id` → the provider. The Control Centre calls the Gateway with its own service token. Nothing else may call the Gateway as the Control Centre.
+
+**Control Centre (Part D).**
+- `POST /api/admin/models/{id}/test` (role `ooh-admin`, port 8080): 404 if the entry does not exist; 409 `no_key` if it has no key. Otherwise one non-streamed Gateway call: `purpose` and `tier` of the entry, `model_entry_id`, `user_id` `admin-test-<admin's sub>`, messages `[{"role":"user","content":"Reply with the single word OK."}]`, `stream: false`. Answer 200 `{ok: true, model_title, reply, duration_ms, usage: {input_tokens, output_tokens}, cost_usd}` or 200 `{ok: false, reason, provider_status, provider_message}` (the Gateway's error mapped to the reasons above; `provider_status` and `provider_message` null when there is none).
+- One audit row `model.tested` per test: entry id, ok, reason, duration_ms. Never the reply text, the key or the provider message.
+- Service token: client credentials for `ooh-control-centre` from `https://auth.<domain>/realms/ooh`, secret from env `CC_CLIENT_SECRET` (Secret `control-centre-oidc`, key `client-secret`), cached until 30 s before expiry. Gateway address from env `CC_GATEWAY_URL` = `http://model-gateway.${APPS_NAMESPACE}.svc:8080` (ConfigMap `control-centre`). HTTP time limit = the entry's `timeout_seconds` + 10 s.
+- `install/71-control-centre-oidc.sh` (new, Part D): reads the `ooh-control-centre` client secret inside the Keycloak pod as `64` does and creates Secret `control-centre-oidc` once (never overwrites; prints `DONE`). `61` stops with "run install/71-control-centre-oidc.sh" when the Secret is missing.
+- Files added to Part D: `install/71-control-centre-oidc.sh`, `deploy/apps/control-centre/configmap.yaml`. Contract: the route in `contracts/http/control-centre.openapi.yaml` with examples.
+- Tests: success and each failure mapping (fake Gateway), 409 without key, 404, non-admin 403, the audit row has no reply/key/provider message, the token is cached.
+
+**Admin Console (Part D).** The Test button and result line as above; tests for both results, the disabled state without a key and the "Testing…" state.
+
+**Gateway (Part A).**
+- `/v1/call` also accepts the Control Centre service account (`azp` `ooh-control-centre`), **only** when `model_entry_id` is given and `stream` is false; anything else from that caller → 403 `forbidden`. The Harness rules are unchanged.
+- When a pinned call fails, the error body adds `provider_status` (the provider's HTTP status, or null) and `provider_message` (the provider's error message text, at most 300 characters, null when none). Before returning it, the Gateway removes the entry's key from the text if it appears and replaces it with `[removed]`. The `code` stays as section 6 says; a timeout gives code `unavailable` with `provider_status` null and `provider_message` "time limit reached"; an unreachable endpoint gives "could not connect".
+- Usage rows are written as for any call (the test costs money and counts against the entry's daily budget).
+- Tests: the Control Centre caller pinned and non-streamed → allowed; unpinned or streamed → 403; `provider_status` and `provider_message` for 401, 404, 429 and 500 answers per adapter; the key is removed from a provider message that echoes it; timeouts.
+
+**Realm (Part C).** `ooh-control-centre` gets the audience mapper `audience-ooh-model-gateway` (access token only), in `deploy/platform/keycloak/realm-ooh.yaml`; `install/35-realm-sync.sh` already syncs audience mappers for every client and must add this one on an existing realm. `install/70-check-stage-2.sh` step 4 changes: the Control Centre's service token on `/v1/call` **unpinned** → 403, and pinned + streamed → 403.
+
+**Order to deploy.** 35 → 71 → 65 (new Gateway image) → 61 (new Control Centre image) → 69 (new console image) → 70.
