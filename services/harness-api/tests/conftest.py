@@ -131,6 +131,9 @@ class Harness:
         self.token_route = router.post(
             f"{SETTINGS.issuer}/protocol/openid-connect/token"
         ).respond(json={"access_token": "fake-service-token", "expires_in": 300})
+        self.observe = router.post("http://centre.test/api/access/observe").respond(
+            json={"status": "approved"}
+        )
         self.rights = router.get("http://centre.test/api/rights/me").respond(
             json={"chat_tiers": [3, 1, 2], "skills": ["slides"]}
         )

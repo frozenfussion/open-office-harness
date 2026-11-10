@@ -167,10 +167,12 @@ def create_app(
     @app.get("/api/me")
     async def me(request: Request, claims: User) -> dict[str, Any]:
         query(request)
+        access = await upstream.observe(claims)
         tiers, skills = await upstream.permissions(claims["sub"])
         name = claims.get("name", "")
         return {
             "user_id": claims["sub"],
+            "access": access,
             "name": name if isinstance(name, str) else "",
             "chat_tiers": tiers,
             "skills": [{"name": skill.name, "title": skill.title} for skill in skills],

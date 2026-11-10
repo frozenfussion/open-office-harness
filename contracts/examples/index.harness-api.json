@@ -168,6 +168,33 @@
       "kind": "response",
       "media_type": "text/event-stream",
       "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-me.200.pending.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-me.200.rejected.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-me.200.closed.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
     }
   ]
 }

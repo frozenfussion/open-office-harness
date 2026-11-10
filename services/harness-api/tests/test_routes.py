@@ -70,6 +70,7 @@ async def test_me_and_own_conversations(h: Harness) -> None:
     assert response.json() == {
         "user_id": "test-user",
         "name": "Test user",
+        "access": "approved",
         "chat_tiers": [1, 2, 3],
         "skills": [{"name": "slides", "title": "Example skill"}],
     }

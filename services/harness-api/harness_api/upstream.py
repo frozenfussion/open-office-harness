@@ -13,6 +13,10 @@ from .config import Settings
 from .errors import ApiError, gateway_error
 
 
+class AccessStatus(BaseModel):
+    status: Literal["approved", "pending", "rejected", "closed"]
+
+
 class Rights(BaseModel):
     chat_tiers: list[Annotated[StrictInt, Field(gt=0)]]
     skills: list[str]
@@ -111,6 +115,30 @@ class Upstream:
 
     async def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {await self.auth.service_token()}"}
+
+    async def observe(self, claims: dict[str, Any]) -> str:
+        body: dict[str, Any] = {"user_id": claims["sub"]}
+        for field, limit in (
+            ("name", 200),
+            ("email", 320),
+            ("organisation", 100),
+            ("access_reason", 300),
+        ):
+            value = claims.get(field)
+            body[field] = value.strip()[:limit] if isinstance(value, str) else None
+        realm = claims.get("realm_access")
+        roles = realm.get("roles") if isinstance(realm, dict) else None
+        body["is_admin"] = isinstance(roles, list) and "ooh-admin" in roles
+        try:
+            response = await self.client.post(
+                f"{self.settings.control_centre}/api/access/observe",
+                headers=await self.headers(),
+                json=body,
+            )
+            response.raise_for_status()
+            return AccessStatus.model_validate(response.json()).status
+        except httpx.HTTPError, ValueError, KeyError, TypeError:
+            raise self.rights_error() from None
 
     async def permissions(self, user: str) -> tuple[list[int], list[Skill]]:
         try:

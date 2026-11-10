@@ -225,8 +225,8 @@ paths:
       description: 'SSE: one JSON object per data line, no event lines; delta events
         then completed or failed. Rights are checked before storing the user message.
         Gateway errors before the first event are JSON. Headers: Cache-Control: no-store,
-        X-Accel-Buffering: no. Only user tokens with audience ooh-harness-api
-        are accepted. No caller-supplied user_id.'
+        X-Accel-Buffering: no. Only user tokens with audience ooh-harness-api are
+        accepted. No caller-supplied user_id.'
       parameters:
       - name: id
         in: path
@@ -512,11 +512,19 @@ paths:
                       - name
                       - title
                       additionalProperties: false
+                  access:
+                    type: string
+                    enum:
+                    - approved
+                    - pending
+                    - rejected
+                    - closed
                 required:
                 - user_id
                 - name
                 - chat_tiers
                 - skills
+                - access
                 additionalProperties: false
         '400':
           description: Request could not be completed
@@ -536,6 +544,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+      description: 'Observe access first through the Control Centre using the Harness
+        service token and verified user claims, including is_admin from realm_access.roles.
+        Missing/non-string profile claims become null; strings are trimmed then limited:
+        name 200, email 320, organisation 100, access_reason 300. The exact sub is
+        preserved. Then read rights and skills. Observe or rights failure returns
+        503 rights_unavailable. Closed means new requests are temporarily full.'
   /api/conversations/{id}:
     get:
       operationId: get_api_conversations_id
