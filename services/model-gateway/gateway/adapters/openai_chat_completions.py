@@ -7,7 +7,7 @@ import httpx
 
 from gateway.models import Call, Entry
 
-from .common import ProviderError, check_response, settings, sse, tool_event
+from .common import ProviderError, check_response, request_body, sse, tool_event
 
 
 async def run(
@@ -32,7 +32,7 @@ async def run(
         ]
     if call.stream:
         body["stream_options"] = {"include_usage": True}
-    body = settings(body, entry.request_settings)
+    body = request_body(body, entry, call)
     async with client.stream(
         "POST",
         entry.endpoint_url.rstrip("/") + "/chat/completions",

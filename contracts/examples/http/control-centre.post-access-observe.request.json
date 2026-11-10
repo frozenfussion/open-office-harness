@@ -1,0 +1,8 @@
+{
+  "user_id": "synthetic-user",
+  "is_admin": false,
+  "name": "Synthetic User",
+  "email": "synthetic@example.invalid",
+  "organisation": "Synthetic team",
+  "access_reason": "Synthetic access request"
+}

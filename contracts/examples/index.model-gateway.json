@@ -88,6 +88,41 @@
       "method": "post",
       "kind": "request",
       "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.request.thinking-off.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.thinking-off-applied.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.thinking-off-unsupported.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.thinking-off-unsupported.sse.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
     }
   ]
 }

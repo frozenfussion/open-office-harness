@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 
 class Strict(BaseModel):
@@ -29,6 +29,7 @@ class Call(Strict):
     messages: list[Message] = Field(min_length=1)
     tools: list[Tool] = Field(default_factory=list)
     stream: bool
+    thinking: StrictBool = True
     model_entry_id: UUID | None = None
 
     @model_validator(mode="after")
@@ -70,6 +71,7 @@ class Entry(BaseModel):
     output_price_per_million: Decimal = Field(default=Decimal(0), ge=0)
     timeout_seconds: int = Field(default=120, ge=10, le=900)
     request_settings: dict[str, Any] = Field(default_factory=dict)
+    request_settings_thinking_off: dict[str, Any] | None = None
 
 
 class GatewayError(Exception):

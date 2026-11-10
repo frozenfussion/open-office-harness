@@ -1,0 +1,16 @@
+{
+  "purpose": "chat",
+  "tier": 2,
+  "role": "main",
+  "location": "cloud",
+  "api_type": "synthetic",
+  "endpoint_url": "https://synthetic.invalid",
+  "model_id": "<model-id>",
+  "rate_limit_per_minute": 1,
+  "daily_budget": 0,
+  "request_settings_thinking_off": {
+    "thinking": {
+      "type": "disabled"
+    }
+  }
+}

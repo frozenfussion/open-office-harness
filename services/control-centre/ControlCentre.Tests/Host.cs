@@ -64,6 +64,7 @@ public sealed class Host : WebApplicationFactory<Program>
   public FakeKafka Kafka { get; } = new();
   public TestLogs Logs { get; } = new();
   public TestGatewayHttp Gateway { get; } = new();
+  public TimeProvider Clock { get; init; } = TimeProvider.System;
   public Host(bool database = false, string clientSecret = "")
   {
     Environment.SetEnvironmentVariable("CC_CLIENT_SECRET", clientSecret);
@@ -81,6 +82,7 @@ public sealed class Host : WebApplicationFactory<Program>
       foreach (var descriptor in services.Where(x => x.ServiceType == typeof(IHostedService) && x.ImplementationType == typeof(KafkaWorker)).ToArray()) services.Remove(descriptor);
       services.AddTransient<IStartupFilter, TestPort>();
       services.RemoveAll<HttpClient>(); services.AddSingleton(new HttpClient(Gateway) { Timeout = Timeout.InfiniteTimeSpan });
+      services.RemoveAll<TimeProvider>(); services.AddSingleton(Clock);
       services.RemoveAll<IKafka>(); services.AddSingleton<IKafka>(Kafka);
       services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
           {
@@ -104,13 +106,13 @@ public sealed class Host : WebApplicationFactory<Program>
   {
     var client = CreateClient();
     client.BaseAddress = new Uri($"http://localhost:{port}");
-    var claims = new List<Claim> { new("sub", subject ?? "test-" + Guid.NewGuid()), new("azp", role switch { "harness" => "ooh-harness-api", "gateway" => "ooh-model-gateway", "self" => "ooh-admin-console", _ => "ooh-control-centre" }) };
-    if (role == "self")
+    var claims = new List<Claim> { new("sub", subject ?? "test-" + Guid.NewGuid()), new("azp", role switch { "harness" => "ooh-harness-api", "gateway" => "ooh-model-gateway", "self" or "person-admin" => "ooh-admin-console", _ => "ooh-control-centre" }) };
+    if (role is "self" or "person-admin")
     {
       claims.Add(new Claim("email", email));
       claims.Add(new Claim("name", name));
     }
-    if (role == "admin") claims.Add(new Claim("realm_access", "{\"roles\":[\"ooh-admin\"]}", JsonClaimValueTypes.Json));
+    if (role is "admin" or "person-admin") claims.Add(new Claim("realm_access", "{\"roles\":[\"ooh-admin\"]}", JsonClaimValueTypes.Json));
     var token = new JwtSecurityToken("https://issuer.invalid", audience, claims,
         DateTime.UtcNow.AddMinutes(-10), expired ? DateTime.UtcNow.AddMinutes(-5) : DateTime.UtcNow.AddMinutes(5), new SigningCredentials(wrongSignature ? new SymmetricSecurityKey(RandomNumberGenerator.GetBytes(64)) : key, SecurityAlgorithms.HmacSha256));
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", new JwtSecurityTokenHandler().WriteToken(token));

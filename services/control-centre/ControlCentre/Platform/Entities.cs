@@ -12,6 +12,29 @@ public abstract class BusinessRow
   public string CreatedBy { get; set; } = "system";
   public string UpdatedBy { get; set; } = "system";
 }
+public sealed class TierRequest : BusinessRow
+{
+  public string UserId { get; set; } = "";
+  public int Tier { get; set; }
+  public string? Reason { get; set; }
+  public string Status { get; set; } = "pending";
+  public DateTimeOffset RequestedAt { get; set; } = DateTimeOffset.UtcNow;
+  public DateTimeOffset? DecidedAt { get; set; }
+  public string? DecidedBy { get; set; }
+}
+public sealed class AccessRequest : BusinessRow
+{
+  public string UserId { get; set; } = "";
+  public string? Name { get; set; }
+  public string? Email { get; set; }
+  public string? Organisation { get; set; }
+  public string? Reason { get; set; }
+  public string Status { get; set; } = "pending";
+  public DateTimeOffset RequestedAt { get; set; } = DateTimeOffset.UtcNow;
+  public DateTimeOffset? DecidedAt { get; set; }
+  public string? DecidedBy { get; set; }
+  public int? ApprovedTier { get; set; }
+}
 public sealed class Person : BusinessRow
 {
   public string UserId { get; set; } = "";
@@ -42,6 +65,7 @@ public sealed class ModelEntry : BusinessRow
   public int TimeoutSeconds { get; set; } = 120;
   public int Priority { get; set; } = 100;
   public string RequestSettings { get; set; } = "{}";
+  public string? RequestSettingsThinkingOff { get; set; }
   public string Purpose { get; set; } = "";
   public int? Tier { get; set; }
   public string Role { get; set; } = "";
@@ -104,6 +128,8 @@ public sealed class AuditRow
 
 public sealed class CentreDb(DbContextOptions<CentreDb> options) : DbContext(options)
 {
+  public DbSet<TierRequest> TierRequests => Set<TierRequest>();
+  public DbSet<AccessRequest> AccessRequests => Set<AccessRequest>();
   public DbSet<Person> People => Set<Person>();
   public DbSet<Right> Rights => Set<Right>();
   public DbSet<Grant> Grants => Set<Grant>();
@@ -116,6 +142,18 @@ public sealed class CentreDb(DbContextOptions<CentreDb> options) : DbContext(opt
 
   protected override void OnModelCreating(ModelBuilder b)
   {
+    b.Entity<TierRequest>().ToTable("tier_requests");
+    b.Entity<TierRequest>().ToTable(t =>
+    {
+      t.HasCheckConstraint("tier_requests_status_check", "status IN ('pending','approved','rejected')");
+      t.HasCheckConstraint("tier_requests_tier_check", "tier > 0");
+      t.HasCheckConstraint("tier_requests_reason_check", "reason IS NULL OR length(reason) <= 300");
+    });
+    b.Entity<TierRequest>().HasIndex(x => new { x.UserId, x.Tier }).IsUnique().HasFilter("deleted_at IS NULL AND status = 'pending'").HasDatabaseName("tier_requests_pending");
+    b.Entity<TierRequest>().HasIndex(x => new { x.RequestedAt, x.Id }).IsDescending().HasDatabaseName("tier_requests_paging");
+    b.Entity<AccessRequest>().ToTable("access_requests").HasAlternateKey(x => x.UserId);
+    b.Entity<AccessRequest>().ToTable(t => t.HasCheckConstraint("access_requests_status_check", "status IN ('pending','approved','rejected')"));
+    b.Entity<AccessRequest>().HasIndex(x => new { x.RequestedAt, x.Id }).IsDescending().HasDatabaseName("access_requests_paging");
     b.Entity<Person>().ToTable("people").HasAlternateKey(x => x.UserId);
     b.Entity<Right>().ToTable("rights").HasAlternateKey(x => x.Key);
     b.Entity<Grant>().ToTable("grants");
@@ -137,6 +175,7 @@ public sealed class CentreDb(DbContextOptions<CentreDb> options) : DbContext(opt
       t.HasCheckConstraint("model_entries_priority_check", "priority BETWEEN 1 AND 1000");
       t.HasCheckConstraint("model_entries_timeout_seconds_check", "timeout_seconds BETWEEN 10 AND 900");
       t.HasCheckConstraint("model_entries_request_settings_check", "jsonb_typeof(request_settings) = 'object'");
+      t.HasCheckConstraint("model_entries_thinking_off_check", "request_settings_thinking_off IS NULL OR jsonb_typeof(request_settings_thinking_off) = 'object'");
       t.HasCheckConstraint("model_entries_role_check", "role IN ('main','backup')");
       t.HasCheckConstraint("model_entries_location_check", "location IN ('on_prem','cloud')");
       t.HasCheckConstraint("model_entries_rate_limit_per_minute_check", "rate_limit_per_minute > 0");
@@ -156,6 +195,7 @@ public sealed class CentreDb(DbContextOptions<CentreDb> options) : DbContext(opt
         property.SetColumnName(System.Text.Json.JsonNamingPolicy.SnakeCaseLower.ConvertName(property.Name));
     b.Entity<Grant>().HasIndex(x => new { x.RightKey, x.SubjectType, x.SubjectId })
         .IsUnique().AreNullsDistinct(false).HasFilter("deleted_at IS NULL");
+    b.Entity<ModelEntry>().Property(x => x.RequestSettingsThinkingOff).HasColumnType("jsonb");
     b.Entity<ModelEntry>().Property(x => x.RequestSettings).HasColumnType("jsonb").HasDefaultValue("{}");
     b.Entity<ModelEntry>().Property(x => x.Title).HasDefaultValue("");
     b.Entity<ModelEntry>().Property(x => x.Priority).HasDefaultValue(100);

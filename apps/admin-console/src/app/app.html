@@ -6,12 +6,14 @@
     <button class="ooh-btn ooh-btn--primary" [disabled]="!ready()" (click)="signIn()">Sign in with company account</button>
   </section></div>
 } @else if (!admin()) {
-  <main><p>This console is for administrators.</p><button class="ooh-btn ooh-btn--secondary" (click)="signOut()">Sign out</button></main>
+  <main><p>This console is for administrators.</p><p>To request access, open the Workspace: <a [href]="workspaceUrl()">{{ workspaceUrl() }}</a></p><button class="ooh-btn ooh-btn--secondary" (click)="signOut()">Sign out</button></main>
 } @else {
   <div class="layout"><nav class="ooh-nav" aria-label="Admin Console"><div class="ooh-nav__brand">Open Office Harness<span>Admin Console</span></div>
-    <a class="ooh-nav__item" href="/" aria-current="page">Models &amp; tiers</a>
+    <a class="ooh-nav__item" href="/" [attr.aria-current]="screen() === 'models' ? 'page' : null" (click)="$event.preventDefault(); screen.set('models')">Models &amp; tiers</a>
+    <a class="ooh-nav__item" href="#access-requests" [attr.aria-current]="screen() === 'access' ? 'page' : null" (click)="$event.preventDefault(); openAccessRequests()">Access requests @if (pendingCount() > 0) {<span class="ooh-nav__count">{{ pendingCount() }}</span>}</a>
     <button class="ooh-btn ooh-btn--ghost" (click)="signOut()">Sign out</button>
   </nav><main>
+    @if (screen() === 'models') {
     <header><div><span class="ooh-label">Model gateway</span><h1>Models &amp; tiers</h1><p>Choose which model serves each purpose, on-prem or cloud.</p></div><button class="ooh-btn ooh-btn--primary" (click)="edit()">Add model</button></header>
     <div class="cards">@for (group of groups(); track group) {<section class="card"><span class="ooh-label">{{ group }}</span>@for (m of groupModels(group); track m.model_entry_id) {<p>{{ m.title || m.model_id }} <span class="ooh-mono">{{ m.role }} · order {{ m.priority }} · {{ m.has_key ? 'key saved' : 'no key' }}</span></p>}</section>}</div>
     <div class="ooh-table-wrap"><table class="ooh-table"><thead><tr><th>Purpose · tier</th><th>Main</th><th>Backup</th><th>Where</th><th>Rate limit</th><th>Cost today</th><th>Actions</th></tr></thead><tbody>
@@ -19,7 +21,7 @@
     </tbody></table></div>
     @for (tier of tiers(); track tier) {<section class="card tier-access"><h2>Tier {{ tier }} · Who may use this tier</h2>@if (!tierModels(tier).length) {<p>No model yet</p>}
       <label class="ooh-field"><span class="ooh-label">Everyone</span><input type="checkbox" [checked]="everyone(tier)" [disabled]="busy()" (change)="toggleEveryone(tier)"></label>
-      <form class="person-form" (ngSubmit)="addPerson(tier)"><label class="ooh-field"><span class="ooh-label">Add person by user ID</span><input class="ooh-input" [name]="'person-' + tier" [(ngModel)]="people[tier]" required></label><button class="ooh-btn ooh-btn--secondary" [disabled]="busy()">Add person</button></form>
+      <form class="person-form" (ngSubmit)="addPerson(tier)"><label class="ooh-field"><span class="ooh-label">Add person by user ID</span><input class="ooh-input" [name]="'person-' + tier" [(ngModel)]="people[tier]" required></label><button class="ooh-btn ooh-btn--secondary" [disabled]="busy()">Add person</button><p class="ooh-help">Adding a person also approves their access.</p></form>
       @for (g of tierGrants(tier); track g.id) { @if (g.subject_type === 'user') {<p class="ooh-mono grant-row">{{ g.subject_id }} <button class="ooh-btn ooh-btn--danger ooh-btn--sm" [disabled]="busy()" (click)="removeGrant(g)">Remove access</button></p>}}
     </section>}
     @if (editing(); as m) {<section class="card"><h2>{{ m.model_entry_id ? 'Edit model' : 'Add model' }}</h2><form #modelForm="ngForm" (ngSubmit)="save()" class="model-form">
@@ -40,8 +42,30 @@
       <label class="ooh-field"><span class="ooh-label">Output price / million tokens USD</span><input class="ooh-input" type="number" name="outputPrice" [(ngModel)]="m.output_price_per_million" required min="0" step="0.000001"></label>
       <label class="ooh-field"><span class="ooh-label">Time limit seconds</span><input class="ooh-input" type="number" name="timeout" [(ngModel)]="m.timeout_seconds" required min="10" max="900" step="1"></label>
       <label class="ooh-field wide"><span class="ooh-label">Extra request settings (JSON object)</span><textarea class="ooh-textarea" name="settings" [(ngModel)]="settings" required rows="6"></textarea></label>
+      <label class="ooh-field wide"><span class="ooh-label">Settings when thinking is off (JSON object)</span><textarea class="ooh-textarea" name="thinkingOff" [(ngModel)]="thinkingOff" rows="6"></textarea><span class="ooh-help">Leave blank when this model has no thinking-off setting. Must be a JSON object when set.</span></label>
       <div class="wide form-actions"><button class="ooh-btn ooh-btn--primary" [disabled]="busy() || modelForm.invalid">{{ busy() ? 'Saving…' : 'Save model' }}</button><button type="button" class="ooh-btn ooh-btn--ghost" (click)="editing.set(null); key = ''">Cancel</button></div>
     </form></section>}
+    } @else {
+      <header><div><span class="ooh-label">Workspace access</span><h1>Access requests</h1><p>Approve a tier, reject a request, or revoke access. Email addresses are not verified.</p></div></header>
+      <label class="ooh-field"><span class="ooh-label">Show requests</span><select class="ooh-select" aria-label="Show requests" [ngModel]="accessFilter()" (ngModelChange)="accessFilter.set($event); loadAccessRequests()"><option value="pending">Waiting</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label>
+      <div class="ooh-table-wrap"><table class="ooh-table"><thead><tr><th>Name</th><th>Email</th><th>Organisation</th><th>Reason</th><th>Requested at (UTC)</th><th>Actions</th></tr></thead><tbody>
+        @for (row of accessRequests(); track row.id) {<tr><td>{{ row.name || '—' }}</td><td>{{ row.email || '—' }} <span class="ooh-help">not verified</span></td><td>{{ row.organisation || '—' }}</td><td class="access-reason">{{ row.reason || '—' }}</td><td class="ooh-mono">{{ row.requested_at }}</td><td><div class="form-actions">
+          @if (row.status !== 'approved') {
+            <label class="ooh-field"><span class="ooh-label">Chat tier</span><select class="ooh-select" aria-label="Chat tier" [name]="'approve-tier-' + row.id" [(ngModel)]="selectedTiers[row.id]" [disabled]="accessBusy()"><option [ngValue]="undefined">Choose a tier</option>@for (tier of tiers(); track tier) {<option [ngValue]="tier">Tier {{ tier }}</option>}</select></label>
+            <button class="ooh-btn ooh-btn--primary ooh-btn--sm" [disabled]="accessBusy() || !selectedTiers[row.id]" (click)="decideAccess(row, 'approve')">Approve</button>
+          }
+          @if (row.status === 'pending') {<button class="ooh-btn ooh-btn--danger ooh-btn--sm" [disabled]="accessBusy()" (click)="decideAccess(row, 'reject')">Reject</button>}
+          @if (row.status === 'approved') {<button class="ooh-btn ooh-btn--danger ooh-btn--sm" [disabled]="accessBusy()" (click)="decideAccess(row, 'revoke')">Revoke</button>}
+        </div></td></tr>}
+      </tbody></table></div>
+      @if (!accessRequests().length) {<p>No requests in this view.</p>}
+      <h2>Model requests</h2>
+      <div class="ooh-table-wrap"><table class="ooh-table"><thead><tr><th>Name</th><th>Email</th><th>Chat model</th><th>Reason</th><th>Requested at (UTC)</th><th>Actions</th></tr></thead><tbody>
+        @for (row of tierRequests(); track row.id) {<tr><td>{{ row.name }}</td><td>{{ row.email }} <span class="ooh-help">not verified</span></td><td>{{ row.title || 'No model yet' }} - Tier {{ row.tier }}</td><td class="access-reason">{{ row.reason || '—' }}</td><td class="ooh-mono">{{ row.requested_at }}</td><td>@if (row.status === 'pending') {<div class="form-actions"><button class="ooh-btn ooh-btn--primary ooh-btn--sm" [disabled]="accessBusy()" (click)="decideTier(row, 'approve')">Approve</button><button class="ooh-btn ooh-btn--danger ooh-btn--sm" [disabled]="accessBusy()" (click)="decideTier(row, 'reject')">Reject</button></div>}</td></tr>}
+      </tbody></table></div>
+      @if (!tierRequests().length) {<p>No model requests in this view.</p>}
+
+    }
   </main></div>
 }
 @if (error()) {<p class="error" role="alert">{{ error() }}</p>}

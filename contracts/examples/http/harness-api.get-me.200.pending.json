@@ -1,0 +1,10 @@
+{
+  "user_id": "example-user",
+  "name": "Example user",
+  "chat_tiers": [],
+  "skills": [],
+  "access": "pending",
+  "chat_tier_titles": {},
+  "chat_tier_thinking_switch": {},
+  "requestable_tiers": []
+}

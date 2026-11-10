@@ -1,0 +1,10 @@
+{
+  "chat_tiers": [
+    1
+  ],
+  "chat_tier_titles": {},
+  "skills": [],
+  "image": false,
+  "chat_tier_thinking_switch": {},
+  "requestable_tiers": []
+}

@@ -13,7 +13,14 @@ import psycopg
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+)
 from starlette.exceptions import HTTPException
 from starlette.types import Receive, Scope, Send
 
@@ -25,6 +32,8 @@ from .errors import ApiError, gateway_error
 from .store import Store
 from .upstream import GatewayStream, Upstream
 
+TITLE_TIMEOUT_SECONDS = 20
+
 
 class Empty(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -33,6 +42,7 @@ class Empty(BaseModel):
 class Message(Empty):
     content: str = Field(min_length=1)
     tier: Annotated[StrictInt, Field(gt=0)] | None = None
+    thinking: StrictBool = True
 
     @field_validator("content")
     @classmethod
@@ -40,6 +50,11 @@ class Message(Empty):
         if not value.strip():
             raise ValueError("Content must not be blank")
         return value
+
+
+class TierRequest(Empty):
+    tier: Annotated[StrictInt, Field(gt=0)]
+    reason: str | None = Field(default=None, max_length=300)
 
 
 class Page(Empty):
@@ -97,7 +112,16 @@ def create_app(
     async def api_error(request: Request, error: ApiError) -> JSONResponse:
         if error.code == "unauthorized":
             event = "authentication_error"
-        elif error.code in {"rights_unavailable", "tier_not_allowed", "no_tier"}:
+        elif error.code in {
+            "rights_unavailable",
+            "tier_not_allowed",
+            "no_tier",
+            "not_approved",
+            "tier_not_requestable",
+            "already_requested",
+            "too_soon",
+            "too_many_requests",
+        }:
             event = "rights_error"
         elif error.code in {
             "no_model",
@@ -167,14 +191,28 @@ def create_app(
     @app.get("/api/me")
     async def me(request: Request, claims: User) -> dict[str, Any]:
         query(request)
-        tiers, skills = await upstream.permissions(claims["sub"])
+        access = await upstream.observe(claims)
+        rights, skills = await upstream.permissions(claims["sub"])
         name = claims.get("name", "")
         return {
             "user_id": claims["sub"],
+            "access": access,
             "name": name if isinstance(name, str) else "",
-            "chat_tiers": tiers,
+            "chat_tiers": rights.chat_tiers,
+            "chat_tier_titles": rights.chat_tier_titles,
+            "chat_tier_thinking_switch": rights.chat_tier_thinking_switch,
+            "requestable_tiers": [
+                entry.model_dump() for entry in rights.requestable_tiers
+            ],
             "skills": [{"name": skill.name, "title": skill.title} for skill in skills],
         }
+
+    @app.post("/api/tier-requests", status_code=201)
+    async def request_tier(
+        request: Request, body: TierRequest, claims: User
+    ) -> dict[str, Any]:
+        query(request)
+        return await upstream.request_tier(claims["sub"], body.tier, body.reason)
 
     @app.post("/api/conversations", status_code=201)
     async def create(request: Request, claims: User, body: Empty) -> dict[str, UUID]:
@@ -194,6 +232,36 @@ def create_app(
     async def conversation(request: Request, id: UUID, claims: User) -> dict[str, Any]:
         query(request)
         return await database.conversation(id, claims["sub"])
+
+    async def make_title(
+        identifier: UUID, user_id: str, message_id: UUID, tier: int
+    ) -> str | None:
+        try:
+            with anyio.fail_after(TITLE_TIMEOUT_SECONDS):
+                source = await database.title_source(identifier, user_id, message_id)
+                if source is None:
+                    return None
+                await upstream.check(user_id, tier)
+                title = await upstream.title(
+                    user_id, tier, source["question"], source["answer"]
+                )
+                if not await database.set_title(
+                    identifier, user_id, title, source["question"][:60]
+                ):
+                    return None
+                return title
+        except ApiError as error:
+            record_failure("title_failed", error.code)
+        except (
+            httpx.HTTPError,
+            ValueError,
+            KeyError,
+            TypeError,
+            psycopg.Error,
+            TimeoutError,
+        ):
+            record_failure("title_failed", "unavailable")
+        return None
 
     async def browser_stream(
         stream: GatewayStream,
@@ -251,8 +319,18 @@ def create_app(
                                 "model_title": event["model_title"],
                                 "usage": event["usage"],
                                 "note": note,
+                                "thinking_applied": event["thinking_applied"],
                             }
                         )
+                        title = await make_title(identifier, user_id, message_id, tier)
+                        if title is not None:
+                            yield data(
+                                {
+                                    "type": "title",
+                                    "conversation_id": str(identifier),
+                                    "title": title,
+                                }
+                            )
                         return
                     case "failed":
                         raise gateway_error(event["error"]["code"], tier)
@@ -306,7 +384,8 @@ def create_app(
         query(request)
         user_id = claims["sub"]
         await database.conversation(id, user_id)
-        tiers, skills = await upstream.permissions(user_id)
+        rights, skills = await upstream.permissions(user_id)
+        tiers = rights.chat_tiers
         if body.tier is None and not tiers:
             raise ApiError(
                 403, "no_tier", "You have no chat tier yet. An admin can grant one."
@@ -326,7 +405,9 @@ def create_app(
         stream = None
         try:
             try:
-                stream = await upstream.open(user_id, tier, history, tools)
+                stream = await upstream.open(
+                    user_id, tier, history, tools, body.thinking
+                )
             except ApiError as error:
                 lower = [value for value in tiers if value < tier]
                 if error.code != "budget_exceeded" or not lower:
@@ -339,7 +420,9 @@ def create_app(
                     f"tier {original} is over its daily budget; "
                     f"answered with tier {tier}"
                 )
-                stream = await upstream.open(user_id, tier, history, tools)
+                stream = await upstream.open(
+                    user_id, tier, history, tools, body.thinking
+                )
             first = await anext(stream.events)
             if first["type"] == "failed":
                 raise gateway_error(first["error"]["code"], tier)

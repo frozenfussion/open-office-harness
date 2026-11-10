@@ -10,3 +10,5 @@ data:
   HA_CLIENT_ID: ooh-harness-api
   HA_CONTROL_CENTRE_URL: http://control-centre.${APPS_NAMESPACE}.svc:8080
   HA_GATEWAY_URL: http://model-gateway.${APPS_NAMESPACE}.svc:8080
+  HA_SYSTEM_PROMPT: >-
+    You are the assistant in Open Office Harness. Always reply in the same language as the user's latest message.

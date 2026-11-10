@@ -1,8 +1,7 @@
 # Identity contract v1
 
 Issuer: https://auth.faysalaziz.com/realms/ooh. Realm: `ooh`.
-Realm roles: `ooh-admin`, `ooh-user`. Self-registration is off; later sign-ups
-use approvals. Brute-force protection is on. Access tokens last five minutes.
+Realm roles: `ooh-admin`, `ooh-user`. Self-registration is on; a newcomer waits for approval. Brute-force protection is on. Access tokens last five minutes.
 
 | Client | Type | Use |
 |---|---|---|
@@ -35,7 +34,7 @@ be refused even if its issuer and signature are valid.
 
 | Service account | HTTP rights |
 |---|---|
-| ooh-harness-api | Control Centre rights checks, rights lists and allowed skill manifests; Gateway purpose calls and classification, on behalf of the user |
+| ooh-harness-api | Control Centre POST /api/access/observe with the exact verified user sub, bounded profile fields and is_admin from verified access-token realm roles; rights checks, rights lists and allowed skill manifests; Gateway purpose calls and classification, on behalf of the user |
 | ooh-control-centre | Its Control Centre operations subject to fixed policy; Gateway /v1/call only for a pinned, non-streamed connection test with the fixed OK message, no tools, and admin-test- user ID; aud ooh-model-gateway |
 | ooh-model-gateway | Control Centre GET /api/models and GET /api/models/{id}/key on internal port 8081 only; provider keys encrypted in the Control Centre; no rights grants or skill jobs |
 
@@ -90,3 +89,15 @@ This supports Aziz's browser sign-in during installation checks. Access and refr
 tokens remain in shell variables and reach HTTP tools on standard input, never
 on a command line or in a saved file. The check refreshes before each admin call.
 Stage 3 disables device sign-in again when the Admin Console is available.
+
+Workspace rights require an approved Control Centre access row. Pending, rejected, closed or unknown people receive no grants, including Everyone. Realm administrators are approved automatically when observed; adding a user grant also approves access. Registration and admission are separate: passwords remain in Keycloak, never in the Control Centre. Device sign-in remains enabled until Stage 3 as above.
+
+Only the `ooh-harness-api` service account may POST Control Centre
+`/api/tier-requests` on behalf of the signed-in subject. A valid token alone does
+not grant admission: the person's access must be approved and the tier must be
+requestable. The Control Centre enforces the per-person 20-pending cap and
+seven-day retry interval after rejection. Realm administrators alone may list,
+count, approve or reject `/api/admin/tier-requests`; an administrator's token
+cannot submit the Harness-only route. Both decisions fail closed when the
+person's access is no longer approved. Model-request audit detail excludes the
+reason and profile fields; request text is never logged.

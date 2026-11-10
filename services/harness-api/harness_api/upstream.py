@@ -12,10 +12,37 @@ from .auth import Auth
 from .config import Settings
 from .errors import ApiError, gateway_error
 
+TITLE_PROMPT = (
+    "Write a short title (3 to 6 words) for this conversation. "
+    "Reply with the title only, no quotes, no full stop."
+)
+
+
+class TitleContent(BaseModel):
+    content: str
+
+
+class AccessStatus(BaseModel):
+    status: Literal["approved", "pending", "rejected", "closed"]
+
+
+class RequestableTier(BaseModel):
+    tier: Annotated[StrictInt, Field(gt=0)]
+    title: str
+    requested: Literal["pending", "rejected"] | None
+
+
+class TierRequestResult(BaseModel):
+    id: UUID
+    status: Literal["pending"]
+
 
 class Rights(BaseModel):
     chat_tiers: list[Annotated[StrictInt, Field(gt=0)]]
     skills: list[str]
+    chat_tier_titles: dict[str, str] = Field(default_factory=dict)
+    chat_tier_thinking_switch: dict[str, StrictBool] = Field(default_factory=dict)
+    requestable_tiers: list[RequestableTier] = Field(default_factory=list)
 
 
 class Skill(BaseModel):
@@ -52,6 +79,7 @@ class Completed(BaseModel):
     model_title: str
     tier: Annotated[StrictInt, Field(gt=0)]
     usage: Usage
+    thinking_applied: StrictBool
 
 
 class ErrorBody(BaseModel):
@@ -112,7 +140,31 @@ class Upstream:
     async def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {await self.auth.service_token()}"}
 
-    async def permissions(self, user: str) -> tuple[list[int], list[Skill]]:
+    async def observe(self, claims: dict[str, Any]) -> str:
+        body: dict[str, Any] = {"user_id": claims["sub"]}
+        for field, limit in (
+            ("name", 200),
+            ("email", 320),
+            ("organisation", 100),
+            ("access_reason", 300),
+        ):
+            value = claims.get(field)
+            body[field] = value.strip()[:limit] if isinstance(value, str) else None
+        realm = claims.get("realm_access")
+        roles = realm.get("roles") if isinstance(realm, dict) else None
+        body["is_admin"] = isinstance(roles, list) and "ooh-admin" in roles
+        try:
+            response = await self.client.post(
+                f"{self.settings.control_centre}/api/access/observe",
+                headers=await self.headers(),
+                json=body,
+            )
+            response.raise_for_status()
+            return AccessStatus.model_validate(response.json()).status
+        except httpx.HTTPError, ValueError, KeyError, TypeError:
+            raise self.rights_error() from None
+
+    async def permissions(self, user: str) -> tuple[Rights, list[Skill]]:
         try:
             headers = await self.headers()
             rights = await self.client.get(
@@ -133,7 +185,8 @@ class Upstream:
                 for skill in SKILLS.validate_python(skills.json())
                 if skill.name in body.skills
             ]
-            return sorted(set(body.chat_tiers)), allowed
+            body.chat_tiers = sorted(set(body.chat_tiers))
+            return body, allowed
         except httpx.HTTPError, ValueError, KeyError, TypeError:
             raise self.rights_error() from None
 
@@ -177,12 +230,93 @@ class Upstream:
             )
         return tools
 
+    async def request_tier(
+        self, user: str, tier: int, reason: str | None
+    ) -> dict[str, Any]:
+        try:
+            response = await self.client.post(
+                f"{self.settings.control_centre}/api/tier-requests",
+                headers=await self.headers(),
+                json={"user_id": user, "tier": tier, "reason": reason},
+            )
+            if response.status_code == 201:
+                return TierRequestResult.model_validate(response.json()).model_dump(
+                    mode="json"
+                )
+            errors = {
+                (
+                    403,
+                    "not_approved",
+                ): "Your access must be approved before requesting a model.",
+                (400, "tier_not_requestable"): "This tier cannot be requested.",
+                (409, "already_requested"): "You have already requested this tier.",
+                (409, "too_soon"): (
+                    "You can ask for this model again 7 days after the last answer."
+                ),
+                (
+                    429,
+                    "too_many_requests",
+                ): "You already have 20 pending model requests.",
+            }
+            body = response.json()
+            code = body.get("code") if isinstance(body, dict) else None
+            if not isinstance(code, str) or (response.status_code, code) not in errors:
+                raise ValueError("Unexpected tier request response")
+            raise ApiError(
+                response.status_code, code, errors[(response.status_code, code)]
+            )
+        except httpx.HTTPError, ValueError, KeyError, TypeError:
+            raise self.rights_error() from None
+
+    async def title(self, user: str, tier: int, question: str, answer: str) -> str:
+        response = await self.client.post(
+            f"{self.settings.gateway}/v1/call",
+            headers=await self.headers(),
+            json={
+                "purpose": "chat",
+                "tier": tier,
+                "user_id": f"title-{user}",
+                "messages": [
+                    {"role": "system", "content": TITLE_PROMPT},
+                    {"role": "user", "content": question[:2000]},
+                    {"role": "assistant", "content": answer[:2000]},
+                ],
+                "tools": [],
+                "stream": False,
+            },
+            timeout=httpx.Timeout(20),
+        )
+        if response.status_code != 200:
+            body = response.json()
+            code = (
+                body.get("code", "unavailable")
+                if isinstance(body, dict)
+                else "unavailable"
+            )
+            if not isinstance(code, str):
+                code = "unavailable"
+            raise ApiError(response.status_code, code, "Title could not be made.")
+        content = TitleContent.model_validate(response.json()).content
+        title = (
+            content.strip()
+            .strip("\"'“”‘’")
+            .strip()
+            .removesuffix(".")
+            .strip()
+            .strip("\"'“”‘’")
+            .strip()[:60]
+        )
+        if not title:
+            raise ValueError("Empty title")
+        return title
+
     async def open(
         self,
         user: str,
         tier: int,
         messages: list[dict[str, str]],
         tools: list[dict[str, Any]],
+        thinking: bool = True,
     ) -> GatewayStream:
         response = None
         try:
@@ -194,9 +328,15 @@ class Upstream:
                     "purpose": "chat",
                     "tier": tier,
                     "user_id": user,
-                    "messages": messages,
+                    "messages": (
+                        [{"role": "system", "content": self.settings.system_prompt}]
+                        if self.settings.system_prompt
+                        else []
+                    )
+                    + messages,
                     "tools": tools,
                     "stream": True,
+                    "thinking": thinking,
                 },
                 timeout=httpx.Timeout(10, read=910),
             )
