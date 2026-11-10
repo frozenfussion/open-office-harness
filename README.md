@@ -1,5 +1,177 @@
 # QUICK GUIDE
 
+## Stage 2 — Talk to AI
+
+Claude runs the non-sudo deploy and live-check commands in the Shell tile while
+Aziz watches. No command here asks for a terminal password. Aziz keeps browser
+sign-ins, package visibility changes, sudo and stage acceptance. Before this
+stage, complete the Stage 0 platform and Stage 1 Control Centre setup below.
+The existing Control Centre test database is reused.
+
+1. **Check images and make the four new packages public.** On GitHub, wait for
+   green image workflows for Gateway, Harness, Workspace and Admin Console.
+   Each tag is the image commit's first 12 characters. A merged commit needs all
+   four images; run a workflow on demand for `stage-2` if its path filter did
+   not start it. Claude opens each package's settings in a new tab in Aziz's
+   PC browser; Aziz clicks **Change visibility → Public**:
+   [Gateway](https://github.com/users/frozenfussion/packages/container/ooh-model-gateway/settings),
+   [Harness](https://github.com/users/frozenfussion/packages/container/ooh-harness-api/settings),
+   [Workspace](https://github.com/users/frozenfussion/packages/container/ooh-workspace/settings),
+   [Admin Console](https://github.com/users/frozenfussion/packages/container/ooh-admin-console/settings).
+   Do this before deploying the Gateway. Control Centre stays public as before.
+
+2. **Set up keys.** Type this in your harness terminal, Shell tile, plain shell.
+   Claude runs it while Aziz watches. No password. This creates the encryption
+   Secret once; good result: `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/63-control-centre-keys.sh
+   ```
+
+3. **Deploy the Control Centre.** Type this in your harness terminal, Shell tile,
+   plain shell. No password. Replace `MERGED_IMAGE_TAG` with the image commit's
+   first 12 characters in each deploy step. This upgrades the registry and its
+   database; good result: Ready, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/61-control-centre-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+4. **Set up the Gateway.** Type this in your harness terminal, Shell tile, plain
+   shell. No password. This prepares its roles, databases and secrets; good
+   result: private test settings saved, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/64-model-gateway-setup.sh
+   ```
+
+5. **Deploy the Gateway.** Type this in your harness terminal, Shell tile, plain
+   shell. No password. This runs migrations and starts the internal Gateway;
+   good result: Ready, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/65-model-gateway-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+6. **Set up the Harness.** Type this in your harness terminal, Shell tile, plain
+   shell. No password. This prepares its roles, databases and secrets; good
+   result: private test settings saved, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/66-harness-api-setup.sh
+   ```
+
+7. **Deploy the Harness.** Type this in your harness terminal, Shell tile, plain
+   shell. No password. This runs migrations and replaces the API placeholder;
+   good result: Ready, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/67-harness-api-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+8. **Deploy Workspace.** Type this in your harness terminal, Shell tile, plain
+   shell. No password. This replaces the chat page placeholder; good result:
+   the intended running image, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/68-workspace-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+9. **Deploy Admin Console.** Type this in your harness terminal, Shell tile,
+   plain shell. No password. This replaces the admin placeholder and removes
+   its leftover placeholder settings; good result: Ready, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/69-admin-console-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+10. **Update sign-out settings.** Type this in your harness terminal, Shell tile,
+    plain shell. No password. This updates existing Keycloak clients, including
+    logout redirects; it never creates a client. Good result: synced clients,
+    then `DONE`. It may run any time after merge, before browser tests.
+
+    ```bash
+    cd ~/projects/worktrees/stage-2
+    install/35-realm-sync.sh
+    ```
+
+11. **Add models in the browser.** Open <https://admin.faysalaziz.com>, sign in
+    with your administrator account password, choose **Add model**, then enter
+    a title, purpose, chat tier, main/backup role, order, location, connection
+    type, endpoint and the model ID supplied by your provider. These are example
+    addresses for the form only; no model name or endpoint is compiled into an app.
+
+    | Connection | Example endpoint | Example model ID |
+    |---|---|---|
+    | OpenAI Responses (`openai_responses`) | `https://api.openai.com/v1` | `<your-model-id>` |
+    | Anthropic Messages (`anthropic_messages`) | `https://api.anthropic.com` | `<your-model-id>` |
+    | DeepSeek via chat completions (`openai_chat_completions`) | `https://api.deepseek.com` | `<your-model-id>` |
+    | DeepSeek via Messages (`anthropic_messages`) | `https://api.deepseek.com/anthropic` | `<your-model-id>` |
+    | On-prem via chat completions (`openai_chat_completions`) | `http://<host>:8000/v1` | `<your-model-id>` |
+
+    Type the provider key once. Save; the list says only whether a key is saved,
+    and an edit form never fills it back in. Changing its endpoint or connection
+    type clears the saved key unless a replacement is typed in the same save.
+    Set rate limit per user, daily budget (0 = no limit), input/output prices per
+    million tokens in USD and the time limit. Extra request settings must be a
+    JSON object; a null value removes a provider field. `temperature`, `top_p`
+    and `top_k` may be refused by newer Anthropic versions. At least one keyed
+    chat entry per connection type is needed for the full browser acceptance test.
+    There is no Test connection button until Stage 3.
+
+12. **Give people a tier.** On that tier's **Who may use this tier** row, switch
+    **Everyone** on, or enter the person's user ID and add them. They can copy
+    their ID from Workspace's **About me** line under their name. In Workspace,
+    sign in, choose an allowed tier, ask a question and check streaming, token
+    counts and conversation reload. Names and email in the Control Centre arrive
+    in Stage 3; use IDs for individual grants now.
+
+13. **Run the live check.** Type this in your harness terminal, Shell tile,
+    plain shell. Claude runs it while Aziz watches. No password or device
+    sign-in. It checks all keyed entries in chat tiers 1–20, public restrictions,
+    usage rows and logs. **Each run makes one short paid call per entry with a
+    key, plus one streamed paid call per connection type in use.** Keep tier 98
+    empty for the no-model check. Good result: every line `PASS`, then `DONE`.
+
+    ```bash
+    cd ~/projects/worktrees/stage-2
+    install/70-check-stage-2.sh
+    ```
+
+14. **Everyday work and builder checks.** Each guide below gives exact commands
+    for logs, restart, running images, setup, tests and every STOP/FAIL message.
+    Use the merged worktree until acceptance, then `~/projects/open-office-harness`.
+    Do not stop databases or the platform to stop an app.
+
+    - [Gateway guide](services/model-gateway/README.md): Python checks and Gateway operations.
+    - [Harness guide](services/harness-api/README.md): Python checks and Harness operations.
+    - [Workspace guide](apps/workspace/README.md): `npm ci`, Angular build/tests, chat operations and all stage-check messages.
+    - [Admin Console guide](apps/admin-console/README.md): Angular build/tests, models, keys and grants.
+    - [Control Centre guide](services/control-centre/README.md): registry, encryption key recovery and private backup.
+
+15. **After a reboot.** k3s starts everything automatically. Wait five minutes.
+    Type this in your harness terminal, Shell tile, plain shell. Claude runs it
+    while Aziz watches. No terminal password; the Control Centre check asks for
+    browser administrator sign-in. This repeats platform, policy and chat checks;
+    good result: all `PASS`, each ending with `DONE`. The paid-call note above
+    applies again. Then check browser chat. Only Aziz runs the reboot itself,
+    using the Stage 0 reboot instructions below.
+
+    ```bash
+    cd ~/projects/worktrees/stage-2
+    install/40-check-platform.sh
+    install/62-check-control-centre.sh
+    install/70-check-stage-2.sh
+    ```
+
 ## Stage 1 — Control Centre
 
 Only Aziz runs the deployment and live-check scripts. Use the Shell tile, plain
