@@ -52,6 +52,7 @@ async def run(
             result = json.loads(await response.aread())
             if result.get("status") in {"failed", "incomplete"}:
                 raise ProviderError()
+            thinking_seen = False
             for item in result["output"]:
                 if item["type"] == "message":
                     for content in item.get("content", []):
@@ -60,7 +61,10 @@ async def run(
                 elif item["type"] == "reasoning" and summary_requested:
                     for summary in item.get("summary", []):
                         if isinstance(summary.get("text"), str) and summary["text"]:
+                            if thinking_seen:
+                                yield {"type": "thinking", "text": "\n\n"}
                             yield {"type": "thinking", "text": summary["text"]}
+                            thinking_seen = True
                 elif item["type"] == "function_call":
                     yield tool_event(
                         {
@@ -78,15 +82,23 @@ async def run(
             }
             return
         tools: dict[str, dict[str, str]] = {}
+        thinking_seen = False
+        new_part = False
         async for event in sse(response):
             kind = event.get("type")
             if kind in {"response.failed", "response.incomplete", "error"}:
                 raise ProviderError()
             if kind == "response.output_text.delta" and event["delta"]:
                 yield {"type": "delta", "text": event["delta"]}
+            elif kind == "response.reasoning_summary_part.added" and summary_requested:
+                new_part = thinking_seen
             elif kind == "response.reasoning_summary_text.delta" and summary_requested:
                 if isinstance(event.get("delta"), str) and event["delta"]:
+                    if new_part:
+                        yield {"type": "thinking", "text": "\n\n"}
                     yield {"type": "thinking", "text": event["delta"]}
+                    thinking_seen = True
+                    new_part = False
             elif (
                 kind == "response.output_item.added"
                 and event["item"]["type"] == "function_call"

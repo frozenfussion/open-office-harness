@@ -1104,7 +1104,12 @@ def test_http_visible_thinking_separate_from_answer_and_logs(
         assert events[-1]["usage"] == {"input_tokens": 8, "output_tokens": 3}
     else:
         assert (
-            result.json()["thinking"] == "Consider this"
+            result.json()["thinking"]
+            == (
+                "Consider this"
+                if kind == "openai_chat_completions"
+                else "Consider \n\nthis"
+            )
             and result.json()["content"] == "Hello world"
         )
         assert result.json()["usage"] == {"input_tokens": 8, "output_tokens": 3}
@@ -1253,3 +1258,156 @@ def test_failure_after_thinking_keeps_streamed_thinking_without_failover(
     assert "retained-thinking" not in repr(client.app.state.db.rows)
     captured = repr([record.__dict__ for record in caplog.records])
     assert "retained-thinking" not in captured and "private-" not in captured
+
+
+@pytest.mark.parametrize(
+    "kind,path",
+    [("openai_responses", "/responses"), ("anthropic_messages", "/v1/messages")],
+)
+@pytest.mark.parametrize("stream", [False, True])
+def test_multiple_thinking_parts_keep_paragraph_breaks(
+    http: tuple, entry: Entry, kind: str, path: str, stream: bool
+) -> None:
+    client, key = http
+    client.app.state.engine.registry = FakeRegistry(
+        [
+            entry.model_copy(
+                update={
+                    "api_type": kind,
+                    "request_settings": {"reasoning": {"summary": "auto"}},
+                }
+            )
+        ]
+    )
+    if kind == "openai_responses":
+        result = {
+            "output": [
+                {
+                    "type": "reasoning",
+                    "summary": [
+                        {"text": "First part."},
+                        {"text": ""},
+                        {"text": "Next part."},
+                    ],
+                    "encrypted_content": "private-encrypted",
+                },
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "Answer"}],
+                },
+            ],
+            "usage": {"input_tokens": 8, "output_tokens": 3},
+        }
+        events = [
+            {"type": "response.reasoning_summary_part.added", "summary_index": 0},
+            {
+                "type": "response.reasoning_summary_text.delta",
+                "summary_index": 0,
+                "delta": "First ",
+            },
+            {
+                "type": "response.reasoning_summary_text.delta",
+                "summary_index": 0,
+                "delta": "part.",
+            },
+            {"type": "response.reasoning_summary_part.added", "summary_index": 1},
+            {
+                "type": "response.reasoning_summary_text.delta",
+                "summary_index": 1,
+                "delta": "",
+            },
+            {"type": "response.reasoning_summary_part.added", "summary_index": 2},
+            {
+                "type": "response.reasoning_summary_text.delta",
+                "summary_index": 2,
+                "delta": "Next ",
+            },
+            {
+                "type": "response.reasoning_summary_text.delta",
+                "summary_index": 2,
+                "delta": "part.",
+            },
+            {"type": "response.output_text.delta", "delta": "Answer"},
+            {
+                "type": "response.completed",
+                "response": {"usage": {"input_tokens": 8, "output_tokens": 3}},
+            },
+        ]
+    else:
+        result = {
+            "content": [
+                {"type": "thinking", "thinking": "First part."},
+                {"type": "thinking", "thinking": ""},
+                {"type": "thinking", "thinking": "Next part."},
+                {"type": "text", "text": "Answer"},
+            ],
+            "usage": {"input_tokens": 8, "output_tokens": 3},
+        }
+        events = [
+            {"type": "message_start", "message": {"usage": {"input_tokens": 8}}},
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking", "thinking": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "First "},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "part."},
+            },
+            {
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": {"type": "thinking", "thinking": ""},
+            },
+            {
+                "type": "content_block_start",
+                "index": 2,
+                "content_block": {"type": "thinking", "thinking": "Next "},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 2,
+                "delta": {"type": "thinking_delta", "thinking": "part."},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 3,
+                "delta": {"type": "text_delta", "text": "Answer"},
+            },
+            {"type": "message_delta", "usage": {"output_tokens": 3}},
+            {"type": "message_stop"},
+        ]
+    provider = (
+        httpx.Response(
+            200, text="".join("data: " + json.dumps(event) + "\n\n" for event in events)
+        )
+        if stream
+        else httpx.Response(200, json=result)
+    )
+    with respx.mock as mock:
+        mock.post("https://example.invalid" + path).mock(return_value=provider)
+        response = client.post(
+            "/v1/call",
+            json=connection_body(entry) | {"stream": stream},
+            headers={"Authorization": "Bearer " + token(key)},
+        )
+    assert response.status_code == 200
+    if stream:
+        output = [
+            json.loads(line[6:])
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        thinking = [event["text"] for event in output if event["type"] == "thinking"]
+        assert thinking == ["First ", "part.", "\n\n", "Next ", "part."]
+        assert output[-1]["type"] == "completed"
+        assert "".join(thinking) == "First part.\n\nNext part."
+    else:
+        assert response.json()["thinking"] == "First part.\n\nNext part."
+        assert response.json()["content"] == "Answer"

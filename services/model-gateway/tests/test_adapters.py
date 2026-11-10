@@ -671,9 +671,12 @@ async def test_visible_thinking_events_and_private_blocks(
         body = json.loads(route.calls[0].request.content)
         assert body["thinking"] == {"type": "enabled", "display": "summarized"}
         assert body["reasoning"] == {"summary": "auto"}
-    assert (
-        "".join(event["text"] for event in events if event["type"] == "thinking")
-        == "Consider this"
+    assert "".join(
+        event["text"] for event in events if event["type"] == "thinking"
+    ) == (
+        "Consider \n\nthis"
+        if not stream and kind != "openai_chat_completions"
+        else "Consider this"
     )
     assert (
         "".join(event["text"] for event in events if event["type"] == "delta")
