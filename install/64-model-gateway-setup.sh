@@ -24,7 +24,7 @@ render() {
   done < "$source" > "$target"
 }
 [[ $# == 0 ]] || stop "usage: install/64-model-gateway-setup.sh"
-for tool in kubectl jq openssl base64 mktemp; do
+for tool in kubectl jq openssl base64 mktemp sed; do
   command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"
 done
 kubectl get namespace "$PLATFORM_NAMESPACE" >/dev/null 2>&1 || stop "platform namespace missing; run install/30-platform-apply.sh first"

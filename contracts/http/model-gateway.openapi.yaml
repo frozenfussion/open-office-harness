@@ -40,32 +40,107 @@ paths:
               schema:
                 type: object
                 properties:
-                  content:
+                  content: &id001
                     type: string
-                  tokens:
-                    type: integer
+                  tool_calls:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: *id001
+                        name: *id001
+                        arguments: &id003
+                          type: object
+                          additionalProperties: true
+                      required:
+                      - id
+                      - name
+                      - arguments
+                      additionalProperties: false
+                  model_entry_id: &id004
+                    type: string
+                    format: uuid
+                  model_title: *id001
+                  tier: &id005
+                    type:
+                    - integer
+                    - 'null'
+                    minimum: 1
+                  usage: &id006
+                    type: object
+                    properties:
+                      input_tokens: &id002
+                        type: integer
+                        minimum: 0
+                      output_tokens: *id002
+                    required:
+                    - input_tokens
+                    - output_tokens
+                    additionalProperties: false
+                  cost_usd: &id007
+                    type: number
                     minimum: 0
                 required:
                 - content
-                - tokens
+                - tool_calls
+                - model_entry_id
+                - model_title
+                - tier
+                - usage
+                - cost_usd
                 additionalProperties: false
             text/event-stream:
               schema:
-                type: object
-                properties:
-                  type:
-                    type: string
-                    enum:
-                    - delta
-                    - completed
-                    - failed
-                  text:
-                    type: string
-                  error:
-                    $ref: '#/components/schemas/Error'
-                required:
-                - type
-                additionalProperties: false
+                oneOf:
+                - type: object
+                  properties:
+                    type:
+                      const: delta
+                    text: *id001
+                  required:
+                  - type
+                  - text
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: tool_call
+                    id: *id001
+                    name: *id001
+                    arguments: *id003
+                  required:
+                  - type
+                  - id
+                  - name
+                  - arguments
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: completed
+                    model_entry_id: *id004
+                    model_title: *id001
+                    tier: *id005
+                    usage: *id006
+                    cost_usd: *id007
+                  required:
+                  - type
+                  - model_entry_id
+                  - model_title
+                  - tier
+                  - usage
+                  - cost_usd
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: failed
+                    error: &id008
+                      $ref: '#/components/schemas/Error'
+                  required:
+                  - type
+                  - error
+                  additionalProperties: false
         '400':
           description: Invalid input
           content:
@@ -85,11 +160,21 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '503':
-          description: Unavailable
+          description: budget_exceeded, unavailable or registry_unavailable
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '404':
+          description: 'no_model: no active supported matching entry'
+          content:
+            application/json:
+              schema: *id008
+        '429':
+          description: 'rate_limited: every entry skipped for rate'
+          content:
+            application/json:
+              schema: *id008
       requestBody:
         required: true
         content:
@@ -101,42 +186,80 @@ paths:
                   type: string
                   minLength: 1
                 tier:
-                  type: integer
+                  type:
+                  - integer
+                  - 'null'
                   minimum: 1
                 user_id:
                   type: string
                   minLength: 1
                 messages:
                   type: array
+                  minItems: 1
                   items:
                     type: object
                     properties:
                       role:
-                        type: string
                         enum:
                         - system
                         - user
                         - assistant
-                        - tool
-                      content:
-                        type: string
+                      content: *id001
                     required:
                     - role
                     - content
                     additionalProperties: false
-                attachments:
+                tools:
                   type: array
                   items:
-                    type: string
-                    minLength: 1
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                      description: *id001
+                      input_schema:
+                        type: object
+                        additionalProperties: true
+                    required:
+                    - name
+                    - description
+                    - input_schema
+                    additionalProperties: false
                 stream:
                   type: boolean
+                model_entry_id:
+                  type:
+                  - string
+                  - 'null'
+                  format: uuid
               required:
               - purpose
               - user_id
               - messages
               - stream
               additionalProperties: false
+              allOf:
+              - if:
+                  properties:
+                    purpose:
+                      const: chat
+                then:
+                  required:
+                  - tier
+                  properties:
+                    tier:
+                      type: integer
+                      minimum: 1
+                else:
+                  properties:
+                    tier:
+                      type: 'null'
+      description: 'Only azp ooh-harness-api with audience ooh-model-gateway. Active
+        entries: main before backup, then priority, then created_at. model_entry_id
+        pins one matching entry; rate and budget still apply. Before first output
+        failures may fail over; after output, emit failed. Registry cache 30 seconds;
+        key cache 60 seconds.'
   /v1/classify:
     post:
       operationId: post_v1_classify
@@ -173,7 +296,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '503':
-          description: Unavailable
+          description: 'not_built_yet: Classification arrives in Stage 3'
           content:
             application/json:
               schema:
