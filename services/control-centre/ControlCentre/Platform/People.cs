@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 using Microsoft.EntityFrameworkCore;
+using ControlCentre.Access;
 
 namespace ControlCentre.Platform;
 
@@ -12,9 +13,14 @@ public static class People
     var name = context.User.FindFirst("name")?.Value;
     var now = DateTimeOffset.UtcNow;
     var current = await db.People.AsNoTracking().SingleOrDefaultAsync(x => x.UserId == actor);
-    if (current is not null && current.Email == email && current.Name == name && current.LastSeenAt > now.AddHours(-1)) return;
+    if (current is not null && current.Email == email && current.Name == name && current.LastSeenAt > now.AddHours(-1) && (!Api.Admin(context.User) || await AccessPolicy.Approved(db, actor))) return;
 
     await using var transaction = await db.Database.BeginTransactionAsync();
+    if (Api.Admin(context.User))
+    {
+      await AccessPolicy.Lock(db);
+      await AccessPolicy.Approve(db, actor, actor, "system:admin-role", Api.Correlation(context));
+    }
     var (person, created) = await Ensure(db, actor, actor, Api.Correlation(context), email, name);
     if (!created && (person.Email != email || person.Name != name))
     {

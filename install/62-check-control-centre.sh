@@ -356,6 +356,35 @@ expect_request ooh-harness-api POST /api/rights/check 200 'check removed tier gr
 rc=0
 jq -e '.allowed == false and .decided_by == "no-grant"' <<< "$body" >/dev/null || rc=1
 require "$rc" 'removed tier grant refuses access' 'expected allowed false and no-grant'
+# Share the idempotent unapproved check identity with the stage check.
+pending_user_id='stage-check-access'
+observe_payload="$(jq -cn --arg user "$pending_user_id" '{user_id:$user,is_admin:false,name:null,email:null,organisation:null,access_reason:null}')"
+expect_request ooh-harness-api POST /api/access/observe 200 'observe unapproved check user' "$observe_payload"
+rc=0
+jq -e '.status == "pending"' <<< "$body" >/dev/null || rc=1
+require "$rc" 'check user stays pending' 'access requests may be closed or the reserved check user approved; inspect admission status before retrying'
+everyone_grant_id=''
+grant_after=''
+while :; do
+  expect_request admin GET "/api/admin/grants?right_key=chat.tier.99&limit=200$grant_after" 200 'find existing Everyone check grant'
+  everyone_grant_id="$(jq -r '.[] | select(.subject_type == "everyone") | .id' <<< "$body")"
+  [[ -z "$everyone_grant_id" && "$(jq 'length' <<< "$body")" == 200 ]] || break
+  grant_after="&after=$(jq -er '.[-1].id' <<< "$body")"
+done
+if [[ -z "$everyone_grant_id" ]]; then
+  expect_request admin POST /api/admin/grants 201 'grant Everyone the reserved check tier' '{"right_key":"chat.tier.99","subject_type":"everyone"}'
+  everyone_grant_id="$(jq -er '.id' <<< "$body")"
+fi
+uuid "$everyone_grant_id" || stop "Everyone check grant has an invalid id; inspect it before retrying"
+expect_request ooh-harness-api GET "/api/rights/me?user_id=$pending_user_id" 200 'read pending user rights with Everyone'
+rc=0
+jq -e '(.chat_tiers | length) == 0 and (.skills | length) == 0 and .image == false' <<< "$body" >/dev/null || rc=1
+require "$rc" 'Everyone gives pending users nothing' 'an unapproved person received rights; inspect the approval gate'
+expect_request ooh-harness-api GET "/api/rights/me?user_id=$user_id" 200 'read approved user rights with Everyone'
+rc=0
+jq -e '.chat_tiers | index(99) != null' <<< "$body" >/dev/null || rc=1
+require "$rc" 'Everyone gives approved users the check tier' 'adding the check user grant did not approve access, or Everyone was not applied'
+expect_request admin DELETE "/api/admin/grants/$everyone_grant_id" 200 'remove Everyone check grant'
 expect_request admin DELETE "/api/admin/models/$model_entry_id" 200 'remove check model entry'
 
 skill_manifest="$(cat contracts/skills/slides/manifest.json)"

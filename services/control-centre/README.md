@@ -209,3 +209,116 @@ kubectl -n ooh-apps rollout restart deployment/control-centre
 The model tests use a fake Gateway and token endpoint; the builder makes no
 paid calls. Follow the Quick Guide's .NET checks and finish with
 `dotnet build-server shutdown`.
+
+
+# Request access (section 17)
+
+The new `AccessRequests` migration creates `access_requests`, its unique user-ID
+key and status constraint, paging index, application grants and no-removal
+trigger. The app role has SELECT/INSERT/UPDATE only; both owner and app role are
+blocked from hard deletion and truncation. `deleted_at` is unused in Stage 2.
+No earlier migration was edited.
+
+The backfill approves people first seen before the migration transaction and
+active user grants created before it. It waits for existing people/grant writes,
+uses a stable transaction timestamp cutoff and writes one privacy-limited
+`access.approved` audit plus the normal `audit.events` outbox entry per new row.
+`decided_by` is `migration`. Everyone alone does not grandfather an unknown user.
+
+`POST /api/access/observe` is Harness-service-only. It requires the exact
+verified user `sub` as `user_id` and verified `is_admin`; optional name/email/
+organisation/access_reason may be null. Strings are trimmed, then validated at
+200/320/100/300 characters respectively. User IDs are never trimmed or folded.
+A missing row becomes pending unless there are already 100 pending rows, when
+it returns `closed` without creating or auditing a row. A repeat is idempotent;
+profile changes are copied and audited only while pending. Non-admin observation
+cannot change an approved or rejected status. Verified admins are automatically
+approved with `decided_by system:admin-role`; human admin observation in
+`People.Observe` has the same effect, including after a revoke.
+
+All three rights paths check approved access before grants: Decision, rights/me
+and skills. Missing, pending, rejected and soft-removed access rows receive
+nothing, including Everyone. Adding a user grant approves access in the same
+transaction and can reapprove a rejected person. An existing active user grant
+is reused with HTTP 200; a new grant returns 201. Everyone duplicates still
+return 409. No Keycloak lookup is performed.
+
+Admin access-request routes provide newest-first filtering/paging, pending-only
+counts, Approve, Reject and Revoke. The list/count hide `stage-check-` identities.
+Approve requires an existing positive chat-tier right, creates no duplicate
+grant and conflicts if already approved. Reject acts on pending requests;
+Revoke acts on approved requests and records `access.revoked`. Both set rejected
+status. Rejected requests can be approved later. Existing grants are retained
+and gated by status, rather than removed by rejection/revocation.
+
+A transaction-scoped PostgreSQL advisory lock serializes admission changes,
+including the pending-cap check, automatic/manual approval and grants. Status
+changes and audit/outbox writes commit together. Access audit detail contains
+only user_id, status, decided_by and approved_tier, never profile fields,
+passwords or tokens. Pending profile changes use `access.requested` as well.
+
+The admin screen and operator steps are described in the Admin Console README.
+The combined deployment order is 61 → 67 → 35 → 68 → 69 → 62 → 70. Builders do
+not run these deployment/check scripts. Check 62 reuses `stage-check-access`,
+creates or reuses an Everyone grant on reserved tier 99, proves that pending
+users get nothing and approved users get tier 99, then removes the grant.
+Reserved check requests are hidden from the list/count but remain protected
+business rows. The waiting cap counts all pending rows, including check rows.
+If the check user cannot remain pending, inspect the waiting cap and reserved
+identity before retrying; never delete requests or audit rows.
+
+Run the existing .NET and contract checks from the Quick Guide. The database
+suite includes backfill boundary checks, atomic concurrent admission at the
+100-request boundary, status/grant behavior, audit privacy and owner/app-role
+no-removal checks. Test requests left pending are rejected through audited
+cleanup; no test data is deleted. End checks with `dotnet build-server shutdown`.
+
+
+# Rows 15–16: model titles
+
+`GET /api/rights/me` always includes `chat_tier_titles`, an object keyed by the
+allowed chat tier as a string. For each tier it selects an active main chat
+entry by lowest priority, then earliest creation time; entry ID breaks exact
+ties. Backup entries and removed entries cannot supply picker titles. A tier
+with no active main entry has no map key, so the Workspace can show just its
+tier number. Unapproved users receive an empty map along with no rights.
+The map contains titles only, never registry addresses or credentials. It names
+the preferred main entry for the picker; the actual answering model remains
+the truth in the answer metadata when a backup is used.
+
+Row 16's reply-language system message is owned by Part B; the Control Centre
+does not add or log a system prompt. No model is called to choose a title here.
+
+# Thinking settings and model requests (rows 19–22)
+
+The forward `ThinkingAndTierRequests` migration adds nullable JSONB
+`request_settings_thinking_off` and the protected `tier_requests` table.
+SQL NULL means no thinking-off switch; an object, including `{}`, means a switch
+is configured. Arrays, scalar JSON and JSON null are refused by the database.
+Admin writes accept JSON null to clear the column and omit it to retain its
+value. Admin and Gateway registry answers always include the field.
+
+`/api/rights/me` returns `chat_tier_thinking_switch` using exactly the same active
+main entry as `chat_tier_titles` (priority, creation time, ID). The actual answering
+model may differ after failover. `requestable_tiers` includes only tiers with an
+active main entry, excluding 99 and every active user or Everyone grant. Latest
+request state is `pending`, `rejected`, or null. All three fields are empty for
+people whose access is not approved; provider settings and addresses stay private.
+
+Only the Harness service account may submit `/api/tier-requests` for an approved
+person. Reasons are optional, trimmed and limited to 300 characters. One pending
+request per person/tier is protected by a partial unique index. Requests serialize
+with admission and grants; at most 20 can be pending per person. A rejected tier
+can be requested again seven days after its decision. Admission, eligibility,
+duplicate and cap failures use the codes declared in the HTTP contract.
+
+Administrators list model requests with `status`, `limit` and `after`, count pending
+requests and approve or reject a pending request. Approval reuses an active user
+grant or creates one, with the decision, grant and audit in one transaction. Both
+decisions return `409 not_approved` if access has been revoked; approve access
+before deciding that model request. Lists, counts and decisions hide reserved
+`stage-check-` users. Missing profile name or email falls back to the user ID.
+Reasons never enter audit detail, outgoing audit events or logs. Table DELETE and
+TRUNCATE are refused for both database roles; old migrations remain unchanged.
+The automated tests exercise these rules using the isolated test database and
+fake identity tokens; they make no provider calls.

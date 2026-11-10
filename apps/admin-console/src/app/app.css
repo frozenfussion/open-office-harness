@@ -8,3 +8,7 @@
 .connection-result{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}.connection-result--ok{color:var(--phosphor)}.connection-result--failed{color:var(--signal-red)}
 
 input[type=checkbox]:focus-visible{outline:2px solid var(--phosphor);outline-offset:2px}
+
+.access-reason{white-space:pre-wrap;overflow-wrap:anywhere}a{color:var(--phosphor)}
+
+.person-form>.ooh-help{margin:0}
