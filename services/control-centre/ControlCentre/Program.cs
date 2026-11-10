@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 using System.Text.Json;
 using ControlCentre.Platform;
+using ControlCentre.Access;
 using ControlCentre.Rights;
 using ControlCentre.Registry;
 using ControlCentre.Approvals;
@@ -31,6 +32,15 @@ if (migrate)
   await scope.ServiceProvider.GetRequiredService<CentreDb>().Database.MigrateAsync();
   return;
 }
+try { builder.Services.AddSingleton(new ModelKeys(Environment.GetEnvironmentVariable("CC_KEY_ENCRYPTION_KEY"))); }
+catch (InvalidOperationException)
+{
+  Console.WriteLine(JsonSerializer.Serialize(new { level = "error", message = "CC_KEY_ENCRYPTION_KEY must contain 32 bytes encoded as base64" }));
+  Environment.ExitCode = 1;
+  return;
+}
+if (string.IsNullOrEmpty(builder.Configuration["HTTP_PORTS"]) && string.IsNullOrEmpty(builder.Configuration["URLS"]))
+  builder.Configuration["HTTP_PORTS"] = "8080;8081";
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
   o.SerializerOptions.PropertyNamingPolicy = Api.Json.PropertyNamingPolicy;
@@ -57,6 +67,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 builder.Services.AddAuthorization();
 builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
 builder.Services.AddSingleton<SchemaChecks>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton(_ => new HttpClient(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) }) { Timeout = Timeout.InfiniteTimeSpan });
+builder.Services.AddSingleton<ModelConnection>();
 builder.Services.AddSingleton<IKafka, KafkaClient>();
 builder.Services.AddSingleton<IRetryDelay, RetryDelay>();
 builder.Services.AddScoped<ApprovalConsumer>();
@@ -78,6 +91,12 @@ app.Use(async (c, next) =>
     await Api.Error(503, "unavailable", "Control Centre unavailable").ExecuteAsync(c);
   }
 });
+app.Use(async (c, next) =>
+{
+  if ((c.Request.Path == "/api/models" || c.Request.Path.StartsWithSegments("/api/models")) && c.Connection.LocalPort != 8081)
+  { await Api.Error(404, "not_found", "Route not found").ExecuteAsync(c); return; }
+  await next(c);
+});
 app.UseAuthentication();
 app.UseAuthorization();
 app.Use(async (c, next) =>
@@ -94,6 +113,8 @@ app.MapGet("/health", async (HttpContext c, CentreDb db) =>
   Api.Query(c);
   return await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok" }) : Api.Error(503, "unavailable", "Database unavailable");
 });
+TierRequestRoutes.Map(app);
+AccessRoutes.Map(app);
 RightsRoutes.Map(app);
 RegistryRoutes.Map(app);
 ApprovalRoutes.Map(app);

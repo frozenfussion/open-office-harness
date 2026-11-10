@@ -1,9 +1,334 @@
 # QUICK GUIDE
 
+## Stage 2 — Talk to AI
+
+Claude runs the non-sudo deploy and live-check commands in the Shell tile while
+Aziz watches. No command here asks for a terminal password. Aziz keeps browser
+sign-ins, package visibility changes, sudo and stage acceptance. Before this
+stage, complete the Stage 0 platform and Stage 1 Control Centre setup below.
+The existing Control Centre test database is reused. Fresh Stage 2 setup uses
+**63 → 71 → 61 → 64 → 65 → 66 → 67 → 35 → 68 → 69 → add models → 62 → 70**.
+
+For the Request access update on an existing Stage 2 deployment, use the new
+Control Centre, Harness and both app image tags. Type this in your harness
+terminal, Shell tile, plain shell. Claude runs these commands while Aziz watches;
+no terminal password. This installs the access rule before opening registration,
+then updates both screens and checks the result. The Control Centre check asks
+for an administrator's browser sign-in. Good result: each script ends with
+`DONE`, and checks print `PASS`. The paid-call note in the live-check step applies.
+If Test connection is not installed yet, prepare 71 and deploy the new Gateway
+with 65 before this sequence.
+
+```bash
+cd ~/projects/worktrees/stage-2
+install/61-control-centre-deploy.sh MERGED_IMAGE_TAG
+install/67-harness-api-deploy.sh MERGED_IMAGE_TAG
+install/35-realm-sync.sh
+install/68-workspace-deploy.sh MERGED_IMAGE_TAG
+install/69-admin-console-deploy.sh MERGED_IMAGE_TAG
+install/62-check-control-centre.sh
+install/70-check-stage-2.sh
+```
+
+1. **Check images and make the four new packages public.** On GitHub, wait for
+   green image workflows for Gateway, Harness, Workspace and Admin Console.
+   Each tag is the image commit's first 12 characters. A merged commit needs all
+   four images; run a workflow on demand for `stage-2` if its path filter did
+   not start it. Claude opens each package's settings in a new tab in Aziz's
+   PC browser; Aziz clicks **Change visibility → Public**:
+   [Gateway](https://github.com/users/frozenfussion/packages/container/ooh-model-gateway/settings),
+   [Harness](https://github.com/users/frozenfussion/packages/container/ooh-harness-api/settings),
+   [Workspace](https://github.com/users/frozenfussion/packages/container/ooh-workspace/settings),
+   [Admin Console](https://github.com/users/frozenfussion/packages/container/ooh-admin-console/settings).
+   Do this before deploying the Gateway. Control Centre stays public as before.
+
+2. **Set up keys.** Type this in your harness terminal, Shell tile, plain shell.
+   Claude runs it while Aziz watches. No password. This creates the encryption
+   Secret once; good result: `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/63-control-centre-keys.sh
+   ```
+
+3. **Set up the Control Centre service credentials.** Type this in your harness
+   terminal, Shell tile, plain shell. Claude runs it while Aziz watches. No
+   password. This reads the client secret inside Keycloak and creates the private
+   `control-centre-oidc` Secret once. Good result: `DONE`. It keeps a matching
+   existing Secret and stops if it differs from Keycloak; inspect privately
+   rather than replacing it blindly. Without credentials the Control Centre
+   still starts, but Test reports that service credentials are missing.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/71-control-centre-oidc.sh
+   ```
+
+4. **Deploy the Control Centre.** Type this in your harness terminal, Shell tile,
+   plain shell. No password. Replace `MERGED_IMAGE_TAG` with the image commit's
+   first 12 characters in each deploy step. This upgrades the registry and its
+   database; good result: Ready, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/61-control-centre-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+5. **Set up the Gateway.** Type this in your harness terminal, Shell tile, plain
+   shell. No password. This prepares its roles, databases and secrets; good
+   result: private test settings saved, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/64-model-gateway-setup.sh
+   ```
+
+6. **Deploy the Gateway.** Type this in your harness terminal, Shell tile, plain
+   shell. No password. This runs migrations and starts the internal Gateway;
+   good result: Ready, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/65-model-gateway-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+7. **Set up the Harness.** Type this in your harness terminal, Shell tile, plain
+   shell. No password. This prepares its roles, databases and secrets; good
+   result: private test settings saved, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/66-harness-api-setup.sh
+   ```
+
+8. **Deploy the Harness.** Type this in your harness terminal, Shell tile, plain
+   shell. No password. This runs migrations and replaces the API placeholder;
+   good result: Ready, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/67-harness-api-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+9. **Update sign-in and sign-out settings.** Type this in your harness terminal, Shell tile,
+   plain shell. No password. This updates existing Keycloak clients, including
+   logout redirects, Test connection audience, registration, user profile,
+   password policy and English texts. It never creates a client. Registration
+   opens by default. Run this only after the new Control Centre and Harness
+   are Ready. Good result: verified settings and clients, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-2
+   install/35-realm-sync.sh
+   ```
+
+10. **Deploy Workspace.** Type this in your harness terminal, Shell tile, plain
+    shell. No password. This replaces the chat page placeholder; good result:
+    the intended running image, then `DONE`.
+
+    ```bash
+    cd ~/projects/worktrees/stage-2
+    install/68-workspace-deploy.sh MERGED_IMAGE_TAG
+    ```
+
+11. **Deploy Admin Console.** Type this in your harness terminal, Shell tile,
+    plain shell. No password. This replaces the admin placeholder and removes
+    its leftover placeholder settings; good result: Ready, then `DONE`.
+
+    ```bash
+    cd ~/projects/worktrees/stage-2
+    install/69-admin-console-deploy.sh MERGED_IMAGE_TAG
+    ```
+
+12. **Add models in the browser.** Open <https://admin.faysalaziz.com>, sign in
+    with your administrator account password, choose **Add model**, then enter
+    a title, purpose, chat tier, main/backup role, order, location, connection
+    type, endpoint and the model ID supplied by your provider. These are example
+    addresses for the form only; no model name or endpoint is compiled into an app.
+
+    | Connection | Example endpoint | Example model ID |
+    |---|---|---|
+    | OpenAI Responses (`openai_responses`) | `https://api.openai.com/v1` | `<your-model-id>` |
+    | Anthropic Messages (`anthropic_messages`) | `https://api.anthropic.com` | `<your-model-id>` |
+    | DeepSeek via chat completions (`openai_chat_completions`) | `https://api.deepseek.com` | `<your-model-id>` |
+    | DeepSeek via Messages (`anthropic_messages`) | `https://api.deepseek.com/anthropic` | `<your-model-id>` |
+    | On-prem via chat completions (`openai_chat_completions`) | `http://<host>:8000/v1` | `<your-model-id>` |
+
+    Type the provider key once. Save; the list says only whether a key is saved,
+    and an edit form never fills it back in. Changing its endpoint or connection
+    type clears the saved key unless a replacement is typed in the same save.
+    Set rate limit per user, daily budget (0 = no limit), input/output prices per
+    million tokens in USD and the time limit. Extra request settings must be a
+    JSON object; a null value removes a provider field. `temperature`, `top_p`
+    and `top_k` may be refused by newer Anthropic versions. At least one keyed
+    chat entry per connection type is needed for the full browser acceptance test.
+    Click **Test** beside a saved model to send one short paid call to that entry.
+    Without a saved key, it is disabled with **Save a key first**. While waiting
+    it says **Testing…**. A successful result shows seconds, a short reply, token
+    counts and cost. A failure shows a plain reason and, when available, the
+    provider status and redacted message. Results stay until the next test or
+    reload. The key is never sent to the browser. Tests count against the entry's
+    daily budget and rate limit.
+
+13. **Give people a tier.** On that tier's **Who may use this tier** row, switch
+    **Everyone** on, or enter the person's user ID and add them. They can copy
+    their ID from Workspace's **About me** line under their name. In Workspace,
+    sign in, choose an allowed tier, ask a question and check streaming, token
+    counts and conversation reload. Adding a person by user ID also approves
+    their access, including a previously rejected person. Request access stores
+    the form's name, email and organisation now; user-ID grants do not look up
+    Keycloak. Everyone grants work only for approved people.
+
+14. **Check access rules and the Control Centre.** Type this in your harness
+    terminal, Shell tile, plain shell. Claude runs it while Aziz watches. No
+    terminal password. Sign in as an administrator using the browser link.
+    This checks the access rule, including Everyone grants; good result: all
+    `PASS`, then `DONE`.
+
+    ```bash
+    cd ~/projects/worktrees/stage-2
+    install/62-check-control-centre.sh
+    ```
+
+15. **Run the live check.** Type this in your harness terminal, Shell tile,
+    plain shell. Claude runs it while Aziz watches. No password or device
+    sign-in. It checks all keyed entries in chat tiers 1–20, public restrictions,
+    usage rows, logs, the registration form and the reserved access-check user.
+    The access check creates no Keycloak person and reuses `stage-check-access`;
+    its status must not be approved. **Each run makes one short paid call per entry with a
+    key, plus one streamed paid call per connection type in use, plus one pinned
+    paid call as the Control Centre.** The extra Control Centre call is skipped
+    with a note when no keyed chat entry is found; the full stage check still
+    requires keyed chat entries. Keep tier 98
+    empty for the no-model check. Good result: every line `PASS`, then `DONE`.
+
+    ```bash
+    cd ~/projects/worktrees/stage-2
+    install/70-check-stage-2.sh
+    ```
+
+16. **Everyday work and builder checks.** Each guide below gives exact commands
+    for logs, restart, running images, setup, tests and every STOP/FAIL message.
+    Use the merged worktree until acceptance, then `~/projects/open-office-harness`.
+    Do not stop databases or the platform to stop an app.
+
+    - [Gateway guide](services/model-gateway/README.md): Python checks and Gateway operations.
+    - [Harness guide](services/harness-api/README.md): Python checks and Harness operations.
+    - [Workspace guide](apps/workspace/README.md): `npm ci`, Angular build/tests, chat operations and all stage-check messages.
+    - [Admin Console guide](apps/admin-console/README.md): Angular build/tests, models, keys and grants.
+    - [Control Centre guide](services/control-centre/README.md): registry, encryption key recovery and private backup.
+
+17. **After a reboot.** k3s starts everything automatically. Wait five minutes.
+    Type this in your harness terminal, Shell tile, plain shell. Claude runs it
+    while Aziz watches. No terminal password; the Control Centre check asks for
+    browser administrator sign-in. This repeats platform, policy and chat checks;
+    good result: all `PASS`, each ending with `DONE`. The paid-call note above
+    applies again. Then check browser chat. Only Aziz runs the reboot itself,
+    using the Stage 0 reboot instructions below.
+
+    ```bash
+    cd ~/projects/worktrees/stage-2
+    install/40-check-platform.sh
+    install/62-check-control-centre.sh
+    install/70-check-stage-2.sh
+    ```
+
+Stage-check failures for **unpinned**, **streamed** or **other-messages Control
+Centre call** mean the Gateway must enforce its restricted test-call rules
+(HTTP 403, `forbidden`). A failure for **Control Centre pinned test call** means
+Claude should check realm sync, service-account audience, the saved key, rate
+limit and daily budget privately. See the [Control Centre guide](services/control-centre/README.md)
+for 71's STOP messages; a changed client secret needs private inspection.
+
+### Request access and approvals
+
+A newcomer opens <https://harness.faysalaziz.com> and clicks **Sign in with
+company account**. On Keycloak's login page, **Need access? Request access** opens
+the registration form. The apps keep their single sign-in button; passwords
+are entered only in Keycloak. Enter first name, last name, work email (also the
+username), an optional organisation or team, an optional reason of at most 300 characters,
+and a chosen password twice. Passwords must be 12–128 characters and cannot be
+the username or email. There is no email verification or password-reset mail.
+
+After registration the Workspace shows
+`Thanks, <first name>. Your request is waiting for approval.` It shows no chat or conversations. At 100 waiting
+requests, it shows **Requests are closed for now. Please contact your
+administrator.** A rejection or revocation shows **Your request was not approved.
+Please contact your administrator.** These screens offer only **Sign out**.
+If the access service fails, a red notice is shown instead of a waiting message.
+
+An admin opens <https://admin.faysalaziz.com> and selects **Access requests**.
+Waiting requests are first, newest first; the badge is hidden at zero. Select a
+chat tier for a request, then press **Approve**, or press **Reject**. No tier is
+preselected; tier 99 is hidden. Approved rows have **Revoke**, and rejected rows
+can be approved again. Every email is labelled **not verified**. Refresh the
+Workspace after approval to open chat. Admins are approved automatically; adding
+a person by user ID to a tier also approves them. Everyone grants never bypass
+approval. Existing users who had only Everyone must request access once: sign
+in to Workspace to create their waiting request, then have an admin approve it.
+People and explicit user grants known before the migration are backfilled.
+
+Organisation and reason can be edited through the Account Console; the Control
+Centre copies them only while the request is pending. Email is the username and
+cannot be changed by the user with these realm settings. The Account Console
+remains reachable at <https://auth.faysalaziz.com/realms/ooh/account>.
+
+**If registration spam appears:** Type this in your harness terminal, Shell
+tile, plain shell. Claude runs it while Aziz watches. No password. This closes
+new registrations while retaining accounts and requests. Good result:
+`Registration off`, verified settings, then `DONE`.
+
+```bash
+cd ~/projects/worktrees/stage-2
+install/35-realm-sync.sh --registration off
+```
+
+Type this in your harness terminal, Shell tile, plain shell. Claude runs it
+while Aziz watches. No password. This reopens registration after the cause is
+addressed; good result: `Registration on`, verified settings, then `DONE`.
+
+```bash
+cd ~/projects/worktrees/stage-2
+install/35-realm-sync.sh --registration on
+```
+
+Running 35 without a flag also opens registration, including when platform apply
+calls it. Keep that in mind while registration is intentionally closed.
+The registration-page check in 70 expects registration to be open.
+
+**Reset someone's password:** In your browser, open the Keycloak Admin Console
+at <https://auth.faysalaziz.com/admin/> and sign in with your Keycloak
+administrator account password. Select realm **ooh** → **Users** → the person →
+**Credentials** → **Reset password**. Set a replacement password with
+**Temporary** on, and give it to the person privately. Their next sign-in asks
+them to choose a password. No mail server is needed; the Account Console stays
+reachable.
+
+| New STOP/FAIL message | What to do |
+|---|---|
+| `usage: install/35-realm-sync.sh` | Use no arguments, or exactly `--registration off` or `--registration on`. |
+| `registration settings could not be verified` | Inspect realm ooh's login and password-policy settings privately; repeat 35 after fixing the cause. |
+| `user profile response is invalid`, `user profile could not be verified` | Inspect the profile and unmanaged-attribute policy; preserve unrelated fields before retrying 35. |
+| `registration texts could not be verified` | Inspect the realm's English text overrides; retry 35. |
+| `registration attribute mappers could not be verified` | Inspect organisation/access_reason mappers on ooh-workspace; they must be access-token-only. |
+| `FAIL Workspace registration page` | Check 35 ran after 61 and 67, registration is on, and both extra form fields are present. |
+| `FAIL access check user is not approved` | Check the observe route and reserved stage-check-access row privately; never approve that check user. |
+
+Keycloak 26.8.2's [default profile configuration](https://github.com/keycloak/keycloak/blob/26.8.2/services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json)
+is retained for fresh installs, with two attributes added in the realm's
+UserProfileProvider component under `kc.user.profile.config`. For existing
+realms, 35 reads and updates [the user profile API](https://www.keycloak.org/docs-api/26.8.2/rest-api/index.html#_get_adminrealmsrealmusersprofile),
+keeping every other attribute and unmanaged policy. Its
+[email edit condition](https://github.com/keycloak/keycloak/blob/26.8.2/services/src/main/java/org/keycloak/userprofile/DeclarativeUserProfileProviderFactory.java)
+prevents an existing user editing email with email-as-username on and edit-username
+off. The fields are user-editable in Keycloak 26, rather than registration-only.
+
 ## Stage 1 — Control Centre
 
-Only Aziz runs the deployment and live-check scripts. Use the Shell tile, plain
-shell, for every command below. None of these scripts asks for a password.
+From Stage 2, Claude runs deployment and live-check scripts that need no sudo
+in the Shell tile while Aziz watches. Aziz runs every sudo command himself.
+Use the Shell tile, plain shell, for every command below. None of these scripts
+asks for a password.
 After acceptance, everyday work uses `~/projects/open-office-harness` on `main`.
 During the build and testing, use the folder shown for your phase below. Pushing
 the merged `stage-1` branch builds the image with its exact 12-character commit tag.
@@ -549,8 +874,9 @@ Keycloak realm import creates the initial realm. The realm-sync script then
 requires every client to exist and looks up mappers by name. It creates missing
 audience mappers, updates
 changed audience mappers individually by ID and skips equal entries. Unwanted
-audience mappers are removed, including Control Centre's self and Model Gateway
-audiences. Verification reads both included client and custom audiences and
+audience mappers are removed, including the Control Centre's self audience.
+Its Model Gateway audience is retained for the restricted pinned test call.
+Verification reads both included client and custom audiences and
 ignores harmless extra config defaults. Admin Console expects only
 `ooh-control-centre`. Other mapper types, users and existing client credentials
 are preserved. It uses Keycloak's own admin CLI inside
@@ -566,7 +892,9 @@ Public clients use PKCE S256. The realm includes confidential service clients
 for Harness API, Control Centre and Model Gateway. Workspace tokens target
 Harness API; Admin Console tokens target Control Centre. Harness API service
 tokens target Control Centre and Model Gateway; Model Gateway service tokens
-target Control Centre. Control Centre has no explicit audience mapper.
+target Control Centre. Control Centre service tokens target Model Gateway for
+only the pinned, non-streamed fixed test call; the mapper adds the audience to
+access tokens, not ID tokens.
 `ooh.smoke` carries free-form test messages, without an event envelope.
 
 ## Versions

@@ -2,7 +2,7 @@
 openapi: 3.1.0
 info:
   title: Harness API
-  version: 1.0.0
+  version: 2.0.0
 paths:
   /health:
     get:
@@ -79,6 +79,58 @@ paths:
               properties: {}
               required: []
               additionalProperties: false
+    get:
+      operationId: get_api_conversations
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConversationSummary'
+        '400':
+          description: Request could not be completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Request could not be completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Request could not be completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Request could not be completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: before
+        in: query
+        description: Conversation ID from the previous page. Own active conversations
+          only. Ordered by updated_at then id, descending.
+        schema: &id001
+          type: string
+          format: uuid
   /api/conversations/{id}/messages:
     post:
       operationId: post_api_conversations_id_messages
@@ -90,21 +142,80 @@ paths:
           content:
             text/event-stream:
               schema:
-                type: object
-                properties:
-                  type:
-                    type: string
-                    enum:
-                    - delta
-                    - completed
-                    - failed
-                  text:
-                    type: string
-                  error:
-                    $ref: '#/components/schemas/Error'
-                required:
-                - type
-                additionalProperties: false
+                oneOf:
+                - type: object
+                  properties:
+                    type:
+                      const: delta
+                    text: &id002
+                      type: string
+                  required:
+                  - type
+                  - text
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: completed
+                    message_id: *id001
+                    tier: &id003
+                      type: integer
+                      minimum: 1
+                    model_title: *id002
+                    usage:
+                      $ref: '#/components/schemas/Usage'
+                    note: &id005
+                      type:
+                      - string
+                      - 'null'
+                    thinking_applied:
+                      type: boolean
+                  required:
+                  - type
+                  - message_id
+                  - tier
+                  - model_title
+                  - usage
+                  - note
+                  - thinking_applied
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: failed
+                    error:
+                      $ref: '#/components/schemas/Error'
+                  required:
+                  - type
+                  - error
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: title
+                    conversation_id:
+                      type: string
+                      format: uuid
+                    title:
+                      type: string
+                      minLength: 1
+                      maxLength: 60
+                  required:
+                  - type
+                  - conversation_id
+                  - title
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: thinking
+                    text:
+                      type: string
+                      minLength: 1
+                  required:
+                  - type
+                  - text
+                  additionalProperties: false
         '400':
           description: Invalid input
           content:
@@ -135,8 +246,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-      description: 'SSE: each data field is one JSON value matching the response schema.
-        Events end with a blank line.'
+        '429':
+          description: Request could not be completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      description: 'SSE: one JSON object per data line, no event lines; delta events
+        then completed or failed, with one optional final title event after completed.
+        Rights are checked before storing the user message. Gateway errors before
+        the first event are JSON. Headers: Cache-Control: no-store, X-Accel-Buffering:
+        no. Only user tokens with audience ooh-harness-api are accepted. No caller-supplied
+        user_id. Every streamed chat call prepends one system message from HA_SYSTEM_PROMPT,
+        including budget fallback; an empty setting omits it. The default asks the
+        assistant to reply in the language of the latest user message. The system
+        prompt is never logged or stored in history. Only while the conversation still
+        has its default title, after the first assistant answer stored as completed,
+        one extra non-streamed title call uses the tier that answered and user_id
+        title-<sub>, with a fixed 20-second total limit; the first user message and
+        first completed answer are each cut to 2000 characters. The fixed title instruction
+        overrides HA_SYSTEM_PROMPT for this call. A generated title is trimmed, stripped
+        of surrounding quotes and a final full stop, cut to 60 characters and saved
+        without changing updated_at. Failure keeps the initial title, logs title_failed
+        with a safe code, and emits no title or failed event after completed. Later
+        answers do not retry. Failed and tool_requested answers do not trigger title
+        generation. Title rights are checked as the original user. Title calls bypass
+        that user''s rate allowance, but still count model budget/cost. Completed
+        ends the answer; title may follow on the same stream before it closes. Thinking
+        defaults true and is forwarded unchanged through budget fallback; thinking_applied
+        in completed reports the actual answering model''s support, and is not stored
+        in history. Thinking events pass through before or between answer deltas,
+        never after completed. Their text is concatenated into the assistant message''s
+        nullable thinking field, including partial thinking on failure. Thinking is
+        never logged or sent to a model in chat history or title context; empty thinking
+        events are dropped. Unknown Gateway event types are ignored. Only the first
+        100000 characters of thinking are stored, for all outcomes; later thinking
+        still streams. The title call sends thinking false and ignores thinking in
+        its answer, using answer content only. Deploy Gateway, then Harness, then
+        Workspace.'
       parameters:
       - name: id
         in: path
@@ -154,11 +301,14 @@ paths:
                 content:
                   type: string
                   minLength: 1
-                attachments:
-                  type: array
-                  items:
-                    type: string
-                    minLength: 1
+                  pattern: \S
+                tier:
+                  anyOf:
+                  - *id003
+                  - type: 'null'
+                thinking:
+                  type: boolean
+                  default: true
               required:
               - content
               additionalProperties: false
@@ -218,6 +368,8 @@ paths:
               required:
               - file
               additionalProperties: false
+      description: Stage 2 always returns 503 not_built_yet after authentication and
+        query validation. Success schemas are reserved for Stage 3.
   /api/events:
     get:
       operationId: get_api_events
@@ -323,8 +475,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-      description: 'SSE: each data field is one JSON value matching the response schema.
-        Events end with a blank line.'
+      description: Stage 2 always returns 503 not_built_yet after authentication and
+        query validation. Success schemas are reserved for Stage 3.
   /api/files/{key}:
     get:
       operationId: get_api_files_key
@@ -387,8 +539,233 @@ paths:
         schema:
           type: string
           minLength: 1
-      description: The object key is URL encoded as a single path parameter. Verify
-        ownership before returning a short-lived signed URL.
+      description: Stage 2 always returns 503 not_built_yet after authentication and
+        query validation. Success schemas are reserved for Stage 3.
+  /api/me:
+    get:
+      operationId: get_api_me
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                    minLength: 1
+                  name: *id002
+                  chat_tiers:
+                    type: array
+                    items: *id003
+                  skills:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: *id002
+                        title: *id002
+                      required:
+                      - name
+                      - title
+                      additionalProperties: false
+                  access:
+                    type: string
+                    enum:
+                    - approved
+                    - pending
+                    - rejected
+                    - closed
+                  chat_tier_titles:
+                    type: object
+                    additionalProperties:
+                      type: string
+                    description: Tier-to-title map from the Control Centre, with string
+                      tier keys. The title comes from the active main entry with lowest
+                      priority, then created_at; a missing entry has no map value.
+                  chat_tier_thinking_switch:
+                    type: object
+                    additionalProperties:
+                      type: boolean
+                  requestable_tiers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        tier:
+                          type: integer
+                          minimum: 1
+                        title:
+                          type: string
+                        requested:
+                          enum:
+                          - pending
+                          - rejected
+                          - null
+                      required:
+                      - tier
+                      - title
+                      - requested
+                      additionalProperties: false
+                required:
+                - user_id
+                - name
+                - chat_tiers
+                - skills
+                - access
+                - chat_tier_titles
+                - chat_tier_thinking_switch
+                - requestable_tiers
+                additionalProperties: false
+        '400':
+          description: Request could not be completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Request could not be completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Request could not be completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      description: 'Observe access first through the Control Centre using the Harness
+        service token and verified user claims, including is_admin from realm_access.roles.
+        Missing/non-string profile claims become null; strings are trimmed then limited:
+        name 200, email 320, organisation 100, access_reason 300. The exact sub is
+        preserved. Then read rights and skills. Observe or rights failure returns
+        503 rights_unavailable. Closed means new requests are temporarily full. Pass
+        chat_tier_titles through from the Control Centre.'
+  /api/conversations/{id}:
+    get:
+      operationId: get_api_conversations_id
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: *id001
+                  title: *id002
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
+                required:
+                - id
+                - title
+                - messages
+                additionalProperties: false
+        '400':
+          description: Request could not be completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Request could not be completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Request could not be completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Request could not be completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+  /api/tier-requests:
+    post:
+      operationId: post_api_tier_requests
+      security:
+      - bearerAuth: []
+      description: Forwards a request using the verified sub and Harness service token.
+        The Control Centre enforces approved access, requestable tiers, a seven-day
+        rejection wait and at most 20 pending requests per user. No caller-supplied
+        user_id. Reason is never logged. Unavailable or invalid upstream responses
+        return 503 rights_unavailable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tier:
+                  type: integer
+                  minimum: 1
+                reason:
+                  anyOf:
+                  - type: string
+                    maxLength: 300
+                  - type: 'null'
+              required:
+              - tier
+              additionalProperties: false
+      responses:
+        '201':
+          description: Request created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  status:
+                    const: pending
+                required:
+                - id
+                - status
+                additionalProperties: false
+        '400':
+          description: invalid_input or tier_not_requestable
+          content: &id004
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: unauthorized
+          content: *id004
+        '403':
+          description: not_approved
+          content: *id004
+        '409':
+          description: 'already_requested or too_soon. too_soon means the last rejection
+            was less than 7 days ago: You can ask for this model again 7 days after
+            the last answer.'
+          content: *id004
+        '429':
+          description: too_many_requests
+          content: *id004
+        '503':
+          description: rights_unavailable
+          content: *id004
 components:
   securitySchemes:
     bearerAuth:
@@ -408,4 +785,90 @@ components:
       required:
       - code
       - message
+      additionalProperties: false
+    Usage:
+      type: object
+      properties:
+        input_tokens:
+          type: integer
+          minimum: 0
+        output_tokens:
+          type: integer
+          minimum: 0
+      required:
+      - input_tokens
+      - output_tokens
+      additionalProperties: false
+    ConversationSummary:
+      type: object
+      properties:
+        id: *id001
+        title: *id002
+        updated_at: &id006
+          type: string
+          format: date-time
+      required:
+      - id
+      - title
+      - updated_at
+      additionalProperties: false
+    Message:
+      type: object
+      properties:
+        id: *id001
+        role:
+          enum:
+          - user
+          - assistant
+        content: *id002
+        tier:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        model_entry_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        model_title: *id005
+        input_tokens:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+        output_tokens:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+        note: *id005
+        outcome:
+          enum:
+          - completed
+          - failed
+          - tool_requested
+        created_at: *id006
+        thinking:
+          type:
+          - string
+          - 'null'
+          description: Concatenated assistant thinking, separate from answer content.
+            Null when absent or for older messages. Never logged or sent back to a
+            model. At most the first 100000 characters per message are stored; later
+            thinking continues streaming.
+          maxLength: 100000
+      required:
+      - id
+      - role
+      - content
+      - tier
+      - model_entry_id
+      - model_title
+      - input_tokens
+      - output_tokens
+      - note
+      - outcome
+      - created_at
+      - thinking
       additionalProperties: false

@@ -5,5 +5,12 @@
   "skills": [
     "slides"
   ],
-  "image": false
+  "image": false,
+  "chat_tier_titles": {
+    "1": "Synthetic chat model"
+  },
+  "chat_tier_thinking_switch": {
+    "1": false
+  },
+  "requestable_tiers": []
 }

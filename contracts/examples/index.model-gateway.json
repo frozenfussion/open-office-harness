@@ -1,0 +1,164 @@
+{
+  "examples": [
+    {
+      "file": "examples/http/model-gateway.post-v1-call.404.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.429.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "429"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.delta.sse.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.tool-call.sse.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.failed.sse.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.503.pinned-provider.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.503.pinned-timeout.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.503.pinned-connect.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.503.pinned-budget.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.request.test-connection.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.request.thinking-off.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.thinking-off-applied.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.thinking-off-unsupported.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.thinking-off-unsupported.sse.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.thinking.sse.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.visible-thinking.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.reasoning-summary.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.reasoning-summary.sse.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    }
+  ]
+}

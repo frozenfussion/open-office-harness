@@ -10,7 +10,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0.14-noble-chiseled
 WORKDIR /app
 COPY --from=build /app .
 USER $APP_UID
-ENV ASPNETCORE_HTTP_PORTS=8080
+ENV ASPNETCORE_HTTP_PORTS="8080;8081"
 ENV DOTNET_EnableDiagnostics=0
-EXPOSE 8080
+EXPOSE 8080 8081
 ENTRYPOINT ["dotnet", "ControlCentre.dll"]

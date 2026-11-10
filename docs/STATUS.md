@@ -1,3 +1,37 @@
+# Stage 2 — Talk to AI: accepted
+
+Stage 2 accepted by Aziz on **10 Nov 2026 20:44 MYT** ("So far, it looks good. I'd say it's accepted."). Merged into `main` and tagged `spine-v0.2`.
+
+## What was built
+
+- **Model Gateway** (Python, internal only): three connection types (OpenAI-compatible chat completions, OpenAI Responses, Anthropic Messages); main/backup failover before first output; per-user rate limits and daily budgets; cost from prices per million tokens; request settings and thinking-off settings as data; visible thinking events; append-only usage table; provider failures logged with status only.
+- **Harness API** (Python): conversations, streamed chat, rights fail closed, reply-language system message (setting), AI-written titles, thinking pass-through and storage, access status, model requests.
+- **Workspace** (Angular): sign-in and Request access, waiting/declined screens, Chat model picker, thinking switch and collapsed Thinking section, Markdown and LaTeX (sanitised), timestamps, Copy, AI titles, Request another model.
+- **Control Centre** (C#): provider keys encrypted (AES-256-GCM), Gateway-only routes on internal port 8081, priorities and many models per tier, Test connection, access requests with approval rule (Everyone included), Revoke, model requests, thinking-off settings.
+- **Admin Console** (Angular): Models & tiers (add, edit, Test, who may use each tier), Access requests and Model requests.
+- **Keycloak**: self-registration with organisation (optional) and reason, password policy, Request access texts and mappers.
+
+## Checks at acceptance
+
+- `install/70-check-stage-2.sh`: 46 PASS, 0 FAIL (three providers streamed and non-streamed, keys never in logs, Gateway not public, Control Centre test-call rules, registration page, access check).
+- Every Part's own checks and the contract checker (17 tests, 393 examples valid) on the merged tree.
+- Aziz tested in the browser: chat on three models, Test connection, request access with a second account, approval, model request, visible thinking.
+
+## Open items carried forward
+
+- `install/62-check-control-centre.sh` needs Aziz's device sign-in; not rerun after the Stage 2 changes.
+- Reboot test of the Droplet not done in Stage 2.
+- Passing reasoning back for tool use (DeepSeek with tools) is Stage 3.
+- No mail server: password resets via the Keycloak admin console (README).
+
+## Spec
+
+`docs/specs/stage-2-talk-to-ai.md`, sections 14 (rows 1–28), 15, 16, 16.1, 17, 17.8. Reviews and builder reports are kept in the course folder (`reviews/`).
+
+Stage-2 head before this commit: `f7655a3`.
+
+---
+
 # Stage 1 — Control Centre: accepted
 
 Stage 1 accepted by Aziz on **10 Nov 2026 01:02 MYT**. Both reviewed Parts,

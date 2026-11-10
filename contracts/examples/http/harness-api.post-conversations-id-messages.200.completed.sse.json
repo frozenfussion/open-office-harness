@@ -1,0 +1,12 @@
+{
+  "type": "completed",
+  "message_id": "00000000-0000-4000-8000-000000000003",
+  "tier": 1,
+  "model_title": "Example model",
+  "usage": {
+    "input_tokens": 4,
+    "output_tokens": 2
+  },
+  "note": null,
+  "thinking_applied": false
+}

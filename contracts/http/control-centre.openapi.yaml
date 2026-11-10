@@ -126,10 +126,57 @@ paths:
                       minLength: 1
                   image:
                     type: boolean
+                  chat_tier_titles:
+                    type: object
+                    propertyNames:
+                      pattern: ^[1-9][0-9]*$
+                    additionalProperties:
+                      type: string
+                    description: 'Titles only for allowed tiers with an active main chat entry: lowest
+                      priority, then earliest created_at. Exact ties use entry ID. Tiers with no active
+                      main entry have no key; unapproved users get an empty object. The answering-model
+                      metadata can differ after failover.'
+                  chat_tier_thinking_switch:
+                    type: object
+                    propertyNames:
+                      pattern: ^[1-9][0-9]*$
+                    additionalProperties:
+                      type: boolean
+                    description: Only allowed tiers with an active main chat entry, using the same entry
+                      selection as chat_tier_titles. True when that main entry has a thinking-off object;
+                      backups can differ. Empty for unapproved people.
+                  requestable_tiers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        tier:
+                          type: integer
+                          minimum: 1
+                          not:
+                            const: 99
+                        title:
+                          type: string
+                        requested:
+                          enum:
+                          - pending
+                          - rejected
+                          - null
+                      required:
+                      - tier
+                      - title
+                      - requested
+                      additionalProperties: false
+                    description: Active main chat tiers excluding 99 and every tier with an active user
+                      or Everyone grant. Latest request state is pending, rejected, or null. Rejected
+                      requests may retry after seven days. Empty for unapproved people.
                 required:
                 - chat_tiers
                 - skills
                 - image
+                - chat_tier_titles
+                - chat_tier_thinking_switch
+                - requestable_tiers
                 additionalProperties: false
         '400':
           description: Invalid input
@@ -304,7 +351,8 @@ paths:
                       minLength: 1
                     secret_ref:
                       type: string
-                      minLength: 1
+                      maxLength: 253
+                      description: Legacy reference; optional and ignored by the Gateway.
                     rate_limit_per_minute:
                       type: integer
                       minimum: 1
@@ -314,6 +362,44 @@ paths:
                     health:
                       type: string
                       minLength: 1
+                    title:
+                      type: string
+                    priority:
+                      type: integer
+                      minimum: 1
+                      maximum: 1000
+                      default: 100
+                    timeout_seconds:
+                      type: integer
+                      minimum: 10
+                      maximum: 900
+                      default: 120
+                    input_price_per_million:
+                      type: number
+                      minimum: 0
+                      default: 0
+                    output_price_per_million:
+                      type: number
+                      minimum: 0
+                      default: 0
+                    request_settings:
+                      type: object
+                      additionalProperties: true
+                      default: {}
+                    has_key:
+                      type: boolean
+                    created_at:
+                      type: string
+                      format: date-time
+                      description: UTC creation time, used by the Gateway to break priority ties.
+                    request_settings_thinking_off:
+                      type:
+                      - object
+                      - 'null'
+                      additionalProperties: true
+                      description: Null means no thinking-off switch; an object (including {}) means one
+                        is configured. Merged by the Gateway when thinking is false. Omit on update to
+                        keep the stored value.
                   required:
                   - model_entry_id
                   - purpose
@@ -326,6 +412,15 @@ paths:
                   - rate_limit_per_minute
                   - daily_budget
                   - health
+                  - title
+                  - priority
+                  - timeout_seconds
+                  - input_price_per_million
+                  - output_price_per_million
+                  - request_settings
+                  - has_key
+                  - created_at
+                  - request_settings_thinking_off
                   additionalProperties: false
                   allOf:
                   - if:
@@ -365,6 +460,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '404':
+          description: Not exposed on port 8080
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       parameters:
       - name: purpose
         in: query
@@ -379,16 +480,15 @@ paths:
           type: integer
           minimum: 1
         description: Required when purpose=chat; omit for other purposes.
-      description: Gateway-only registry lookup. purpose is required. tier is required
-        for purpose=chat and omitted otherwise. secret_ref names a Kubernetes Secret
-        (the Gateway reads its key api-key); never contains credentials.
+      description: Gateway only on port 8081. Both registry and key routes return 404 on port 8080. Provider
+        keys are encrypted in the Control Centre; legacy secret_ref is ignored.
   /api/admin/people:
     get:
       operationId: get_api_admin_people
       security:
       - bearerAuth: []
-      description: Administrator only. Unknown input fields are refused. Ordered by
-        user_id. Use after with the last user_id to read the next page.
+      description: Administrator only. Unknown input fields are refused. Ordered by user_id. Use after
+        with the last user_id to read the next page.
       responses:
         '200':
           description: Success
@@ -438,8 +538,8 @@ paths:
         schema:
           type: string
           minLength: 1
-        description: Return entries after this user_id in ascending order; use the
-          last user_id from the previous page.
+        description: Return entries after this user_id in ascending order; use the last user_id from the
+          previous page.
   /api/admin/people/{user_id}:
     get:
       operationId: get_api_admin_people_user_id
@@ -495,8 +595,8 @@ paths:
       operationId: get_api_admin_rights
       security:
       - bearerAuth: []
-      description: Administrator only. Unknown input fields are refused. Ordered by
-        key. Use after with the last key to read the next page.
+      description: Administrator only. Unknown input fields are refused. Ordered by key. Use after with
+        the last key to read the next page.
       responses:
         '200':
           description: Success
@@ -538,14 +638,15 @@ paths:
         schema:
           type: string
           minLength: 1
-        description: Return entries after this key in ascending order; use the last
-          key from the previous page.
+        description: Return entries after this key in ascending order; use the last key from the previous
+          page.
   /api/admin/grants:
     post:
       operationId: post_api_admin_grants
       security:
       - bearerAuth: []
-      description: Administrator only. Unknown input fields are refused.
+      description: Administrator only. Unknown input fields are refused. A user grant also approves access
+        atomically; a matching active user grant is reused with HTTP 200. Everyone duplicates remain 409.
       responses:
         '201':
           description: Success
@@ -583,12 +684,75 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '200':
+          description: Existing user grant reused and access approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Grant'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/GrantInput'
+    get:
+      operationId: get_api_admin_grants
+      security:
+      - bearerAuth: []
+      description: Administrator only; active grants ordered by id. Omit right_key to list all active
+        grants, including tiers with no models.
+      parameters:
+      - name: right_key
+        in: query
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 50
+      - name: after
+        in: query
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Active grants
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Grant'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Administrator only
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/admin/grants/{id}:
     delete:
       operationId: delete_api_admin_grants_id
@@ -644,9 +808,8 @@ paths:
       operationId: get_api_admin_models
       security:
       - bearerAuth: []
-      description: "Administrator only. Unknown input fields are refused. Ordered\
-        \ by (purpose, tier, role, model_entry_id). No paging cursor; limit is 1\u2013\
-        200 (default 50)."
+      description: "Administrator only. Unknown input fields are refused. Ordered by (purpose, tier, role,\
+        \ model_entry_id). Optional after continues that order; limit is 1\u2013200 (default 50)."
       responses:
         '200':
           description: Success
@@ -680,8 +843,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '404':
+          description: Cursor entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       parameters:
       - *id001
+      - name: after
+        in: query
+        schema:
+          type: string
+          format: uuid
+        description: Last model_entry_id from the previous page; continues the original purpose/tier/role/id
+          order.
     post:
       operationId: post_api_admin_models
       security:
@@ -714,12 +890,6 @@ paths:
                 $ref: '#/components/schemas/Error'
         '503':
           description: Unavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '409':
-          description: Conflict
           content:
             application/json:
               schema:
@@ -821,7 +991,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: Conflict
+          description: Concurrent update; read the entry again
           content:
             application/json:
               schema:
@@ -921,9 +1091,8 @@ paths:
       operationId: post_api_admin_skills
       security:
       - bearerAuth: []
-      description: Administrator only. Unknown input fields are refused. Existing
-        active name and same version returns 200 without a change; use PUT for a different
-        version.
+      description: Administrator only. Unknown input fields are refused. Existing active name and same
+        version returns 200 without a change; use PUT for a different version.
       responses:
         '201':
           description: Success
@@ -1178,8 +1347,7 @@ paths:
         required: false
         schema:
           type: string
-          description: UTC ISO 8601 created_at followed by a comma and the UUID id
-            of the last row.
+          description: UTC ISO 8601 created_at followed by a comma and the UUID id of the last row.
   /api/admin/approvals/{id}:
     get:
       operationId: get_api_admin_approvals_id
@@ -1347,6 +1515,836 @@ paths:
           type: integer
           minimum: 1
       - *id001
+  /api/models/{id}/key:
+    get:
+      operationId: get_api_models_id_key
+      security:
+      - bearerAuth: []
+      description: Gateway service account only on port 8081; never exposed on 8080. Response is no-store;
+        not audited per read.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Decrypted key
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - api_key
+                properties:
+                  api_key:
+                    type: string
+                additionalProperties: false
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Gateway only
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Missing entry or key, or public port
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Key unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/admin/models/{id}/test:
+    post:
+      operationId: post_api_admin_models_id_test
+      security:
+      - bearerAuth: []
+      description: Administrator only on public port 8080. One short paid call pinned to this entry, using
+        the fixed OK message and no tools. Appends model.tested audit details without reply, key or provider
+        text. Missing service credentials return ok=false. Control Centre HTTP limit is entry timeout_seconds
+        + 10 seconds.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '200':
+          description: Connection success or failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelTestResult'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Administrator required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Entry not found or removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: 'no_key: no saved provider key'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/access/observe:
+    post:
+      description: Harness service account only. Creates or refreshes a pending request, approves verified
+        admins, preserves decided states for other users. With 100 waiting requests a new non-admin receives
+        closed and no row is created. Access audit contains only user_id, status, decided_by and approved_tier.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessObserveInput'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    enum:
+                    - pending
+                    - approved
+                    - rejected
+                    - closed
+                required:
+                - status
+                additionalProperties: false
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: post__api_access_observe
+      security:
+      - bearerAuth: []
+  /api/admin/access-requests:
+    get:
+      description: Administrator only. Active requests, newest requested_at then id descending. Hides
+        user IDs starting stage-check-.
+      parameters:
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - pending
+          - approved
+          - rejected
+          default: pending
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 50
+      - name: after
+        in: query
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AccessRequest'
+        '404':
+          description: Cursor not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: get__api_admin_access-requests
+      security:
+      - bearerAuth: []
+  /api/admin/access-requests/count:
+    get:
+      description: Administrator only. Counts pending requests, excluding stage-check- user IDs.
+      parameters:
+      - name: status
+        in: query
+        required: true
+        schema:
+          const: pending
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    minimum: 0
+                required:
+                - count
+                additionalProperties: false
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: get__api_admin_access-requests_count
+      security:
+      - bearerAuth: []
+  /api/admin/access-requests/{id}/approve:
+    post:
+      description: Approve a pending or rejected request and create its selected tier grant if absent,
+        atomically. The tier right must exist. Appends a privacy-limited access audit and normal audit.events
+        message.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tier:
+                  type: integer
+                  minimum: 1
+              required:
+              - tier
+              additionalProperties: false
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequest'
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Request state changed or action already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: post__api_admin_access-requests_id_approve
+      security:
+      - bearerAuth: []
+  /api/admin/access-requests/{id}/reject:
+    post:
+      description: Reject a pending request. Appends a privacy-limited access audit and normal audit.events
+        message.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequest'
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Request state changed or action already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: post__api_admin_access-requests_id_reject
+      security:
+      - bearerAuth: []
+  /api/admin/access-requests/{id}/revoke:
+    post:
+      description: Revoke an approved request; access is rejected and all rights, including Everyone,
+        are gated without deleting grants. Appends a privacy-limited access audit and normal audit.events
+        message.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequest'
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Request state changed or action already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: post__api_admin_access-requests_id_revoke
+      security:
+      - bearerAuth: []
+  /api/tier-requests:
+    post:
+      operationId: post_api_tier_requests
+      security:
+      - bearerAuth: []
+      description: Harness service account only. Creates one pending request per user/tier for an approved
+        person and a requestable tier. At most 20 pending per person, serialized with approval and grant
+        changes. Rejected requests may retry seven days after rejection. Reason is trimmed, plain text,
+        never logged or audited. 403 not_approved; 400 tier_not_requestable; 409 already_requested
+        or too_soon; 429 too_many_requests.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: string
+                  minLength: 1
+                tier:
+                  type: integer
+                reason:
+                  type:
+                  - string
+                  - 'null'
+                  maxLength: 300
+                  description: Optional; trim before checking the 300-character maximum.
+              required:
+              - user_id
+              - tier
+              additionalProperties: false
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  status:
+                    const: pending
+                required:
+                - id
+                - status
+                additionalProperties: false
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: 'already_requested when a request is pending; too_soon when the last rejection
+            was less than 7 days ago, with message "You can ask for this model again 7 days after the last answer".'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Pending request cap reached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/admin/tier-requests:
+    get:
+      description: Administrator only. Active model requests, newest requested_at then id descending.
+        Hides user IDs starting stage-check-.
+      parameters:
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - pending
+          - approved
+          - rejected
+          default: pending
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 50
+      - name: after
+        in: query
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TierRequest'
+        '404':
+          description: Cursor not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: get__api_admin_tier-requests
+      security:
+      - bearerAuth: []
+  /api/admin/tier-requests/count:
+    get:
+      description: Administrator only. Counts pending model requests, excluding stage-check- user IDs.
+      parameters:
+      - name: status
+        in: query
+        required: true
+        schema:
+          const: pending
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    minimum: 0
+                required:
+                - count
+                additionalProperties: false
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: get__api_admin_tier-requests_count
+      security:
+      - bearerAuth: []
+  /api/admin/tier-requests/{id}/approve:
+    post:
+      description: Administrator only. Decide a pending model request atomically; approve adds the user
+        tier grant if absent. Hides stage-check- users. 409 conflict if already decided; 409 not_approved
+        if access is no longer approved. Reason never enters logs or audit detail.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TierRequest'
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Request state changed or action already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: post_api_admin_tier_requests_id_approve
+      security:
+      - bearerAuth: []
+  /api/admin/tier-requests/{id}/reject:
+    post:
+      description: Administrator only. Decide a pending model request atomically; approve adds the user
+        tier grant if absent. Hides stage-check- users. 409 conflict if already decided; 409 not_approved
+        if access is no longer approved. Reason never enters logs or audit detail.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TierRequest'
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Request state changed or action already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Valid token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Control Centre unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: post_api_admin_tier_requests_id_reject
+      security:
+      - bearerAuth: []
 components:
   securitySchemes:
     bearerAuth:
@@ -1475,7 +2473,8 @@ components:
           minLength: 1
         secret_ref:
           type: string
-          minLength: 1
+          maxLength: 253
+          description: Legacy reference; optional and ignored by the Gateway.
         rate_limit_per_minute:
           type: integer
           minimum: 1
@@ -1485,6 +2484,43 @@ components:
         health:
           type: string
           minLength: 1
+        title:
+          type: string
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+        timeout_seconds:
+          type: integer
+          minimum: 10
+          maximum: 900
+          default: 120
+        input_price_per_million:
+          type: number
+          minimum: 0
+          default: 0
+        output_price_per_million:
+          type: number
+          minimum: 0
+          default: 0
+        request_settings:
+          type: object
+          additionalProperties: true
+          default: {}
+        has_key:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          description: UTC creation time, used by the Gateway to break priority ties.
+        request_settings_thinking_off:
+          type:
+          - object
+          - 'null'
+          additionalProperties: true
+          description: Null means no thinking-off switch; an object (including {}) means one is configured.
+            Merged by the Gateway when thinking is false. Omit on update to keep the stored value.
       required:
       - model_entry_id
       - purpose
@@ -1497,6 +2533,15 @@ components:
       - rate_limit_per_minute
       - daily_budget
       - health
+      - title
+      - priority
+      - timeout_seconds
+      - input_price_per_million
+      - output_price_per_million
+      - request_settings
+      - has_key
+      - created_at
+      - request_settings_thinking_off
       additionalProperties: false
       allOf:
       - if:
@@ -1543,17 +2588,51 @@ components:
           minLength: 1
         secret_ref:
           type: string
-          minLength: 1
-          pattern: ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$
           maxLength: 253
-          description: names a Kubernetes Secret (the Gateway reads its key api-key);
-            never contains credentials
+          description: Legacy reference; optional and ignored by the Gateway.
         rate_limit_per_minute:
           type: integer
           minimum: 1
         daily_budget:
           type: number
           minimum: 0
+        title:
+          type: string
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+        timeout_seconds:
+          type: integer
+          minimum: 10
+          maximum: 900
+          default: 120
+        input_price_per_million:
+          type: number
+          minimum: 0
+          default: 0
+        output_price_per_million:
+          type: number
+          minimum: 0
+          default: 0
+        request_settings:
+          type: object
+          additionalProperties: true
+          default: {}
+        api_key:
+          type: string
+          maxLength: 4096
+          writeOnly: true
+          description: Omit to keep; empty removes; endpoint or connection changes remove the saved key
+            unless replaced.
+        request_settings_thinking_off:
+          type:
+          - object
+          - 'null'
+          additionalProperties: true
+          description: Null means no thinking-off switch; an object (including {}) means one is configured.
+            Merged by the Gateway when thinking is false. Omit on update to keep the stored value.
       required:
       - purpose
       - role
@@ -1561,7 +2640,6 @@ components:
       - api_type
       - endpoint_url
       - model_id
-      - secret_ref
       - rate_limit_per_minute
       - daily_budget
       additionalProperties: false
@@ -1751,3 +2829,244 @@ components:
       required:
       - status
       additionalProperties: false
+    ModelTestResult:
+      oneOf:
+      - type: object
+        properties:
+          ok:
+            const: true
+          model_title:
+            type: string
+          reply:
+            type: string
+          duration_ms:
+            type: integer
+            minimum: 0
+          usage:
+            type: object
+            properties:
+              input_tokens:
+                type: integer
+                minimum: 0
+              output_tokens:
+                type: integer
+                minimum: 0
+            required:
+            - input_tokens
+            - output_tokens
+            additionalProperties: false
+          cost_usd:
+            type: number
+            minimum: 0
+        required:
+        - ok
+        - model_title
+        - reply
+        - duration_ms
+        - usage
+        - cost_usd
+        additionalProperties: false
+      - type: object
+        properties:
+          ok:
+            const: false
+          reason:
+            type: string
+          provider_status:
+            type:
+            - integer
+            - 'null'
+            minimum: 100
+            maximum: 599
+          provider_message:
+            type:
+            - string
+            - 'null'
+            maxLength: 300
+        required:
+        - ok
+        - reason
+        - provider_status
+        - provider_message
+        additionalProperties: false
+    AccessRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          minLength: 1
+        status:
+          type: string
+          enum:
+          - pending
+          - approved
+          - rejected
+        requested_at:
+          type: string
+          format: date-time
+        name:
+          type:
+          - string
+          - 'null'
+        email:
+          type:
+          - string
+          - 'null'
+        organisation:
+          type:
+          - string
+          - 'null'
+        reason:
+          type:
+          - string
+          - 'null'
+        decided_by:
+          type:
+          - string
+          - 'null'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        updated_by:
+          type: string
+        decided_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        deleted_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        approved_tier:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+      required:
+      - id
+      - user_id
+      - status
+      - requested_at
+      - created_at
+      - updated_at
+      - created_by
+      - updated_by
+      additionalProperties: false
+    AccessObserveInput:
+      type: object
+      properties:
+        user_id:
+          type: string
+          minLength: 1
+          description: Exact verified user sub; no trimming, case folding or identifier normalization.
+        is_admin:
+          type: boolean
+          description: From verified end-user access-token realm roles.
+        name:
+          type:
+          - string
+          - 'null'
+          description: Trimmed before validation; at most 200 characters after trimming.
+        email:
+          type:
+          - string
+          - 'null'
+          description: Trimmed before validation; at most 320 characters after trimming.
+        organisation:
+          type:
+          - string
+          - 'null'
+          description: Trimmed before validation; at most 100 characters after trimming.
+        access_reason:
+          type:
+          - string
+          - 'null'
+          description: Trimmed before validation; at most 300 characters after trimming.
+      required:
+      - user_id
+      - is_admin
+      additionalProperties: false
+    TierRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          minLength: 1
+        status:
+          type: string
+          enum:
+          - pending
+          - approved
+          - rejected
+        requested_at:
+          type: string
+          format: date-time
+        name:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          minLength: 1
+        reason:
+          type:
+          - string
+          - 'null'
+        decided_by:
+          type:
+          - string
+          - 'null'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        updated_by:
+          type: string
+        decided_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        deleted_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        tier:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+      required:
+      - id
+      - user_id
+      - status
+      - requested_at
+      - created_at
+      - updated_at
+      - created_by
+      - updated_by
+      - tier
+      - title
+      - name
+      - email
+      additionalProperties: false
+      description: Administrator view. Name and email fall back to user_id if no access-request profile
+        is available; email is not verified. User text is plain text. Reason never enters logs or audit
+        detail.

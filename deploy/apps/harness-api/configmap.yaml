@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: harness-api-config
+  namespace: ${APPS_NAMESPACE}
+data:
+  HA_OIDC_ISSUER: https://auth.${DOMAIN}/realms/ooh
+  HA_OIDC_AUDIENCE: ooh-harness-api
+  HA_CLIENT_ID: ooh-harness-api
+  HA_CONTROL_CENTRE_URL: http://control-centre.${APPS_NAMESPACE}.svc:8080
+  HA_GATEWAY_URL: http://model-gateway.${APPS_NAMESPACE}.svc:8080
+  HA_SYSTEM_PROMPT: >-
+    You are the assistant in Open Office Harness. Always reply in the same language as the user's latest message.

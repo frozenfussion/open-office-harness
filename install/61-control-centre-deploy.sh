@@ -48,9 +48,13 @@ status="$(printf 'header = "Authorization: Bearer %s"\n' "$registry_token" |
   stop "registry is unreachable; check ghcr.io availability and retry"
 unset registry_response registry_reply registry_token
 check_registry_status "$status"
+kubectl -n "$APPS_NAMESPACE" get secret control-centre-keys >/dev/null 2>&1 || stop "run install/63-control-centre-keys.sh"
 for secret in control-centre-db control-centre-kafka; do
   kubectl -n "$APPS_NAMESPACE" get secret "$secret" >/dev/null 2>&1 || stop "required application secret missing; run install/60-control-centre-secrets.sh"
 done
+if ! kubectl -n "$APPS_NAMESPACE" get secret control-centre-oidc >/dev/null 2>&1; then
+  printf 'Connection tests need service credentials; run install/71-control-centre-oidc.sh to enable them\n'
+fi
 tmp="$(mktemp -d)"
 trap 'rm -rf -- "$tmp"' EXIT
 mkdir -p "$tmp/apps"

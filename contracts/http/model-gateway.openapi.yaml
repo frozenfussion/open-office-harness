@@ -42,30 +42,168 @@ paths:
                 properties:
                   content:
                     type: string
-                  tokens:
-                    type: integer
+                  tool_calls:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        arguments:
+                          type: object
+                          additionalProperties: true
+                      required:
+                      - id
+                      - name
+                      - arguments
+                      additionalProperties: false
+                  model_entry_id:
+                    type: string
+                    format: uuid
+                  model_title:
+                    type: string
+                  tier:
+                    type:
+                    - integer
+                    - 'null'
+                    minimum: 1
+                  usage:
+                    type: object
+                    properties:
+                      input_tokens:
+                        type: integer
+                        minimum: 0
+                      output_tokens:
+                        type: integer
+                        minimum: 0
+                    required:
+                    - input_tokens
+                    - output_tokens
+                    additionalProperties: false
+                  cost_usd:
+                    type: number
                     minimum: 0
+                  thinking_applied:
+                    type: boolean
+                    description: Whether the caller thinking choice was honoured.
+                      True when thinking is true or absent; when false, true only
+                      if the answering entry has a request_settings_thinking_off object.
+                  thinking:
+                    type:
+                    - string
+                    - 'null'
+                    minLength: 1
+                    description: Concatenated visible thinking text, separate from
+                      content; null when no non-empty thinking was returned.
                 required:
                 - content
-                - tokens
+                - tool_calls
+                - model_entry_id
+                - model_title
+                - tier
+                - usage
+                - cost_usd
+                - thinking_applied
+                - thinking
                 additionalProperties: false
             text/event-stream:
               schema:
-                type: object
-                properties:
-                  type:
-                    type: string
-                    enum:
-                    - delta
-                    - completed
-                    - failed
-                  text:
-                    type: string
-                  error:
-                    $ref: '#/components/schemas/Error'
-                required:
-                - type
-                additionalProperties: false
+                oneOf:
+                - type: object
+                  properties:
+                    type:
+                      const: delta
+                    text:
+                      type: string
+                  required:
+                  - type
+                  - text
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: tool_call
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    arguments:
+                      type: object
+                      additionalProperties: true
+                  required:
+                  - type
+                  - id
+                  - name
+                  - arguments
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: completed
+                    model_entry_id:
+                      type: string
+                      format: uuid
+                    model_title:
+                      type: string
+                    tier:
+                      type:
+                      - integer
+                      - 'null'
+                      minimum: 1
+                    usage:
+                      type: object
+                      properties:
+                        input_tokens:
+                          type: integer
+                          minimum: 0
+                        output_tokens:
+                          type: integer
+                          minimum: 0
+                      required:
+                      - input_tokens
+                      - output_tokens
+                      additionalProperties: false
+                    cost_usd:
+                      type: number
+                      minimum: 0
+                    thinking_applied:
+                      type: boolean
+                      description: Whether the caller thinking choice was honoured.
+                        True when thinking is true or absent; when false, true only
+                        if the answering entry has a request_settings_thinking_off
+                        object.
+                  required:
+                  - type
+                  - model_entry_id
+                  - model_title
+                  - tier
+                  - usage
+                  - cost_usd
+                  - thinking_applied
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: failed
+                    error:
+                      $ref: '#/components/schemas/Error'
+                  required:
+                  - type
+                  - error
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: thinking
+                    text:
+                      type: string
+                      minLength: 1
+                  required:
+                  - type
+                  - text
+                  additionalProperties: false
         '400':
           description: Invalid input
           content:
@@ -85,7 +223,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '503':
-          description: Unavailable
+          description: budget_exceeded, unavailable or registry_unavailable. PinnedError
+            is returned only to the authorized Control Centre test call; Harness responses
+            remain Error.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/Error'
+                - $ref: '#/components/schemas/PinnedError'
+        '404':
+          description: 'no_model: no active supported matching entry'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 'rate_limited: no entry called and at least one skipped for
+            rate'
           content:
             application/json:
               schema:
@@ -101,42 +256,108 @@ paths:
                   type: string
                   minLength: 1
                 tier:
-                  type: integer
+                  type:
+                  - integer
+                  - 'null'
                   minimum: 1
                 user_id:
                   type: string
                   minLength: 1
                 messages:
                   type: array
+                  minItems: 1
                   items:
                     type: object
                     properties:
                       role:
-                        type: string
                         enum:
                         - system
                         - user
                         - assistant
-                        - tool
                       content:
                         type: string
                     required:
                     - role
                     - content
                     additionalProperties: false
-                attachments:
+                tools:
                   type: array
                   items:
-                    type: string
-                    minLength: 1
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                      description:
+                        type: string
+                      input_schema:
+                        type: object
+                        additionalProperties: true
+                    required:
+                    - name
+                    - description
+                    - input_schema
+                    additionalProperties: false
                 stream:
                   type: boolean
+                model_entry_id:
+                  type:
+                  - string
+                  - 'null'
+                  format: uuid
+                thinking:
+                  type: boolean
+                  default: true
+                  description: Defaults to true. When false, the answering entry request_settings_thinking_off
+                    object is merged after request_settings using top-level replacement
+                    and null removal. Ignored when the entry has no off-settings object.
+                    The Control Centre test caller must omit this field.
               required:
               - purpose
               - user_id
               - messages
               - stream
               additionalProperties: false
+              allOf:
+              - if:
+                  properties:
+                    purpose:
+                      const: chat
+                then:
+                  required:
+                  - tier
+                  properties:
+                    tier:
+                      type: integer
+                      minimum: 1
+                else:
+                  properties:
+                    tier:
+                      type: 'null'
+      description: 'Audience ooh-model-gateway. The Harness service account may make
+        purpose calls. The Control Centre service account may only make a pinned non-streamed
+        test: messages exactly [{"role":"user","content":"Reply with the single word
+        OK."}], no tools, user_id starting admin-test-. Every other caller or Control
+        Centre request is forbidden. Active entries: main before backup, then priority,
+        then created_at. model_entry_id pins one matching entry; rate and budget still
+        apply. Before first output failures may fail over; after output, emit failed.
+        Registry cache 30 seconds; key cache 60 seconds. Only the Control Centre test
+        receives provider_status and scrubbed provider_message on 503. Provider error
+        reads are bounded to 4 KiB and messages to 300 characters. Keys, their substrings
+        of at least eight characters, and sk- tokens are replaced with [removed].
+        Thinking defaults to true. The Control Centre test rejects all extra fields,
+        including thinking. thinking_applied reports whether the caller choice was
+        honoured: true when thinking is true or omitted; otherwise true only when
+        the answering entry has an off-settings object. It reflects the actual answering
+        entry after failover. Visible thinking is emitted as thinking/text SSE events
+        before or between answer deltas, never after completed; empty strings are
+        dropped. Non-streamed thinking is a separate string or null. Signatures, encrypted
+        reasoning and redacted blocks are never forwarded. openai_responses forwards
+        visible reasoning summaries only when effective request settings ask for reasoning.summary;
+        encrypted_content is never forwarded. Chat-completions prefers reasoning_content,
+        then string reasoning, and ignores reasoning_details/object forms. Unknown
+        event types are ignored. Thinking is never logged; token usage remains as
+        reported by the provider.'
   /v1/classify:
     post:
       operationId: post_v1_classify
@@ -173,7 +394,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '503':
-          description: Unavailable
+          description: 'not_built_yet: Classification arrives in Stage 3'
           content:
             application/json:
               schema:
@@ -217,4 +438,28 @@ components:
       required:
       - code
       - message
+      additionalProperties: false
+    PinnedError:
+      type: object
+      properties:
+        code:
+          type: string
+          minLength: 1
+        message:
+          type: string
+          minLength: 1
+        provider_status:
+          type:
+          - integer
+          - 'null'
+        provider_message:
+          type:
+          - string
+          - 'null'
+          maxLength: 300
+      required:
+      - code
+      - message
+      - provider_status
+      - provider_message
       additionalProperties: false

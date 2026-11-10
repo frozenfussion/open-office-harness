@@ -1,0 +1,307 @@
+{
+  "examples": [
+    {
+      "file": "examples/http/harness-api.get-conversations.parameters.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/harness-api.get-conversations.200.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-conversations.400.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/harness-api.get-conversations.401.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/harness-api.get-conversations.404.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/harness-api.get-conversations.503.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.429.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "429"
+    },
+    {
+      "file": "examples/http/harness-api.get-me.200.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-me.400.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/harness-api.get-me.401.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/harness-api.get-me.503.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.get-conversations-id.parameters.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/harness-api.get-conversations-id.200.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-conversations-id.400.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/harness-api.get-conversations-id.401.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/harness-api.get-conversations-id.404.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/harness-api.get-conversations-id.503.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.200.completed.sse.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.200.failed.sse.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-me.200.pending.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-me.200.rejected.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-me.200.closed.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/me",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.200.title.sse.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.post-tier-requests.request.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/tier-requests",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/harness-api.post-tier-requests.201.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/tier-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "201"
+    },
+    {
+      "file": "examples/http/harness-api.post-tier-requests.400.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/tier-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/harness-api.post-tier-requests.401.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/tier-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/harness-api.post-tier-requests.403.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/tier-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/harness-api.post-tier-requests.409.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/tier-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "409"
+    },
+    {
+      "file": "examples/http/harness-api.post-tier-requests.429.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/tier-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "429"
+    },
+    {
+      "file": "examples/http/harness-api.post-tier-requests.503.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/tier-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.post-tier-requests.409.too-soon.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/tier-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "409"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.200.thinking.sse.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-conversations-id.200.thinking.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+**
+!apps/
+!apps/workspace/
+!apps/workspace/**
+!apps/design-system/
+!apps/design-system/**
+apps/workspace/node_modules
+apps/workspace/dist
+apps/workspace/.angular
+apps/workspace/coverage

@@ -23,6 +23,91 @@ namespace ControlCentre.Migrations.Scaffold
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("ControlCentre.Platform.AccessRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int?>("ApprovedTier")
+                        .HasColumnType("integer")
+                        .HasColumnName("approved_tier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<string>("DecidedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("decided_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("text")
+                        .HasColumnName("email");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Organisation")
+                        .HasColumnType("text")
+                        .HasColumnName("organisation");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("requested_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("UserId");
+
+                    b.HasIndex("RequestedAt", "Id")
+                        .IsDescending()
+                        .HasDatabaseName("access_requests_paging");
+
+                    b.ToTable("access_requests", null, t =>
+                        {
+                            t.HasCheckConstraint("access_requests_status_check", "status IN ('pending','approved','rejected')");
+                        });
+                });
+
             modelBuilder.Entity("ControlCentre.Platform.Approval", b =>
                 {
                     b.Property<Guid>("Id")
@@ -235,6 +320,10 @@ namespace ControlCentre.Migrations.Scaffold
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("ApiKeyEncrypted")
+                        .HasColumnType("text")
+                        .HasColumnName("api_key_encrypted");
+
                     b.Property<string>("ApiType")
                         .IsRequired()
                         .HasColumnType("text")
@@ -267,6 +356,13 @@ namespace ControlCentre.Migrations.Scaffold
                         .HasColumnType("text")
                         .HasColumnName("health");
 
+                    b.Property<decimal>("InputPricePerMillion")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(14, 6)
+                        .HasColumnType("numeric(14,6)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("input_price_per_million");
+
                     b.Property<string>("Location")
                         .IsRequired()
                         .HasColumnType("text")
@@ -277,6 +373,19 @@ namespace ControlCentre.Migrations.Scaffold
                         .HasColumnType("text")
                         .HasColumnName("model_id");
 
+                    b.Property<decimal>("OutputPricePerMillion")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(14, 6)
+                        .HasColumnType("numeric(14,6)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("output_price_per_million");
+
+                    b.Property<int>("Priority")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(100)
+                        .HasColumnName("priority");
+
                     b.Property<string>("Purpose")
                         .IsRequired()
                         .HasColumnType("text")
@@ -285,6 +394,17 @@ namespace ControlCentre.Migrations.Scaffold
                     b.Property<int>("RateLimitPerMinute")
                         .HasColumnType("integer")
                         .HasColumnName("rate_limit_per_minute");
+
+                    b.Property<string>("RequestSettings")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValue("{}")
+                        .HasColumnName("request_settings");
+
+                    b.Property<string>("RequestSettingsThinkingOff")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("request_settings_thinking_off");
 
                     b.Property<string>("Role")
                         .IsRequired()
@@ -300,6 +420,19 @@ namespace ControlCentre.Migrations.Scaffold
                         .HasColumnType("integer")
                         .HasColumnName("tier");
 
+                    b.Property<int>("TimeoutSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(120)
+                        .HasColumnName("timeout_seconds");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("")
+                        .HasColumnName("title");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -311,12 +444,6 @@ namespace ControlCentre.Migrations.Scaffold
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Purpose", "Tier", "Role")
-                        .IsUnique()
-                        .HasFilter("deleted_at IS NULL");
-
-                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("Purpose", "Tier", "Role"), false);
-
                     b.ToTable("model_entries", null, t =>
                         {
                             t.HasCheckConstraint("model_entries_check", "(purpose = 'chat' AND tier IS NOT NULL AND tier > 0) OR (purpose <> 'chat' AND tier IS NULL)");
@@ -325,9 +452,17 @@ namespace ControlCentre.Migrations.Scaffold
 
                             t.HasCheckConstraint("model_entries_location_check", "location IN ('on_prem','cloud')");
 
+                            t.HasCheckConstraint("model_entries_priority_check", "priority BETWEEN 1 AND 1000");
+
                             t.HasCheckConstraint("model_entries_rate_limit_per_minute_check", "rate_limit_per_minute > 0");
 
+                            t.HasCheckConstraint("model_entries_request_settings_check", "jsonb_typeof(request_settings) = 'object'");
+
                             t.HasCheckConstraint("model_entries_role_check", "role IN ('main','backup')");
+
+                            t.HasCheckConstraint("model_entries_thinking_off_check", "request_settings_thinking_off IS NULL OR jsonb_typeof(request_settings_thinking_off) = 'object'");
+
+                            t.HasCheckConstraint("model_entries_timeout_seconds_check", "timeout_seconds BETWEEN 10 AND 900");
                         });
                 });
 
@@ -549,6 +684,86 @@ namespace ControlCentre.Migrations.Scaffold
                     b.HasAlternateKey("Name");
 
                     b.ToTable("skills", (string)null);
+                });
+
+            modelBuilder.Entity("ControlCentre.Platform.TierRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<string>("DecidedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("decided_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("requested_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<int>("Tier")
+                        .HasColumnType("integer")
+                        .HasColumnName("tier");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestedAt", "Id")
+                        .IsDescending()
+                        .HasDatabaseName("tier_requests_paging");
+
+                    b.HasIndex("UserId", "Tier")
+                        .IsUnique()
+                        .HasDatabaseName("tier_requests_pending")
+                        .HasFilter("deleted_at IS NULL AND status = 'pending'");
+
+                    b.ToTable("tier_requests", null, t =>
+                        {
+                            t.HasCheckConstraint("tier_requests_reason_check", "reason IS NULL OR length(reason) <= 300");
+
+                            t.HasCheckConstraint("tier_requests_status_check", "status IN ('pending','approved','rejected')");
+
+                            t.HasCheckConstraint("tier_requests_tier_check", "tier > 0");
+                        });
                 });
 
             modelBuilder.Entity("ControlCentre.Platform.Grant", b =>

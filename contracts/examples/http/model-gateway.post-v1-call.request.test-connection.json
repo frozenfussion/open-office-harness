@@ -1,0 +1,13 @@
+{
+  "purpose": "chat",
+  "tier": 1,
+  "model_entry_id": "00000000-0000-4000-8000-000000000001",
+  "user_id": "admin-test-fake-admin",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Reply with the single word OK."
+    }
+  ],
+  "stream": false
+}

@@ -1,0 +1,20 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--font-sans); }
+* { box-sizing: border-box; }
+button, textarea, select { font: inherit; }
+button:focus-visible { outline: 2px solid var(--phosphor); }
+
+.ooh-markdown { white-space: normal; }
+.ooh-markdown > :first-child { margin-top: 0; }
+.ooh-markdown > :last-child { margin-bottom: 0; }
+.ooh-markdown h1,.ooh-markdown h2,.ooh-markdown h3,.ooh-markdown h4,.ooh-markdown h5,.ooh-markdown h6 { font-family: var(--font-sans); line-height: 1.3; }
+.ooh-markdown a { color: var(--phosphor); overflow-wrap: anywhere; }
+.ooh-markdown code { font-family: var(--font-mono); font-size: .9em; }
+.ooh-markdown pre { display: flex; flex-direction: column; gap: var(--space-2); max-width: 100%; overflow-x: auto; padding: var(--space-3); background: var(--ground); border: 1px solid var(--line); border-radius: var(--radius-md); white-space: pre; }
+.ooh-markdown pre > button { align-self: flex-end; }
+.ooh-markdown pre > code { display: block; }
+.ooh-markdown table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; }
+.ooh-markdown th,.ooh-markdown td { border: 1px solid var(--line); padding: var(--space-2) var(--space-3); text-align: left; }
+.ooh-markdown blockquote { border-left: 2px solid var(--line-strong); margin-left: 0; padding-left: var(--space-4); color: var(--ink-muted); }
+.ooh-math-pending { white-space: pre-wrap; }
+.ooh-markdown .katex-display { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
