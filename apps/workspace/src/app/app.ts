@@ -21,6 +21,7 @@ export class App implements OnInit, OnDestroy {
   readonly ready = signal(false);
   readonly signedIn = signal(false);
   readonly me = signal<Me | null>(null);
+  readonly givenName = signal('');
   readonly conversations = signal<Conversation[]>([]);
   readonly messages = signal<Message[]>([]);
   readonly currentId = signal<string | null>(null);
@@ -49,6 +50,8 @@ export class App implements OnInit, OnDestroy {
     this.subscription.add(this.auth.checkAuth().subscribe({
       next: (result) => {
         this.signedIn.set(result.isAuthenticated);
+        const givenName: unknown = result.userData?.given_name;
+        this.givenName.set(typeof givenName === 'string' ? givenName.trim().slice(0, 200) : '');
         this.ready.set(true);
         if (result.isAuthenticated) void this.load();
       },
@@ -62,6 +65,17 @@ export class App implements OnInit, OnDestroy {
     try { await navigator.clipboard.writeText(this.me()?.user_id || ''); this.copied.set(true); }
     catch { this.notice.set('Copy did not work. Select and copy your user ID.'); }
   }
+  accessMessage(): string {
+    switch (this.me()?.access) {
+      case 'pending': {
+        const firstName = this.givenName() || this.me()?.name?.trim().split(/\s+/u)[0];
+        return `Thanks${firstName ? ', ' + firstName : ''}. Your request is waiting for approval.`;
+      }
+      case 'rejected': return 'Your request was not approved. Please contact your administrator.';
+      case 'closed': return 'Requests are closed for now. Please contact your administrator.';
+      default: return '';
+    }
+  }
   private failure(error: unknown): void {
     this.forbidden.set(error instanceof ApiError && error.status === 403);
     this.notice.set(error instanceof ApiError ? error.message : 'The request failed. Try again.');
@@ -70,6 +84,11 @@ export class App implements OnInit, OnDestroy {
     this.loading.set(true);
     try {
       const me = await this.api.me();
+      if (!['approved', 'pending', 'rejected', 'closed'].includes(me.access)) {
+        throw new ApiError(503, 'Your access could not be checked. Try again.');
+      }
+      this.me.set(me);
+      if (me.access !== 'approved') return;
       me.chat_tiers.sort((a, b) => a - b);
       this.me.set(me);
       this.tier = me.chat_tiers[0] ?? null;
@@ -80,11 +99,13 @@ export class App implements OnInit, OnDestroy {
     finally { this.loading.set(false); }
   }
   async refreshList(): Promise<void> {
+    if (this.me()?.access !== 'approved') return;
     const rows = await this.api.list();
     this.conversations.set(rows);
     this.more.set(rows.length === 50);
   }
   async loadMore(): Promise<void> {
+    if (this.me()?.access !== 'approved') return;
     this.loading.set(true);
     try {
       const last = this.conversations().at(-1);
@@ -102,11 +123,11 @@ export class App implements OnInit, OnDestroy {
     window.history.replaceState(null, '', url);
   }
   newChat(): void {
-    if (this.streaming() || this.loading()) return;
+    if (this.me()?.access !== 'approved' || this.streaming() || this.loading()) return;
     this.setCurrent(null); this.title.set('New chat'); this.messages.set([]); this.notice.set(''); this.draft = '';
   }
   async open(id: string): Promise<void> {
-    if (this.streaming()) return;
+    if (this.me()?.access !== 'approved' || this.streaming()) return;
     this.loading.set(true); this.notice.set('');
     try {
       const conversation = await this.api.conversation(id);
@@ -120,7 +141,7 @@ export class App implements OnInit, OnDestroy {
     }
   }
   async send(): Promise<void> {
-    if (!this.draft.trim() || this.tier == null || this.streaming() || this.loading()) return;
+    if (this.me()?.access !== 'approved' || !this.draft.trim() || this.tier == null || this.streaming() || this.loading()) return;
     const content = this.draft;
     const tier = this.tier;
     this.streaming.set(true); this.notice.set(''); this.forbidden.set(false);

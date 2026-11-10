@@ -9,9 +9,183 @@ spec:
   realm:
     realm: ooh
     enabled: true
-    registrationAllowed: false
+    registrationAllowed: true
+    registrationEmailAsUsername: true
+    loginWithEmailAllowed: true
+    duplicateEmailsAllowed: false
+    editUsernameAllowed: false
+    verifyEmail: false
+    resetPasswordAllowed: false
+    internationalizationEnabled: true
+    supportedLocales: [en]
+    defaultLocale: en
+    passwordPolicy: length(12) and notUsername and notEmail and maxLength(128)
+    localizationTexts:
+      en:
+        noAccount: Need access?
+        doRegister: Request access
+        registerTitle: Request access
     bruteForceProtected: true
     accessTokenLifespan: 300
+    components:
+      org.keycloak.userprofile.UserProfileProvider:
+      - providerId: declarative-user-profile
+        config:
+          kc.user.profile.config:
+          - |
+            {
+              "attributes": [
+                {
+                  "name": "username",
+                  "displayName": "${username}",
+                  "permissions": {
+                    "view": [
+                      "admin",
+                      "user"
+                    ],
+                    "edit": [
+                      "admin",
+                      "user"
+                    ]
+                  },
+                  "validations": {
+                    "length": {
+                      "min": 3,
+                      "max": 255
+                    },
+                    "username-prohibited-characters": {},
+                    "up-username-not-idn-homograph": {}
+                  }
+                },
+                {
+                  "name": "email",
+                  "displayName": "${email}",
+                  "required": {
+                    "roles": [
+                      "user"
+                    ]
+                  },
+                  "permissions": {
+                    "view": [
+                      "admin",
+                      "user"
+                    ],
+                    "edit": [
+                      "admin",
+                      "user"
+                    ]
+                  },
+                  "validations": {
+                    "email": {},
+                    "length": {
+                      "max": 255
+                    }
+                  }
+                },
+                {
+                  "name": "firstName",
+                  "displayName": "${firstName}",
+                  "required": {
+                    "roles": [
+                      "user"
+                    ]
+                  },
+                  "permissions": {
+                    "view": [
+                      "admin",
+                      "user"
+                    ],
+                    "edit": [
+                      "admin",
+                      "user"
+                    ]
+                  },
+                  "validations": {
+                    "length": {
+                      "max": 255
+                    },
+                    "person-name-prohibited-characters": {}
+                  }
+                },
+                {
+                  "name": "lastName",
+                  "displayName": "${lastName}",
+                  "required": {
+                    "roles": [
+                      "user"
+                    ]
+                  },
+                  "permissions": {
+                    "view": [
+                      "admin",
+                      "user"
+                    ],
+                    "edit": [
+                      "admin",
+                      "user"
+                    ]
+                  },
+                  "validations": {
+                    "length": {
+                      "max": 255
+                    },
+                    "person-name-prohibited-characters": {}
+                  }
+                },
+                {
+                  "name": "organisation",
+                  "displayName": "Organisation or team",
+                  "required": {
+                    "roles": [
+                      "user"
+                    ]
+                  },
+                  "permissions": {
+                    "view": [
+                      "admin",
+                      "user"
+                    ],
+                    "edit": [
+                      "admin",
+                      "user"
+                    ]
+                  },
+                  "validations": {
+                    "length": {
+                      "min": 1,
+                      "max": 100
+                    }
+                  }
+                },
+                {
+                  "name": "access_reason",
+                  "displayName": "Why do you need access?",
+                  "permissions": {
+                    "view": [
+                      "admin",
+                      "user"
+                    ],
+                    "edit": [
+                      "admin",
+                      "user"
+                    ]
+                  },
+                  "validations": {
+                    "length": {
+                      "min": 0,
+                      "max": 300
+                    }
+                  }
+                }
+              ],
+              "groups": [
+                {
+                  "name": "user-metadata",
+                  "displayHeader": "User metadata",
+                  "displayDescription": "Attributes, which refer to user metadata"
+                }
+              ]
+            }
     roles:
       realm:
       - name: ooh-admin
@@ -38,6 +212,28 @@ spec:
           included.client.audience: ooh-harness-api
           access.token.claim: 'true'
           id.token.claim: 'false'
+      - name: organisation
+        protocol: openid-connect
+        protocolMapper: oidc-usermodel-attribute-mapper
+        consentRequired: false
+        config:
+          user.attribute: organisation
+          claim.name: organisation
+          jsonType.label: String
+          access.token.claim: 'true'
+          id.token.claim: 'false'
+          userinfo.token.claim: 'false'
+      - name: access_reason
+        protocol: openid-connect
+        protocolMapper: oidc-usermodel-attribute-mapper
+        consentRequired: false
+        config:
+          user.attribute: access_reason
+          claim.name: access_reason
+          jsonType.label: String
+          access.token.claim: 'true'
+          id.token.claim: 'false'
+          userinfo.token.claim: 'false'
     - clientId: ooh-admin-console
       enabled: true
       publicClient: true

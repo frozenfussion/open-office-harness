@@ -36,6 +36,14 @@
    Under your name, find **About me · Your user ID** and click **Copy user ID**
    to give an admin your ID. **Sign out** ends the Keycloak session.
 
+   Newcomers use **Need access? Request access** on Keycloak's login page after
+   the sign-in button. Enter names, work email, organisation, an optional reason
+   and a chosen password twice. Pending, rejected and closed requests show only
+   their message and Sign out. An approved request opens chat. Refresh after the
+   admin approves. If the access service fails, a red notice appears. See the
+   [root guide](../../README.md#request-access-and-approvals) for approval,
+   registration controls and password resets.
+
 4. **Read status and the running image.** Type this in your harness terminal,
    Shell tile, plain shell. No password. This shows the running app; good result
    is `1/1` Ready and the intended image tag.
@@ -90,7 +98,8 @@
    The Control Centre check asks for browser admin sign-in. Good result:
    every check prints `PASS`, each script ends with `DONE`.
    **Each run of 70 makes one short paid call per entry with a key, plus one
-   streamed paid call per connection type in use.** It tests chat tiers 1–20.
+   streamed paid call per connection type in use and one pinned paid call as
+   the Control Centre.** It tests chat tiers 1–20.
 
    ```bash
    cd ~/projects/worktrees/stage-2

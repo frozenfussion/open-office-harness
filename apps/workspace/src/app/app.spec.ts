@@ -10,7 +10,7 @@ import { CONFIG, readConfig } from './config';
 import { appConfig } from './app.config';
 
 describe('Workspace', () => {
-  afterEach(() => { vi.restoreAllMocks(); TestBed.resetTestingModule(); });
+  afterEach(() => { vi.restoreAllMocks(); TestBed.resetTestingModule(); window.history.replaceState(null, '', '/'); });
   it('parses SSE across byte and line boundaries, CRLF and final chunks', async () => {
     const events: unknown[] = [];
     const bytes = new TextEncoder().encode('data: {"type":"delta","text":"你"}\r\n\r\ndata: {"type":"failed","error":{"code":"unavailable","message":"Try again"}}\n\n');
@@ -38,7 +38,7 @@ describe('Workspace', () => {
     const view = TestBed.createComponent(App);
     view.detectChanges();
     view.componentInstance.signedIn.set(true);
-    view.componentInstance.me.set({user_id: 'test-user', name: 'Test user', chat_tiers: [1, 3], skills: []});
+    view.componentInstance.me.set({access: 'approved', user_id: 'test-user', name: 'Test user', chat_tiers: [1, 3], skills: []});
     view.componentInstance.tier = 1;
     view.detectChanges();
     await view.whenStable();
@@ -77,6 +77,65 @@ describe('Workspace', () => {
     finish(); await sending; view.detectChanges();
     expect(view.nativeElement.querySelector('.ooh-cursor')).toBeNull();
     expect(view.nativeElement.querySelector('.ooh-msg__meta').textContent).toContain('tier 1 · Test entry · 2 in / 4 out tokens');
+  });
+  async function accessFixture(access: 'approved' | 'pending' | 'rejected' | 'closed' | 'unavailable') {
+    const api = {
+      me: access === 'unavailable'
+        ? vi.fn().mockRejectedValue(new ApiError(503, 'Your access could not be checked. Try again.'))
+        : vi.fn().mockResolvedValue({access, user_id: 'test-user', name: 'Given Family', chat_tiers: [1], skills: []}),
+      list: vi.fn().mockResolvedValue([]),
+      conversation: vi.fn(), create: vi.fn(), send: vi.fn(),
+    };
+    const logoff = vi.fn(() => of(undefined));
+    TestBed.configureTestingModule({imports: [App], providers: [
+      {provide: OidcSecurityService, useValue: {
+        checkAuth: () => of({isAuthenticated: true, userData: {given_name: 'Given'}}),
+        isAuthenticated$: of({isAuthenticated: true}), logoff,
+      }},
+      {provide: Api, useValue: api},
+    ]});
+    if (access !== 'approved') window.history.replaceState(null, '', '/?conversation=should-not-load');
+    const view = TestBed.createComponent(App);
+    view.detectChanges();
+    await view.whenStable();
+    view.detectChanges();
+    return {view, api, logoff};
+  }
+  it.each([
+    ['pending', 'Thanks, Given. Your request is waiting for approval.'],
+    ['rejected', 'Your request was not approved. Please contact your administrator.'],
+    ['closed', 'Requests are closed for now. Please contact your administrator.'],
+  ] as const)('shows only the %s message and sign out', async (access, message) => {
+    const {view, api, logoff} = await accessFixture(access);
+    expect(view.nativeElement.querySelector('[role="status"]').textContent).toBe(message);
+    expect(view.nativeElement.querySelector('nav')).toBeNull();
+    expect(view.nativeElement.querySelector('form')).toBeNull();
+    const buttons = view.nativeElement.querySelectorAll('button');
+    expect(buttons.length).toBe(1);
+    expect(buttons[0].textContent).toBe('Sign out');
+    expect(api.me).toHaveBeenCalledOnce();
+    expect(api.list).not.toHaveBeenCalled();
+    expect(api.conversation).not.toHaveBeenCalled();
+    expect(api.create).not.toHaveBeenCalled();
+    expect(api.send).not.toHaveBeenCalled();
+    buttons[0].click();
+    expect(logoff).toHaveBeenCalledOnce();
+  });
+  it('opens chat and loads conversations for approved access', async () => {
+    const {view, api} = await accessFixture('approved');
+    expect(view.nativeElement.querySelector('nav')).not.toBeNull();
+    expect(view.nativeElement.querySelector('form')).not.toBeNull();
+    expect(api.list).toHaveBeenCalledOnce();
+  });
+  it('shows a red notice when access cannot be checked', async () => {
+    const {view, api} = await accessFixture('unavailable');
+    const notice = view.nativeElement.querySelector('[role="alert"]');
+    expect(notice.classList.contains('notice')).toBe(true);
+    expect(notice.classList.contains('forbidden')).toBe(false);
+    expect(notice.textContent).toBe('Your access could not be checked. Try again.');
+    expect(view.nativeElement.textContent).not.toContain('waiting for approval');
+    expect(view.nativeElement.querySelector('form')).toBeNull();
+    expect(api.list).not.toHaveBeenCalled();
   });
   it('creates a conversation with the required empty JSON body', async () => {
     const fetchRequest = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({id: 'test-conversation'}), {

@@ -4,7 +4,8 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { firstValueFrom } from 'rxjs';
 import { CONFIG } from './config';
 import { ChatEvent, readStream } from './sse';
-export interface Me { user_id: string; name: string; chat_tiers: number[]; skills: {name: string; title: string}[] }
+export type Access = 'approved' | 'pending' | 'rejected' | 'closed';
+export interface Me { access: Access; user_id: string; name: string; chat_tiers: number[]; skills: {name: string; title: string}[] }
 export interface Conversation { id: string; title: string; updated_at: string }
 export interface Message {
   id?: string; role: 'user' | 'assistant'; content: string;
