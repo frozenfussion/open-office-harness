@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json.Nodes;
 using ControlCentre.Platform;
 using ControlCentre.Access;
+using ControlCentre.Registry;
 using Microsoft.EntityFrameworkCore;
 
 namespace ControlCentre.Rights;
@@ -57,17 +58,18 @@ public static class RightsRoutes
       Api.Query(c, "user_id");
       var user = Api.Q(c, "user_id");
       Api.Authorize(c, user);
-      if (!await AccessPolicy.Approved(db, user)) return Results.Ok(new { chat_tiers = Array.Empty<int>(), chat_tier_titles = new Dictionary<string, string>(), skills = Array.Empty<string>(), image = false });
+      if (!await AccessPolicy.Approved(db, user)) return Results.Ok(new { chat_tiers = Array.Empty<int>(), chat_tier_titles = new Dictionary<string, string>(), chat_tier_thinking_switch = new Dictionary<string, bool>(), requestable_tiers = Array.Empty<RequestableTier>(), skills = Array.Empty<string>(), image = false });
       var keys = await db.Grants.Where(x => x.DeletedAt == null && (x.SubjectType == "everyone" || x.SubjectId == user))
               .Select(x => x.RightKey).Distinct().ToListAsync();
       var active = await db.Rights.Where(x => x.DeletedAt == null && keys.Contains(x.Key)).Select(x => x.Key).ToListAsync();
       var tiers = active.Where(x => x.StartsWith("chat.tier.", StringComparison.Ordinal)).Select(x => int.Parse(x[10..], CultureInfo.InvariantCulture)).Order().ToArray();
       var skills = (await db.Skills.Where(x => x.DeletedAt == null).ToListAsync()).Where(x => active.Contains(JsonNode.Parse(x.Manifest)!["right"]!.GetValue<string>())).Select(x => x.Name).Order().ToArray();
-      var mainEntries = await db.Models.Where(x => x.DeletedAt == null && x.Purpose == "chat" && x.Role == "main" && x.Tier != null && tiers.Contains(x.Tier.Value))
-          .OrderBy(x => x.Priority).ThenBy(x => x.CreatedAt).ThenBy(x => x.Id).Select(x => new { x.Tier, x.Title }).ToListAsync();
-      var titles = new Dictionary<string, string>();
-      foreach (var entry in mainEntries) titles.TryAdd(entry.Tier!.Value.ToString(CultureInfo.InvariantCulture), entry.Title);
-      return Results.Ok(new { chat_tiers = tiers, chat_tier_titles = titles, skills, image = active.Contains("image.generate") });
+      var mainEntries = await TierChoices.MainEntries(db);
+      var allowedMain = mainEntries.Where(x => tiers.Contains(x.Tier)).ToList();
+      var titles = allowedMain.ToDictionary(x => x.Tier.ToString(CultureInfo.InvariantCulture), x => x.Title);
+      var switches = allowedMain.ToDictionary(x => x.Tier.ToString(CultureInfo.InvariantCulture), x => x.ThinkingSwitch);
+      var requestable = await TierChoices.Requestable(db, user, mainEntries);
+      return Results.Ok(new { chat_tiers = tiers, chat_tier_titles = titles, chat_tier_thinking_switch = switches, requestable_tiers = requestable.Select(x => new System.Text.Json.Nodes.JsonObject { ["tier"] = x.Tier, ["title"] = x.Title, ["requested"] = x.Requested }), skills, image = active.Contains("image.generate") });
     }).RequireAuthorization();
     app.MapGet("/api/skills", async (HttpContext c, CentreDb db) =>
     {

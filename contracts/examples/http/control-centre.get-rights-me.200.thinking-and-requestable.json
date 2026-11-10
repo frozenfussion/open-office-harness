@@ -1,0 +1,30 @@
+{
+  "chat_tiers": [
+    1
+  ],
+  "chat_tier_titles": {
+    "1": "Synthetic main"
+  },
+  "chat_tier_thinking_switch": {
+    "1": true
+  },
+  "requestable_tiers": [
+    {
+      "tier": 2,
+      "title": "Synthetic second",
+      "requested": null
+    },
+    {
+      "tier": 3,
+      "title": "Synthetic third",
+      "requested": "pending"
+    },
+    {
+      "tier": 4,
+      "title": "Synthetic fourth",
+      "requested": "rejected"
+    }
+  ],
+  "skills": [],
+  "image": false
+}

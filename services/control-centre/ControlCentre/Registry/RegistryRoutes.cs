@@ -9,7 +9,7 @@ namespace ControlCentre.Registry;
 public static class RegistryRoutes
 {
   public static readonly string[] ModelFields = ["purpose", "role", "location", "api_type", "endpoint_url", "model_id", "rate_limit_per_minute", "daily_budget"];
-  public static object View(ModelEntry m) => new { model_entry_id = m.Id, m.Purpose, m.Tier, m.Role, m.Location, m.ApiType, m.EndpointUrl, m.ModelId, m.SecretRef, m.RateLimitPerMinute, m.DailyBudget, m.Health, m.Title, has_key = m.ApiKeyEncrypted is not null, m.Priority, m.CreatedAt, m.InputPricePerMillion, m.OutputPricePerMillion, m.TimeoutSeconds, request_settings = JsonNode.Parse(m.RequestSettings) };
+  public static object View(ModelEntry m) => new { model_entry_id = m.Id, m.Purpose, m.Tier, m.Role, m.Location, m.ApiType, m.EndpointUrl, m.ModelId, m.SecretRef, m.RateLimitPerMinute, m.DailyBudget, m.Health, m.Title, has_key = m.ApiKeyEncrypted is not null, m.Priority, m.CreatedAt, m.InputPricePerMillion, m.OutputPricePerMillion, m.TimeoutSeconds, request_settings = JsonNode.Parse(m.RequestSettings), request_settings_thinking_off = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(m.RequestSettingsThinkingOff ?? "null") };
   public static void Map(WebApplication app)
   {
     app.MapGet("/api/models/{id}/key", async (string id, HttpContext c, CentreDb db, ModelKeys keys) =>
@@ -103,7 +103,7 @@ public static class RegistryRoutes
   private static async Task<IResult> SaveModel(HttpContext c, CentreDb db, Guid? id)
   {
     Api.Authorize(c); Api.Query(c);
-    var b = await Api.Body(c, ModelFields, "tier", "secret_ref", "title", "api_key", "priority", "timeout_seconds", "input_price_per_million", "output_price_per_million", "request_settings");
+    var b = await Api.Body(c, ModelFields, "tier", "secret_ref", "title", "api_key", "priority", "timeout_seconds", "input_price_per_million", "output_price_per_million", "request_settings", "request_settings_thinking_off");
     var row = id is null ? new ModelEntry() : await db.Models.FindAsync(id.Value);
     Api.Found(row is not null && row.DeletedAt == null);
     var before = id is null ? null : JsonNode.Parse(Api.Encode(View(row!)));
@@ -133,6 +133,11 @@ public static class RegistryRoutes
     {
       Api.Require(b["request_settings"] is JsonObject, "request_settings must be a JSON object");
       m.RequestSettings = b["request_settings"]!.ToJsonString();
+    }
+    if (b.ContainsKey("request_settings_thinking_off"))
+    {
+      Api.Require(b["request_settings_thinking_off"] is null or JsonObject, "request_settings_thinking_off must be a JSON object or null");
+      m.RequestSettingsThinkingOff = b["request_settings_thinking_off"]?.ToJsonString();
     }
     string? keyChange = null;
     if (b.ContainsKey("api_key"))

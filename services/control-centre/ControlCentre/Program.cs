@@ -113,6 +113,7 @@ app.MapGet("/health", async (HttpContext c, CentreDb db) =>
   Api.Query(c);
   return await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok" }) : Api.Error(503, "unavailable", "Database unavailable");
 });
+TierRequestRoutes.Map(app);
 AccessRoutes.Map(app);
 RightsRoutes.Map(app);
 RegistryRoutes.Map(app);

@@ -5,6 +5,7 @@ export interface ModelEntry {
   has_key: boolean; priority: number; rate_limit_per_minute: number; daily_budget: number;
   input_price_per_million: number; output_price_per_million: number; timeout_seconds: number;
   request_settings: Record<string, unknown>;
+  request_settings_thinking_off?: Record<string, unknown> | null;
 }
 export interface Grant { id: string; right_key: string; subject_type: string; subject_id?: string; }
 export function tierRows(models: ModelEntry[], grants: Grant[]): number[] {
@@ -17,13 +18,14 @@ export function settingsObject(text: string): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Extra request settings must be a JSON object.');
   return value as Record<string, unknown>;
 }
-export function modelPayload(model: ModelEntry, key: string, removeKey: boolean, settings: string): Record<string, unknown> {
+export function modelPayload(model: ModelEntry, key: string, removeKey: boolean, settings: string, thinkingOff?: string): Record<string, unknown> {
   const body = { title: model.title, purpose: model.purpose, tier: model.tier, role: model.role,
     location: model.location, api_type: model.api_type, endpoint_url: model.endpoint_url, model_id: model.model_id,
     priority: model.priority, rate_limit_per_minute: model.rate_limit_per_minute, daily_budget: model.daily_budget,
     input_price_per_million: model.input_price_per_million, output_price_per_million: model.output_price_per_million,
     timeout_seconds: model.timeout_seconds };
   const payload: Record<string, unknown> = { ...body, request_settings: settingsObject(settings) };
+  if (thinkingOff !== undefined) payload['request_settings_thinking_off'] = thinkingOff.trim() ? settingsObject(thinkingOff) : null;
   if (body.purpose !== 'chat') delete payload['tier'];
   if (removeKey || key.length) payload['api_key'] = removeKey ? '' : key;
   return payload;
@@ -41,4 +43,9 @@ export type AccessStatus = 'pending' | 'approved' | 'rejected';
 export interface AccessRequest {
   id: string; user_id: string; name?: string; email?: string; organisation?: string; reason?: string;
   status: AccessStatus; requested_at: string; approved_tier?: number;
+}
+
+export interface TierRequest {
+  id: string; user_id: string; name: string; email: string; tier: number; title: string;
+  reason?: string; status: AccessStatus; requested_at: string;
 }

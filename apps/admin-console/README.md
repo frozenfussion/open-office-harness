@@ -143,3 +143,36 @@ Review waiting requests and the check identity's status before retrying. Check
 62 reuses `stage-check-access`, verifies the Everyone gate on tier 99, and removes
 the temporary Everyone grant. Reserved check identities are hidden from the
 admin request list and count.
+
+# Thinking settings and model requests (rows 19–22)
+
+In **Add model** or **Edit model**, **Settings when thinking is off (JSON object)**
+is optional. Leave it blank if the model has no off switch. A JSON object,
+including `{}`, enables the switch for that entry; other JSON values are refused.
+The model ID remains the placeholder `<model-id>` until an administrator supplies
+it. Use settings supported by that model and connection type:
+
+| Connection type | Thinking-off setting shape |
+|---|---|
+| `openai_chat_completions` | `{"thinking":{"type":"disabled"}}` or `{"reasoning_effort":"low"}` when supported |
+| `openai_responses` | `{"reasoning":{"effort":"low"}}` when supported |
+| `anthropic_messages` | Leave blank when the model has no off switch |
+
+The Workspace picker name and switch come from the active main entry. The
+answer's metadata identifies the real answering model; backup support may differ.
+The console's **Test** button still sends only the fixed connection test fields;
+it does not send a thinking choice.
+
+**Access requests** also contains **Model requests**, with the same Waiting,
+Approved and Rejected filter. Each row shows the person's name and unverified
+email, requested model title and tier, optional reason, UTC request time and
+**Approve**/**Reject** buttons for waiting requests. All text is displayed as text.
+The badge adds both waiting counts and hides at zero. Both lists read every page.
+Approving adds the user's tier grant without duplicates. If access was revoked,
+approve access first, then decide the model request. A rejected model request can
+be sent again after seven days; a person can have at most 20 waiting model requests.
+Reserved installation-check users stay hidden. No request reason is logged or
+audited.
+
+The build recopies the shared design system, including the padded select and
+inset arrow. No local select override replaces that shared rule.

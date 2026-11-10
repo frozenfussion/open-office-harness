@@ -42,6 +42,7 @@
       <label class="ooh-field"><span class="ooh-label">Output price / million tokens USD</span><input class="ooh-input" type="number" name="outputPrice" [(ngModel)]="m.output_price_per_million" required min="0" step="0.000001"></label>
       <label class="ooh-field"><span class="ooh-label">Time limit seconds</span><input class="ooh-input" type="number" name="timeout" [(ngModel)]="m.timeout_seconds" required min="10" max="900" step="1"></label>
       <label class="ooh-field wide"><span class="ooh-label">Extra request settings (JSON object)</span><textarea class="ooh-textarea" name="settings" [(ngModel)]="settings" required rows="6"></textarea></label>
+      <label class="ooh-field wide"><span class="ooh-label">Settings when thinking is off (JSON object)</span><textarea class="ooh-textarea" name="thinkingOff" [(ngModel)]="thinkingOff" rows="6"></textarea><span class="ooh-help">Leave blank when this model has no thinking-off setting. Must be a JSON object when set.</span></label>
       <div class="wide form-actions"><button class="ooh-btn ooh-btn--primary" [disabled]="busy() || modelForm.invalid">{{ busy() ? 'Saving…' : 'Save model' }}</button><button type="button" class="ooh-btn ooh-btn--ghost" (click)="editing.set(null); key = ''">Cancel</button></div>
     </form></section>}
     } @else {
@@ -58,6 +59,12 @@
         </div></td></tr>}
       </tbody></table></div>
       @if (!accessRequests().length) {<p>No requests in this view.</p>}
+      <h2>Model requests</h2>
+      <div class="ooh-table-wrap"><table class="ooh-table"><thead><tr><th>Name</th><th>Email</th><th>Chat model</th><th>Reason</th><th>Requested at (UTC)</th><th>Actions</th></tr></thead><tbody>
+        @for (row of tierRequests(); track row.id) {<tr><td>{{ row.name }}</td><td>{{ row.email }} <span class="ooh-help">not verified</span></td><td>{{ row.title || 'No model yet' }} - Tier {{ row.tier }}</td><td class="access-reason">{{ row.reason || '—' }}</td><td class="ooh-mono">{{ row.requested_at }}</td><td>@if (row.status === 'pending') {<div class="form-actions"><button class="ooh-btn ooh-btn--primary ooh-btn--sm" [disabled]="accessBusy()" (click)="decideTier(row, 'approve')">Approve</button><button class="ooh-btn ooh-btn--danger ooh-btn--sm" [disabled]="accessBusy()" (click)="decideTier(row, 'reject')">Reject</button></div>}</td></tr>}
+      </tbody></table></div>
+      @if (!tierRequests().length) {<p>No model requests in this view.</p>}
+
     }
   </main></div>
 }

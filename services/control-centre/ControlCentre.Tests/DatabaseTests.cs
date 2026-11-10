@@ -234,7 +234,7 @@ public sealed class DatabaseTests
         else Assert.Equal("42501", error.SqlState);
         await transaction.RollbackAsync();
       }
-      foreach (var table in new[] { "people", "rights", "grants", "model_entries", "skills", "approvals", "access_requests", "processed_events", "outbox" })
+      foreach (var table in new[] { "people", "rights", "grants", "model_entries", "skills", "approvals", "access_requests", "tier_requests", "processed_events", "outbox" })
         foreach (var verb in new[] { "DELETE FROM", "TRUNCATE" })
         {
           await using var transaction = await db.Database.BeginTransactionAsync();

@@ -91,3 +91,13 @@ on a command line or in a saved file. The check refreshes before each admin call
 Stage 3 disables device sign-in again when the Admin Console is available.
 
 Workspace rights require an approved Control Centre access row. Pending, rejected, closed or unknown people receive no grants, including Everyone. Realm administrators are approved automatically when observed; adding a user grant also approves access. Registration and admission are separate: passwords remain in Keycloak, never in the Control Centre. Device sign-in remains enabled until Stage 3 as above.
+
+Only the `ooh-harness-api` service account may POST Control Centre
+`/api/tier-requests` on behalf of the signed-in subject. A valid token alone does
+not grant admission: the person's access must be approved and the tier must be
+requestable. The Control Centre enforces the per-person 20-pending cap and
+seven-day retry interval after rejection. Realm administrators alone may list,
+count, approve or reject `/api/admin/tier-requests`; an administrator's token
+cannot submit the Harness-only route. Both decisions fail closed when the
+person's access is no longer approved. Model-request audit detail excludes the
+reason and profile fields; request text is never logged.

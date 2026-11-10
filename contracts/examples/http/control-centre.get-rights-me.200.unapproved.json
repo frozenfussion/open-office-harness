@@ -2,5 +2,7 @@
   "chat_tiers": [],
   "chat_tier_titles": {},
   "skills": [],
-  "image": false
+  "image": false,
+  "chat_tier_thinking_switch": {},
+  "requestable_tiers": []
 }

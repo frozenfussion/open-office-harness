@@ -64,6 +64,7 @@ public sealed class Host : WebApplicationFactory<Program>
   public FakeKafka Kafka { get; } = new();
   public TestLogs Logs { get; } = new();
   public TestGatewayHttp Gateway { get; } = new();
+  public TimeProvider Clock { get; init; } = TimeProvider.System;
   public Host(bool database = false, string clientSecret = "")
   {
     Environment.SetEnvironmentVariable("CC_CLIENT_SECRET", clientSecret);
@@ -81,6 +82,7 @@ public sealed class Host : WebApplicationFactory<Program>
       foreach (var descriptor in services.Where(x => x.ServiceType == typeof(IHostedService) && x.ImplementationType == typeof(KafkaWorker)).ToArray()) services.Remove(descriptor);
       services.AddTransient<IStartupFilter, TestPort>();
       services.RemoveAll<HttpClient>(); services.AddSingleton(new HttpClient(Gateway) { Timeout = Timeout.InfiniteTimeSpan });
+      services.RemoveAll<TimeProvider>(); services.AddSingleton(Clock);
       services.RemoveAll<IKafka>(); services.AddSingleton<IKafka>(Kafka);
       services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
           {

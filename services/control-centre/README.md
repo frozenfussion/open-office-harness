@@ -288,3 +288,37 @@ the truth in the answer metadata when a backup is used.
 
 Row 16's reply-language system message is owned by Part B; the Control Centre
 does not add or log a system prompt. No model is called to choose a title here.
+
+# Thinking settings and model requests (rows 19–22)
+
+The forward `ThinkingAndTierRequests` migration adds nullable JSONB
+`request_settings_thinking_off` and the protected `tier_requests` table.
+SQL NULL means no thinking-off switch; an object, including `{}`, means a switch
+is configured. Arrays, scalar JSON and JSON null are refused by the database.
+Admin writes accept JSON null to clear the column and omit it to retain its
+value. Admin and Gateway registry answers always include the field.
+
+`/api/rights/me` returns `chat_tier_thinking_switch` using exactly the same active
+main entry as `chat_tier_titles` (priority, creation time, ID). The actual answering
+model may differ after failover. `requestable_tiers` includes only tiers with an
+active main entry, excluding 99 and every active user or Everyone grant. Latest
+request state is `pending`, `rejected`, or null. All three fields are empty for
+people whose access is not approved; provider settings and addresses stay private.
+
+Only the Harness service account may submit `/api/tier-requests` for an approved
+person. Reasons are optional, trimmed and limited to 300 characters. One pending
+request per person/tier is protected by a partial unique index. Requests serialize
+with admission and grants; at most 20 can be pending per person. A rejected tier
+can be requested again seven days after its decision. Admission, eligibility,
+duplicate and cap failures use the codes declared in the HTTP contract.
+
+Administrators list model requests with `status`, `limit` and `after`, count pending
+requests and approve or reject a pending request. Approval reuses an active user
+grant or creates one, with the decision, grant and audit in one transaction. Both
+decisions return `409 not_approved` if access has been revoked; approve access
+before deciding that model request. Lists, counts and decisions hide reserved
+`stage-check-` users. Missing profile name or email falls back to the user ID.
+Reasons never enter audit detail, outgoing audit events or logs. Table DELETE and
+TRUNCATE are refused for both database roles; old migrations remain unchanged.
+The automated tests exercise these rules using the isolated test database and
+fake identity tokens; they make no provider calls.

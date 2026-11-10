@@ -3,7 +3,7 @@ import { Component, DestroyRef, ElementRef, afterNextRender, inject, signal } fr
 import { FormsModule } from '@angular/forms';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { firstValueFrom, of, switchMap } from 'rxjs';
-import { AccessRequest, AccessStatus, ConnectionResult, connectionSummary, Grant, ModelEntry, modelPayload, tierRows } from './models';
+import { AccessRequest, AccessStatus, ConnectionResult, connectionSummary, Grant, ModelEntry, TierRequest, modelPayload, tierRows } from './models';
 
 export interface AppConfig { issuer: string; clientId: string; apiBase: string; }
 declare global { interface Window { oohConfig: AppConfig; OpenOfficeHarness?: { WordRain: { mount(el: HTMLCanvasElement): { stop(): void } } }; } }
@@ -17,13 +17,14 @@ export class App {
   screen = signal<'models' | 'access'>('models');
   accessFilter = signal<AccessStatus>('pending');
   accessRequests = signal<AccessRequest[]>([]);
+  tierRequests = signal<TierRequest[]>([]);
   pendingCount = signal(0); accessBusy = signal(false);
   selectedTiers: Record<string, number | undefined> = {};
   error = signal(''); busy = signal(false); editing = signal<ModelEntry | null>(null);
   testing = signal<Set<string>>(new Set());
   testResults = signal<Record<string, ConnectionResult>>({});
   connectionSummary = connectionSummary;
-  key = ''; removeKey = false; settings = '{}'; people: Record<number, string> = {};
+  key = ''; removeKey = false; settings = '{}'; thinkingOff = ''; people: Record<number, string> = {};
   types = [
     { value: 'openai_chat_completions', title: 'OpenAI-compatible', help: 'Chat completions: https://api.deepseek.com or http://<host>:8000/v1' },
     { value: 'openai_responses', title: 'OpenAI Responses', help: 'Responses API: https://api.openai.com/v1' },
@@ -83,12 +84,15 @@ export class App {
   }
   workspaceUrl(): string { return 'https://harness.' + new URL(window.oohConfig.issuer).hostname.replace(/^auth\./, ''); }
   async loadAccessCount(): Promise<void> {
-    try { this.pendingCount.set((await this.request<{ count: number }>('/admin/access-requests/count?status=pending')).count); }
+    try {
+      const [access, models] = await Promise.all([this.request<{ count: number }>('/admin/access-requests/count?status=pending'), this.request<{ count: number }>('/admin/tier-requests/count?status=pending')]);
+      this.pendingCount.set(access.count + models.count);
+    }
     catch (error) { this.failure(error); }
   }
   async openAccessRequests(): Promise<void> { this.screen.set('access'); await this.loadAccessRequests(); }
   async loadAccessRequests(): Promise<void> {
-    this.error.set(''); this.selectedTiers = {}; this.accessRequests.set([]);
+    this.error.set(''); this.selectedTiers = {}; this.accessRequests.set([]); this.tierRequests.set([]);
     const filter = this.accessFilter();
     try {
       const rows: AccessRequest[] = []; let after = '';
@@ -96,7 +100,12 @@ export class App {
         const page = await this.request<AccessRequest[]>('/admin/access-requests?status=' + filter + '&limit=200' + (after ? '&after=' + encodeURIComponent(after) : ''));
         rows.push(...page); after = page.length === 200 ? page[page.length - 1].id : '';
       } while (after);
-      if (filter === this.accessFilter()) this.accessRequests.set(rows);
+      const models: TierRequest[] = []; after = '';
+      do {
+        const page = await this.request<TierRequest[]>('/admin/tier-requests?status=' + filter + '&limit=200' + (after ? '&after=' + encodeURIComponent(after) : ''));
+        models.push(...page); after = page.length === 200 ? page[page.length - 1].id : '';
+      } while (after);
+      if (filter === this.accessFilter()) { this.accessRequests.set(rows); this.tierRequests.set(models); }
       await this.loadAccessCount();
     } catch (error) { this.failure(error); }
   }
@@ -110,16 +119,26 @@ export class App {
       await this.load(); await this.loadAccessRequests();
     } catch (error) { this.failure(error); } finally { this.accessBusy.set(false); }
   }
+  async decideTier(row: TierRequest, action: 'approve' | 'reject'): Promise<void> {
+    if (this.accessBusy()) return;
+    this.accessBusy.set(true); this.error.set('');
+    try {
+      const updated = await this.request<TierRequest>('/admin/tier-requests/' + encodeURIComponent(row.id) + '/' + action, 'POST', {});
+      this.tierRequests.update(rows => rows.flatMap(item => item.id !== row.id ? [item] : updated.status === this.accessFilter() ? [updated] : []));
+      await this.load(); await this.loadAccessRequests();
+    } catch (error) { this.failure(error); } finally { this.accessBusy.set(false); }
+  }
   edit(model?: ModelEntry): void {
     this.error.set(''); this.key = ''; this.removeKey = false;
     const entry: ModelEntry = model ? structuredClone(model) : { model_entry_id: '', title: '', purpose: 'chat', tier: 1, role: 'main', location: 'cloud', api_type: 'openai_chat_completions', endpoint_url: '', model_id: '', has_key: false, priority: 100, rate_limit_per_minute: 60, daily_budget: 0, input_price_per_million: 0, output_price_per_million: 0, timeout_seconds: 120, request_settings: {} };
+    this.thinkingOff = entry.request_settings_thinking_off == null ? '' : JSON.stringify(entry.request_settings_thinking_off, null, 2);
     this.settings = JSON.stringify(entry.request_settings, null, 2); this.editing.set(entry);
   }
   async save(): Promise<void> {
     const m = this.editing(); if (!m || this.busy()) return;
     this.busy.set(true); this.error.set('');
     try {
-      const payload = modelPayload(m, this.key, this.removeKey, this.settings);
+      const payload = modelPayload(m, this.key, this.removeKey, this.settings, this.thinkingOff);
       await this.request('/admin/models' + (m.model_entry_id ? '/' + m.model_entry_id : ''), m.model_entry_id ? 'PUT' : 'POST', payload);
       this.key = ''; this.editing.set(null); await this.load();
     } catch (e) { this.failure(e); } finally { this.busy.set(false); }
