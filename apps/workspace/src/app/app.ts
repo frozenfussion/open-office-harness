@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { afterRenderEffect, Component, ElementRef, inject, OnDestroy, OnInit, signal, viewChild } from '@angular/core';
+import { afterRenderEffect, Component, computed, ElementRef, inject, OnDestroy, OnInit, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { Subscription } from 'rxjs';
@@ -44,7 +44,10 @@ export class App implements OnInit, OnDestroy {
   tier: number | null = null;
   draft = '';
   metaLine = metaLine;
-  greeting = greeting;
+  readonly greeting = computed(() => {
+    this.ready(); this.signedIn();
+    return greeting();
+  });
   constructor() {
     afterRenderEffect(() => {
       this.messages();

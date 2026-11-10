@@ -64,6 +64,14 @@ describe('message content', () => {
     view.componentRef.setInput('streaming', false); view.detectChanges();
     expect(details.querySelector('summary')?.textContent?.trim()).toBe('›Thinking');
   });
+  it('omits answer controls and the empty answer body when there is thinking only', async () => {
+    const view = await fixture('assistant', '');
+    view.componentRef.setInput('thinking', 'Thought only'); view.detectChanges();
+    expect(view.nativeElement.querySelector('details pre').textContent).toBe('Thought only');
+    expect(view.nativeElement.querySelector('.ooh-msg__body,.message-actions,time')).toBeNull();
+    expect(view.nativeElement.querySelectorAll('button')).toHaveLength(1);
+    expect(view.nativeElement.querySelector('button').textContent).toBe('Copy thinking');
+  });
   it('never shows thinking for user messages or empty assistant thinking', async () => {
     const view = await fixture('user', 'Question');
     view.componentRef.setInput('thinking', 'Ignored'); view.detectChanges();

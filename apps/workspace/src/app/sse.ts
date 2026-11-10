@@ -31,7 +31,7 @@ export class SseParser {
         const value = JSON.parse(this.data.join('\n')) as ChatEvent;
         this.data = [];
         if (value.type !== 'delta' && value.type !== 'completed' && value.type !== 'failed' && value.type !== 'title' && value.type !== 'thinking') {
-          throw new Error('Unexpected stream event');
+          return;
         }
         this.receive(value);
       }

@@ -31,7 +31,8 @@
    company account**, then sign in on Keycloak with your account password.
    Newcomers can click **Request access** directly on this card to open the
    registration form. The greeting follows your browser's local clock:
-   morning before noon, afternoon until 18:00, and evening after that.
+   morning before noon, afternoon until 18:00, and evening after that. It is
+   chosen when the sign-in screen appears and does not update while it stays open.
    Choose a **Chat model**, type a question and press Enter (Shift+Enter adds a line).
    The picker shows the tier's main model title followed by `- Tier N`, or just
    `Tier N` if no title is available. Only your allowed tiers appear.
@@ -48,7 +49,8 @@
    appears while it streams. If the model provides thinking, a collapsed
    **Thinking** section appears above the answer. Click its chevron or label to
    open or close it. **Thinking…** fills live during the answer and is plain
-   text. **Copy thinking** copies that section; the message's **Copy** still
+   text. If there is no answer text, only thinking and the outcome line appear.
+   Failed answers keep any thinking received. **Copy thinking** copies that section; the message's **Copy** still
    copies only the answer. Stored thinking is visible when you reopen a chat.
    Assistant replies support Markdown headings,
    lists, tables, links, code blocks and LaTeX maths. Your own messages stay
@@ -254,3 +256,24 @@ the boolean model setting separate from the provider's visible thinking text;
 only the requested boolean goes in outgoing message JSON. HTTP contracts and
 examples belong to the Harness and Gateway Parts; Workspace owns its client
 types and fake-event/history fixtures.
+
+Deploy visible-thinking support in this order: Gateway, Harness, then Workspace
+(the existing deployment guide uses this order). Unknown SSE event types are
+ignored so a newer service can add events safely. The Harness caps stored
+thinking at the first 100 000 characters; later thinking can still appear live.
+The title call requests thinking off and uses answer text only. These are
+backend responsibilities; the Workspace displays the thinking it receives.
+
+Stage check 70 now requests the ordinary authorization URL with `prompt=create`
+and PKCE S256, and requires HTTP 200 with `kc-register-form`, Request access,
+and the organisation/reason fields. A sign-in form does not pass this check.
+Run it only through the deployment guide: it also makes paid model calls.
+
+Claude confirmed live that Keycloak 26.8.2 on this deployment returns
+`kc-register-form` for the authorize URL with `prompt=create`, so the sign-in
+card keeps one Request access button. If a future Keycloak deployment shows
+sign-in instead, the documented fallback is the same authorization request
+with only its endpoint changed to
+`/realms/ooh/protocol/openid-connect/registrations`. Keep all query parameters,
+especially state, nonce, redirect URI and PKCE challenge; do not construct a
+bare registration URL that discards them. No extra fallback link is shown.

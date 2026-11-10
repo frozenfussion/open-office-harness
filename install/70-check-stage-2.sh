@@ -135,16 +135,16 @@ request() {
 registration_verifier="$(openssl rand -hex 32)"
 registration_challenge="$(printf '%s' "$registration_verifier" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
 registration_query="$(jq -rn --arg redirect "https://harness.$DOMAIN/" --arg challenge "$registration_challenge" '
-  {client_id:"ooh-workspace",redirect_uri:$redirect,response_type:"code",scope:"openid profile",code_challenge:$challenge,code_challenge_method:"S256",ui_locales:"en"} |
+  {client_id:"ooh-workspace",redirect_uri:$redirect,response_type:"code",scope:"openid profile",prompt:"create",code_challenge:$challenge,code_challenge_method:"S256",ui_locales:"en"} |
   to_entries | map(.key + "=" + (.value | @uri)) | join("&")')"
 rc=0
 registration_reply="$(curl --connect-timeout 10 --max-time 30 -sS -L -w '\n%{http_code}' \
-  "$issuer/protocol/openid-connect/registrations?$registration_query" 2>/dev/null)" || rc=1
+  "$issuer/protocol/openid-connect/auth?$registration_query" 2>/dev/null)" || rc=1
 registration_status="${registration_reply##*$'\n'}"
 registration_page="${registration_reply%$'\n'*}"
-[[ "$registration_status" == 200 && "$registration_page" == *'Request access'* &&
+[[ "$registration_status" == 200 && "$registration_page" == *'id="kc-register-form"'* && "$registration_page" == *'Request access'* &&
    "$registration_page" == *'name="organisation"'* && "$registration_page" == *'name="access_reason"'* ]] || rc=1
-result "$rc" 'Workspace registration page' 'expected HTTP 200, Request access and both extra fields; check realm sync and whether registration is switched off'
+result "$rc" 'Workspace prompt=create registration page' 'expected HTTP 200, kc-register-form, Request access and both extra fields; check realm sync and whether registration is switched off'
 unset registration_verifier registration_challenge registration_reply registration_page
 rc=0
 request ooh-harness-api POST "https://admin.$DOMAIN/api/access/observe" \

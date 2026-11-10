@@ -17,6 +17,7 @@ export function formatMessageTime(value: string): string {
         <button class="ooh-btn ooh-btn--ghost ooh-btn--sm" (click)="copyThinking()">{{ thinkingCopied() ? 'Copied' : 'Copy thinking' }}</button>
       </details>
     }
+    @if (role() === 'user' || content()) {
     <div class="ooh-msg__body">
       @if (role() === 'assistant') {
         <div #rich class="ooh-markdown" (click)="copyCode($event)"></div>
@@ -26,8 +27,9 @@ export function formatMessageTime(value: string): string {
     <div class="message-actions ooh-msg__meta">
       <time [attr.datetime]="createdAt()">{{ timestamp() }}</time>
       <button class="ooh-btn ooh-btn--ghost ooh-btn--sm" (click)="copyMessage()">{{ copied() ? 'Copied' : 'Copy' }}</button>
-      @if (copyFailed()) { <span role="status">Copy failed. Try again.</span> }
-    </div>`,
+    </div>
+    }
+    @if (copyFailed()) { <span role="status">Copy failed. Try again.</span> }`,
   styles: `:host{display:block;max-width:100%}.plain-message{white-space:pre-wrap}.message-actions{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2)}
     .thinking{margin-bottom:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md);padding:var(--space-3)}
     summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:var(--space-2);color:var(--ink-muted)}
