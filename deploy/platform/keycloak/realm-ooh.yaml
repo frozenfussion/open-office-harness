@@ -135,11 +135,6 @@ spec:
                 {
                   "name": "organisation",
                   "displayName": "Organisation or team",
-                  "required": {
-                    "roles": [
-                      "user"
-                    ]
-                  },
                   "permissions": {
                     "view": [
                       "admin",
