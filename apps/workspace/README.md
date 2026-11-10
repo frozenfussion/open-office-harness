@@ -32,8 +32,12 @@
    Choose a **Chat model**, type a question and press Enter (Shift+Enter adds a line).
    The picker shows the tier's main model title followed by `- Tier N`, or just
    `Tier N` if no title is available. Only your allowed tiers appear. The answer
-   appears as text while it streams. The line beneath it shows
-   tier, model title and token counts. Pick a recent conversation to reopen it;
+   appears while it streams. Assistant replies support Markdown headings,
+   lists, tables, links, code blocks and LaTeX maths. Your own messages stay
+   plain text. Each message shows its date and time in your browser's time zone.
+   **Copy** copies the original message, including Markdown and maths delimiters;
+   **Copied** appears for two seconds. Code blocks have their own **Copy code**
+   button. The line beneath the answer shows tier, model title and token counts. Pick a recent conversation to reopen it;
    reloading keeps the selected conversation. **New chat** starts another one.
    Under your name, find **About me · Your user ID** and click **Copy user ID**
    to give an admin your ID. **Sign out** ends the Keycloak session.
@@ -147,8 +151,20 @@
 | `sign-out redirect is not enabled` from 35 | Check the existing public client's logout attribute and repeat realm sync. |
 
 The SSE parser handles UTF-8 byte boundaries, split lines and CRLF, using fetch
-for POST streams. Chat content is interpolated as text, never HTML or Markdown.
-OIDC uses authorization code + PKCE S256, refresh tokens and the library's default
+for POST streams. User messages use plain-text interpolation. Assistant Markdown
+is parsed with marked, with raw HTML escaped as text and images suppressed.
+DOMPurify sanitizes it with the row 22 forbidden-tag list. Only HTTP, HTTPS and
+mailto links remain, opening with `target="_blank" rel="noopener noreferrer"`.
+Closed maths delimiters (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`) become
+KaTeX output with `throwOnError: false` and `trust: false`, then a separate
+DOMPurify pass admits KaTeX's generated HTML, MathML and SVG. Unfinished maths
+stays literal text; code never gets maths parsing. Nothing bypasses sanitization.
+Streaming rendering runs at most once per 100 ms, with an immediate final pass.
+The renderer loads on demand; no rendering code or prompt text is logged.
+KaTeX CSS and all fonts are local build assets, with no CDN. Its MIT licence is
+copied beside the other font licences at `/design-system/licenses/LICENSE`.
+Timestamps use stored `created_at` for history and browser send/completion times
+for new messages. OIDC uses authorization code + PKCE S256, refresh tokens and the library's default
 session storage. `/config.json` supplies all deployment addresses. The static
 server logs only its service name and status code. Nginx error diagnostics are
 suppressed to avoid recording callback URLs; use pod events for startup failures.
@@ -172,3 +188,10 @@ The sign-in setup follows the library's [configuration](https://www.angular-auth
 and [session storage](https://www.angular-auth-oidc-client.com/docs/documentation/custom-storage)
 documentation. Tests use the [Angular CLI unit-test builder](https://angular.dev/guide/testing)
 with its default Vitest runner and jsdom.
+
+Row 17 dependencies, checked on npm on 10 Nov 2026: marked **18.2.0** (Markdown),
+DOMPurify **3.4.17** (HTML sanitization), KaTeX **0.19.1** (maths, with bundled
+TypeScript declarations). Exact versions and transitive resolutions are locked.
+The implementation follows the [marked extension API](https://marked.js.org/using_pro),
+[DOMPurify sanitizer API](https://github.com/cure53/DOMPurify) and
+[KaTeX options](https://katex.org/docs/options).

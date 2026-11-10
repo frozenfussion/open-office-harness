@@ -23,9 +23,15 @@
                 "glob": "**/*",
                 "input": "public",
                 "followSymlinks": true
+              },
+              {
+                "glob": "LICENSE",
+                "input": "node_modules/katex",
+                "output": "design-system/licenses"
               }
             ],
             "styles": [
+              "node_modules/katex/dist/katex.css",
               "src/styles.css"
             ]
           },

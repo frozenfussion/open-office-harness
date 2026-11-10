@@ -25,9 +25,9 @@ describe('Workspace', () => {
     expect(events.at(-1)).toEqual({type: 'delta', text: 'end'});
   });
   it('formats the meta line and budget note', () => {
-    expect(metaLine({role: 'assistant', content: '', tier: 2, model_title: 'Test entry', input_tokens: 12, output_tokens: 24}))
+    expect(metaLine({role: 'assistant', content: '', created_at: '2026-11-10T08:00:00Z', tier: 2, model_title: 'Test entry', input_tokens: 12, output_tokens: 24}))
       .toBe('tier 2 · Test entry · 12 in / 24 out tokens');
-    expect(metaLine({role: 'assistant', content: '', tier: 1, model_title: 'Test entry', note: 'tier 2 is over its daily budget; answered with tier 1'}))
+    expect(metaLine({role: 'assistant', content: '', created_at: '2026-11-10T08:00:00Z', tier: 1, model_title: 'Test entry', note: 'tier 2 is over its daily budget; answered with tier 1'}))
       .toContain(' · tier 2 is over its daily budget; answered with tier 1');
   });
   async function fixture(send = vi.fn().mockRejectedValue(new ApiError(403, "You don't have tier 3. An admin can grant it."))) {
@@ -71,7 +71,7 @@ describe('Workspace', () => {
     expect(notice.textContent).toBe("You don't have tier 3. An admin can grant it.");
     expect(notice.classList.contains('forbidden')).toBe(true);
   });
-  it('streams plain text, disables sending, and renders final metadata', async () => {
+  it('streams safe assistant text, disables sending, and renders final metadata', async () => {
     let finish!: () => void;
     const send = vi.fn(async (_id, _content, _tier, _signal, receive) => {
       receive({type: 'delta', text: '<img src=x onerror=alert(1)>\nAnswer'});
@@ -86,10 +86,13 @@ describe('Workspace', () => {
     expect(view.nativeElement.querySelector('button[type="submit"]').disabled).toBe(true);
     expect(view.nativeElement.querySelector('.ooh-cursor')).not.toBeNull();
     expect(view.nativeElement.querySelector('.messages img')).toBeNull();
-    expect(view.nativeElement.querySelector('.messages').textContent).toContain('<img src=x');
+    await view.whenStable();
+    expect(view.nativeElement.querySelector('.messages').textContent).toContain('Answer');
     finish(); await sending; view.detectChanges();
     expect(view.nativeElement.querySelector('.ooh-cursor')).toBeNull();
-    expect(view.nativeElement.querySelector('.ooh-msg__meta').textContent).toContain('tier 1 · Test entry · 2 in / 4 out tokens');
+    expect(view.nativeElement.querySelector('.messages').textContent).toContain('tier 1 · Test entry · 2 in / 4 out tokens');
+    expect(view.nativeElement.querySelectorAll('time').length).toBe(2);
+    expect(view.componentInstance.messages().every(message => !Number.isNaN(Date.parse(message.created_at)))).toBe(true);
   });
   async function accessFixture(access: 'approved' | 'pending' | 'rejected' | 'closed' | 'unavailable') {
     const api = {

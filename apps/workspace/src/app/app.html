@@ -65,9 +65,10 @@
         @if (!messages().length) {
           <div class="empty"><app-rain /><div><h2>What shall we work on?</h2><p>Start a conversation with your workspace.</p></div></div>
         }
-        @for (message of messages(); track $index) {
+        @for (message of messages(); track message) {
           <article class="ooh-msg" [class.ooh-msg--user]="message.role === 'user'" [class.ooh-msg--assistant]="message.role === 'assistant'">
-            <div class="ooh-msg__body">{{ message.content }}@if (streaming() && $last && message.role === 'assistant') {<span class="ooh-cursor" aria-label="Streaming"></span>}</div>
+            <app-message-content [content]="message.content" [role]="message.role" [createdAt]="message.created_at"
+              [streaming]="streaming() && $last && message.role === 'assistant'" (rendered)="scrollMessages()" />
             @if (message.role === 'assistant') {
               <div class="ooh-msg__meta">{{ metaLine(message) }}@if (message.outcome === 'failed') { · Answer interrupted }</div>
             }

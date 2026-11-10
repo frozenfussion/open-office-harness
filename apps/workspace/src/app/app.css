@@ -21,7 +21,6 @@ header { display: flex; justify-content: space-between; align-items: center; gap
 header h1 { font-size: 28px; overflow-wrap: anywhere; }
 header label { flex-shrink: 0; }
 .messages { flex: 1; display: flex; flex-direction: column; gap: var(--space-6); padding: var(--space-6); overflow-y: auto; }
-.ooh-msg__body { white-space: pre-wrap; }
 .ooh-msg__meta { overflow-wrap: anywhere; }
 .empty { position: relative; flex: 1; min-height: 200px; display: grid; place-items: center; text-align: center; overflow: hidden; }
 .empty > div { position: relative; padding: var(--space-6); background: var(--ground); }

@@ -104,8 +104,17 @@ and session storage. Each reads its issuer, client ID and same-host API path fro
 copy button for grants. It sends a question to its own Harness API. The Harness
 checks the conversation owner and asks the Control Centre for `chat.tier` with
 the selected tier. Missing policy fails closed. A refused tier is a 403 with a
-plain message; it is not sent to a model. The browser renders all chat text as
-plain text with line breaks and reads the POST answer using fetch and SSE.
+plain message; it is not sent to a model. The browser reads the POST answer using fetch and SSE. User messages stay
+plain text. Assistant messages render Markdown and LaTeX maths while streaming
+and after completion, at most ten full renders per second while streaming.
+Raw HTML remains inert text and outside images are suppressed. DOMPurify first
+sanitizes Markdown with the forbidden-tag policy and HTTP/HTTPS/mailto-only
+links. KaTeX uses `throwOnError: false` and `trust: false`, and its generated
+HTML/MathML/SVG is sanitized separately. Code remains literal and incomplete
+maths stays text. CSS, fonts and licences ship locally. Every message shows
+browser-local date/time and a Copy button for original source; code blocks have
+a separate copy control. Stored timestamps survive reload, while new messages
+use send/completion times.
 
 The Harness sends the last 20 completed, nonempty conversation messages,
 starting with a user message, then the new question, with no system message.

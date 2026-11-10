@@ -5,13 +5,14 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { Subscription } from 'rxjs';
 import { Api, ApiError, Conversation, Me, Message } from './api';
 import { Rain } from './rain';
+import { MessageContent } from './message-content';
 
 export function metaLine(message: Message): string {
   if (!message.model_title || message.tier == null) return '';
   return `tier ${message.tier} · ${message.model_title} · ${message.input_tokens ?? 0} in / ${message.output_tokens ?? 0} out tokens` +
     (message.note ? ` · ${message.note}` : '');
 }
-@Component({ selector: 'app-root', imports: [FormsModule, Rain], templateUrl: './app.html', styleUrl: './app.css' })
+@Component({ selector: 'app-root', imports: [FormsModule, Rain, MessageContent], templateUrl: './app.html', styleUrl: './app.css' })
 export class App implements OnInit, OnDestroy {
   private readonly auth = inject(OidcSecurityService);
   private readonly api = inject(Api);
@@ -38,9 +39,12 @@ export class App implements OnInit, OnDestroy {
   constructor() {
     afterRenderEffect(() => {
       this.messages();
-      const history = this.history()?.nativeElement;
-      if (history) history.scrollTop = history.scrollHeight;
+      this.scrollMessages();
     });
+  }
+  scrollMessages(): void {
+    const history = this.history()?.nativeElement;
+    if (history) history.scrollTop = history.scrollHeight;
   }
   ngOnInit(): void {
     this.subscription.add(this.auth.isAuthenticated$.subscribe(({isAuthenticated}) => {
@@ -147,6 +151,7 @@ export class App implements OnInit, OnDestroy {
   async send(): Promise<void> {
     if (this.me()?.access !== 'approved' || !this.draft.trim() || this.tier == null || this.streaming() || this.loading()) return;
     const content = this.draft;
+    const sentAt = new Date().toISOString();
     const tier = this.tier;
     this.streaming.set(true); this.notice.set(''); this.forbidden.set(false);
     this.abort = new AbortController();
@@ -155,19 +160,20 @@ export class App implements OnInit, OnDestroy {
     try {
       let id = this.currentId();
       if (!id) { id = (await this.api.create()).id; this.setCurrent(id); this.title.set(content.slice(0, 60)); }
-      assistant = { role: 'assistant', content: '' };
-      this.messages.update(old => [...old, {role: 'user', content}, assistant!]);
+      assistant = { role: 'assistant', content: '', created_at: sentAt };
+      this.messages.update(old => [...old, {role: 'user', content, created_at: sentAt}, assistant!]);
       this.draft = '';
       await this.api.send(id, content, tier, this.abort.signal, event => {
         if (ended) throw new Error('Stream continued after completion');
         if (event.type === 'delta') assistant!.content += event.text;
         else if (event.type === 'completed') {
-          Object.assign(assistant!, {id: event.message_id, tier: event.tier, model_title: event.model_title,
+          Object.assign(assistant!, {created_at: new Date().toISOString(), id: event.message_id, tier: event.tier, model_title: event.model_title,
             input_tokens: event.usage.input_tokens, output_tokens: event.usage.output_tokens, note: event.note, outcome: 'completed'});
           ended = true;
         } else {
           ended = true;
           assistant!.outcome = 'failed';
+          assistant!.created_at = new Date().toISOString();
           this.failure(new ApiError(event.error.code === 'tier_not_allowed' || event.error.code === 'no_tier' ? 403 : 503, event.error.message));
         }
         this.messages.update(old => [...old]);
@@ -176,6 +182,7 @@ export class App implements OnInit, OnDestroy {
     } catch (error) {
       if (assistant) {
         assistant.outcome = 'failed';
+        assistant.created_at = new Date().toISOString();
         this.messages.update(old => assistant!.content ? [...old] : old.filter(message => message !== assistant));
       }
       this.failure(error);
