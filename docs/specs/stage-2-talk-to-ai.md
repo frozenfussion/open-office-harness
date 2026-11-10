@@ -264,6 +264,7 @@ Skill jobs on Kafka and the Slides worker, uploads, files and job events, the st
 | 11 | Every builder that uses `dotnet` ends its checks with `dotnet build-server shutdown`, so no .NET build daemon outlives a check (global rule: nothing left running in the background) | Spec author, 10 Nov 14:36 (review of D) |
 | 12 | Test connection button moved from Stage 3 into Stage 2 (section 16): Admin Console → Control Centre → Gateway pinned call; Gateway also accepts the Control Centre's service token for pinned, non-streamed calls only, and returns the provider's status and short message on failure | Aziz, 10 Nov 15:38 |
 | 13 | Request access (section 17): newcomers register themselves with name, email, organisation, reason and their own password; the Workspace shows "waiting for approval" until an admin approves them with a tier on the new Access requests screen; only approved people get grants, Everyone included | Aziz, 10 Nov 16:21–16:26 |
+| 14 | `70` streamed calls send "Count from 1 to 20, separated by spaces." (a one-word reply can arrive as one delta, so "Reply with the single word OK." cannot prove streaming); a FAIL line adds safe counts only: delta count, last event type, HTTP status | Spec author, 10 Nov 16:33 (found on the live run) |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees)
 
