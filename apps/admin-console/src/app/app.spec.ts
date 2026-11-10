@@ -79,6 +79,8 @@ describe('Admin console', () => {
     app.models.set([{ ...model, has_key: false }]); fixture.detectChanges();
     const button = fixture.nativeElement.querySelector('button[title="Save a key first"]') as HTMLButtonElement;
     expect(button.disabled).toBe(true);
+    expect(button.nextElementSibling?.classList.contains('ooh-help')).toBe(true);
+    expect(button.nextElementSibling?.textContent).toBe('Save a key first');
     const request = vi.spyOn(app, 'request'); await app.testConnection({ ...model, has_key: false }); expect(request).not.toHaveBeenCalled();
   });
   it('shows Testing then formats the successful result beneath the row', async () => {
