@@ -31,7 +31,17 @@
    company account**, then sign in on Keycloak with your account password.
    Choose a **Chat model**, type a question and press Enter (Shift+Enter adds a line).
    The picker shows the tier's main model title followed by `- Tier N`, or just
-   `Tier N` if no title is available. Only your allowed tiers appear. The answer
+   `Tier N` if no title is available. Only your allowed tiers appear.
+   When the chosen model offers a **Thinking** switch, click it to turn thinking
+   on or off. Your browser remembers the choice for each tier. A backup model
+   might not support turning thinking off; the answer's meta line says so.
+   Choose **Request another model…** at the end of the picker to ask for access.
+   Pick a model, optionally give a reason (up to 300 characters), then click
+   **Send request**. Pending models show **Requested**. A rejected model shows
+   **Not approved** and can be requested again seven days after the last answer.
+   The API enforces the wait and shows a plain notice if it refuses.
+
+   The answer
    appears while it streams. Assistant replies support Markdown headings,
    lists, tables, links, code blocks and LaTeX maths. Your own messages stay
    plain text. Each message shows its date and time in your browser's time zone.
@@ -198,3 +208,27 @@ TypeScript declarations). Exact versions and transitive resolutions are locked.
 The implementation follows the [marked extension API](https://marked.js.org/using_pro),
 [DOMPurify sanitizer API](https://github.com/cure53/DOMPurify) and
 [KaTeX options](https://katex.org/docs/options).
+
+Thinking-off settings are configured on the model entry in the Admin Console.
+Use the shape supported by that connection, with your configured model ID;
+there are no provider/model addresses or names built into the Workspace:
+
+| Connection type | Example settings when thinking is off |
+|---|---|
+| `openai_chat_completions` | For a service supporting the field: `{"thinking":{"type":"disabled"}}` or `{"reasoning_effort":"low"}` |
+| `openai_responses` | `{"reasoning":{"effort":"low"}}` |
+| `anthropic_messages` | Leave empty when the configured model has no off switch. |
+
+The switch describes the tier's main entry; the meta line identifies the actual
+answering model. The Gateway reports `thinking_applied` for the live answer;
+this support notice is not saved in conversation history. Browser storage holds
+only each tier's on/off preference, never a prompt, reason or token.
+
+The reply-language system message is configured by Part B's `HA_SYSTEM_PROMPT`
+in `deploy/apps/harness-api/configmap.yaml`. To change it, edit that file and
+follow the Harness API deployment step in the [root guide](../../README.md),
+which runs `install/67-harness-api-deploy.sh`. A live cluster edit is
+overwritten by the next deploy. The title call uses its own system message.
+Model requests go only through the same-host Harness API with the signed-in
+user's identity; no user ID is sent from this form. The Control Centre decides
+approval, eligibility, the seven-day rejection wait and the 20-pending limit.

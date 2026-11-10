@@ -2,7 +2,7 @@
 export interface Usage { input_tokens: number; output_tokens: number }
 export type ChatEvent =
   | { type: 'delta'; text: string }
-  | { type: 'completed'; message_id: string; tier: number; model_title: string; usage: Usage; note: string | null }
+  | { type: 'completed'; message_id: string; tier: number; model_title: string; usage: Usage; note: string | null; thinking_applied: boolean }
   | { type: 'title'; conversation_id: string; title: string }
   | { type: 'failed'; error: { code: string; message: string } };
 

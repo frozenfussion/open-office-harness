@@ -50,11 +50,7 @@
     </nav>
     <main class="chat">
       <header><h1>{{ title() }}</h1>
-        <label class="ooh-field"><span class="ooh-label">Chat model</span>
-          <select class="ooh-select" aria-label="Chat model" [(ngModel)]="tier" [disabled]="streaming() || loading()">
-            @for (allowed of me()?.chat_tiers || []; track allowed) { <option [ngValue]="allowed">{{ tierLabel(allowed) }}</option> }
-          </select>
-        </label>
+        <app-chat-models [me]="me()!" [tier]="tier" [busy]="streaming() || loading()" (tierChange)="tier = $event" />
       </header>
       @if (loading()) { <p class="startup" role="status">Loading…</p> }
       @if (notice()) { <p class="notice" [class.forbidden]="forbidden()" role="alert">{{ notice() }}</p> }

@@ -5,16 +5,17 @@ import { firstValueFrom } from 'rxjs';
 import { CONFIG } from './config';
 import { ChatEvent, readStream } from './sse';
 export type Access = 'approved' | 'pending' | 'rejected' | 'closed';
-export interface Me { access: Access; user_id: string; name: string; chat_tiers: number[]; chat_tier_titles: Record<string, string>; skills: {name: string; title: string}[] }
+export interface RequestableTier { tier: number; title: string; requested: 'pending' | 'rejected' | null }
+export interface Me { access: Access; user_id: string; name: string; chat_tiers: number[]; chat_tier_titles: Record<string, string>; chat_tier_thinking_switch: Record<string, boolean>; requestable_tiers: RequestableTier[]; skills: {name: string; title: string}[] }
 export interface Conversation { id: string; title: string; updated_at: string }
 export interface Message {
   id?: string; role: 'user' | 'assistant'; content: string; created_at: string;
   tier?: number | null; model_title?: string | null;
   input_tokens?: number | null; output_tokens?: number | null; note?: string | null;
-  outcome?: string;
+  outcome?: string; thinking?: boolean; thinking_applied?: boolean;
 }
 export class ApiError extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
+  constructor(readonly status: number, message: string, readonly code?: string) { super(message); }
 }
 @Injectable({ providedIn: 'root' })
 export class Api {
@@ -27,8 +28,8 @@ export class Api {
       cache: 'no-store',
     });
     if (!response.ok) {
-      const error = await response.json().catch(() => ({})) as {message?: string};
-      throw new ApiError(response.status, error.message || 'The request failed. Try again.');
+      const error = await response.json().catch(() => ({})) as {message?: string; code?: string};
+      throw new ApiError(response.status, error.message || 'The request failed. Try again.', error.code);
     }
     return response;
   }
@@ -42,9 +43,12 @@ export class Api {
   async conversation(id: string): Promise<{id: string; title: string; messages: Message[]}> {
     return (await this.request('/conversations/' + encodeURIComponent(id))).json();
   }
-  async send(id: string, content: string, tier: number, signal: AbortSignal, receive: (event: ChatEvent) => void): Promise<void> {
+  async requestTier(tier: number, reason: string): Promise<{id: string; status: 'pending'}> {
+    return (await this.request('/tier-requests', {method: 'POST', body: JSON.stringify({tier, reason})})).json();
+  }
+  async send(id: string, content: string, tier: number, signal: AbortSignal, receive: (event: ChatEvent) => void, thinking = true): Promise<void> {
     const response = await this.request('/conversations/' + encodeURIComponent(id) + '/messages', {
-      method: 'POST', body: JSON.stringify({content, tier}), signal,
+      method: 'POST', body: JSON.stringify({content, tier, thinking}), signal,
     });
     if (!response.body || !response.headers.get('Content-Type')?.startsWith('text/event-stream')) {
       throw new Error('The answer stream did not start. Try again.');

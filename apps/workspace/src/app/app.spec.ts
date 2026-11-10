@@ -10,7 +10,7 @@ import { CONFIG, readConfig } from './config';
 import { appConfig } from './app.config';
 
 describe('Workspace', () => {
-  afterEach(() => { vi.restoreAllMocks(); TestBed.resetTestingModule(); window.history.replaceState(null, '', '/'); });
+  afterEach(() => { vi.restoreAllMocks(); TestBed.resetTestingModule(); window.history.replaceState(null, '', '/'); localStorage.clear(); });
   it('parses SSE across byte and line boundaries, CRLF and final chunks', async () => {
     const events: unknown[] = [];
     const bytes = new TextEncoder().encode('data: {"type":"delta","text":"你"}\r\n\r\ndata: {"type":"failed","error":{"code":"unavailable","message":"Try again"}}\n\n');
@@ -26,7 +26,7 @@ describe('Workspace', () => {
   });
   it('parses a late title after completed across split SSE chunks', async () => {
     const events: ChatEvent[] = [];
-    const wire = 'data: {"type":"completed","message_id":"m","tier":1,"model_title":"Test entry","usage":{"input_tokens":2,"output_tokens":4},"note":null}\n\n' +
+    const wire = 'data: {"type":"completed","message_id":"m","tier":1,"model_title":"Test entry","usage":{"input_tokens":2,"output_tokens":4},"note":null,"thinking_applied":true}\n\n' +
       'data: {"type":"title","conversation_id":"test-conversation","title":"A short conversation title"}\n\n';
     const bytes = new TextEncoder().encode(wire);
     await readStream(new ReadableStream({start(controller) {
@@ -50,7 +50,7 @@ describe('Workspace', () => {
     const view = TestBed.createComponent(App);
     view.detectChanges();
     view.componentInstance.signedIn.set(true);
-    view.componentInstance.me.set({access: 'approved', user_id: 'test-user', name: 'Test user', chat_tiers: [1, 3], chat_tier_titles: {}, skills: []});
+    view.componentInstance.me.set({access: 'approved', user_id: 'test-user', name: 'Test user', chat_tiers: [1, 3], chat_tier_titles: {}, chat_tier_thinking_switch: {}, requestable_tiers: [], skills: []});
     view.componentInstance.tier = 1;
     view.detectChanges();
     await view.whenStable();
@@ -59,7 +59,7 @@ describe('Workspace', () => {
   it('offers only allowed tiers', async () => {
     const view = await fixture();
     const options = [...view.nativeElement.querySelectorAll('select option')] as HTMLOptionElement[];
-    expect(options.map(option => option.textContent?.trim())).toEqual(['Tier 1', 'Tier 3']);
+    expect(options.map(option => option.textContent?.trim())).toEqual(['Tier 1', 'Tier 3', 'Request another model…']);
   });
   it('labels allowed chat models with their titles and falls back to the tier', async () => {
     const view = await fixture();
@@ -70,7 +70,7 @@ describe('Workspace', () => {
     const select = view.nativeElement.querySelector('select[aria-label="Chat model"]');
     expect(select).not.toBeNull();
     const options = [...select.querySelectorAll('option')] as HTMLOptionElement[];
-    expect(options.map(option => option.textContent?.trim())).toEqual(['Test main entry - Tier 1', 'Tier 3']);
+    expect(options.map(option => option.textContent?.trim())).toEqual(['Test main entry - Tier 1', 'Tier 3', 'Request another model…']);
     expect(view.nativeElement.querySelector('.ooh-label').textContent).toBe('Chat model');
     expect(select.textContent).not.toContain('Hidden entry');
   });
@@ -88,7 +88,7 @@ describe('Workspace', () => {
     const send = vi.fn(async (_id, _content, _tier, _signal, receive) => {
       receive({type: 'delta', text: '<img src=x onerror=alert(1)>\nAnswer'});
       await new Promise<void>(resolve => {finish = resolve;});
-      receive({type: 'completed', message_id: 'message', tier: 1, model_title: 'Test entry', usage: {input_tokens: 2, output_tokens: 4}, note: null});
+      receive({type: 'completed', message_id: 'message', tier: 1, model_title: 'Test entry', usage: {input_tokens: 2, output_tokens: 4}, note: null, thinking_applied: true});
     });
     const view = await fixture(send);
     view.componentInstance.draft = 'Question';
@@ -106,8 +106,27 @@ describe('Workspace', () => {
     expect(view.nativeElement.querySelectorAll('time').length).toBe(2);
     expect(view.componentInstance.messages().every(message => !Number.isNaN(Date.parse(message.created_at)))).toBe(true);
   });
+  it.each([true, false])('captures thinking off and the actual model support=%s in final metadata', async applied => {
+    const send = vi.fn(async (_id, _content, _tier, _signal, receive, thinking) => {
+      expect(thinking).toBe(false);
+      receive({type: 'delta', text: 'Answer'});
+      receive({type: 'completed', message_id: 'message', tier: 3, model_title: 'Test backup',
+        usage: {input_tokens: 2, output_tokens: 4}, note: null, thinking_applied: applied});
+    });
+    const view = await fixture(send);
+    const app = view.componentInstance;
+    app.me.update(me => me ? {...me, chat_tier_thinking_switch: {'1': true}} : null);
+    view.detectChanges(); await view.whenStable();
+    (view.nativeElement.querySelector('[role="switch"]') as HTMLButtonElement).click();
+    app.draft = 'Question';
+    await app.send(); view.detectChanges();
+    expect(send).toHaveBeenCalledOnce();
+    const meta = view.nativeElement.querySelector('.ooh-msg--assistant > .ooh-msg__meta').textContent;
+    expect(meta).toContain('tier 3 · Test backup');
+    expect(meta.includes('thinking off not supported by this model')).toBe(!applied);
+  });
   const completion = {type: 'completed', message_id: 'message', tier: 1, model_title: 'Test entry',
-    usage: {input_tokens: 2, output_tokens: 4}, note: null} as const;
+    usage: {input_tokens: 2, output_tokens: 4}, note: null, thinking_applied: true} as const;
   it('enables the composer at completed and applies a later title immediately without reordering', async () => {
     let receive!: (event: ChatEvent) => void;
     let finish!: () => void;
@@ -232,7 +251,7 @@ describe('Workspace', () => {
     const api = {
       me: access === 'unavailable'
         ? vi.fn().mockRejectedValue(new ApiError(503, 'Your access could not be checked. Try again.'))
-        : vi.fn().mockResolvedValue({access, user_id: 'test-user', name: 'Given Family', chat_tiers: [1], chat_tier_titles: {}, skills: []}),
+        : vi.fn().mockResolvedValue({access, user_id: 'test-user', name: 'Given Family', chat_tiers: [1], chat_tier_titles: {}, chat_tier_thinking_switch: {}, requestable_tiers: [], skills: []}),
       list: vi.fn().mockResolvedValue([]),
       conversation: vi.fn(), create: vi.fn(), send: vi.fn(),
     };

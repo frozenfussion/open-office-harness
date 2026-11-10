@@ -1,0 +1,34 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<div class="model-controls">
+  <label class="ooh-field"><span class="ooh-label">Chat model</span>
+    <select #modelSelect class="ooh-select" aria-label="Chat model" [ngModel]="tier()" (ngModelChange)="choose($event, modelSelect)" [disabled]="busy()">
+      @if (!me().chat_tiers.length) { <option [ngValue]="null" disabled>Choose a chat model</option> }
+      @for (allowed of me().chat_tiers; track allowed) { <option [ngValue]="allowed">{{ label(allowed) }}</option> }
+      <option [ngValue]="'request'">Request another model…</option>
+    </select>
+  </label>
+  @if (switchAvailable()) {
+    <button class="ooh-btn ooh-btn--secondary" type="button" role="switch" aria-label="Thinking" [attr.aria-checked]="thinking()" [disabled]="busy()" (click)="toggleThinking()">Thinking · {{ thinking() ? 'On' : 'Off' }}</button>
+  }
+</div>
+@if (panel()) {
+  <section class="request-panel" aria-label="Request another model">
+    <h2>Request another model</h2>
+    @if (choices().length) {
+      <label class="ooh-field"><span class="ooh-label">Model to request</span>
+        <select class="ooh-select" aria-label="Model to request" [ngModel]="requestTier()" (ngModelChange)="requestTier.set($event); notice.set('')" [disabled]="requesting()">
+          <option [ngValue]="null" disabled>Choose a model</option>
+          @for (choice of choices(); track choice.tier) {
+            <option [ngValue]="choice.tier">{{ choice.title }} - Tier {{ choice.tier }}{{ choice.requested === 'pending' ? ' · Requested' : choice.requested === 'rejected' ? ' · Not approved' : '' }}</option>
+          }
+        </select>
+      </label>
+      <label class="ooh-field"><span class="ooh-label">Reason (optional)</span>
+        <textarea class="ooh-textarea" aria-label="Reason (optional)" [(ngModel)]="reason" maxlength="300" rows="3" [disabled]="requesting()" placeholder="Why would this model help?"></textarea>
+      </label>
+      <button class="ooh-btn ooh-btn--primary" type="button" [disabled]="!selected() || selected()?.requested === 'pending' || requesting() || reason.length > 300" (click)="sendRequest()">{{ selected()?.requested === 'pending' ? 'Requested' : requesting() ? 'Sending…' : 'Send request' }}</button>
+    } @else { <p class="ooh-help">There are no other models to request.</p> }
+    @if (notice()) { <p class="request-error" role="alert">{{ notice() }}</p> }
+    <button class="ooh-btn ooh-btn--ghost" type="button" [disabled]="requesting()" (click)="panel.set(false)">Close</button>
+  </section>
+}

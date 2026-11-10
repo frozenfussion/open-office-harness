@@ -6,17 +6,20 @@ import { Subscription } from 'rxjs';
 import { Api, ApiError, Conversation, Me, Message } from './api';
 import { Rain } from './rain';
 import { MessageContent } from './message-content';
+import { ChatModels } from './chat-models';
 
 export function metaLine(message: Message): string {
   if (!message.model_title || message.tier == null) return '';
   return `tier ${message.tier} · ${message.model_title} · ${message.input_tokens ?? 0} in / ${message.output_tokens ?? 0} out tokens` +
-    (message.note ? ` · ${message.note}` : '');
+    (message.note ? ` · ${message.note}` : '') +
+    (message.thinking === false && message.thinking_applied === false ? ' · thinking off not supported by this model' : '');
 }
-@Component({ selector: 'app-root', imports: [FormsModule, Rain, MessageContent], templateUrl: './app.html', styleUrl: './app.css' })
+@Component({ selector: 'app-root', imports: [FormsModule, Rain, MessageContent, ChatModels], templateUrl: './app.html', styleUrl: './app.css' })
 export class App implements OnInit, OnDestroy {
   private readonly auth = inject(OidcSecurityService);
   private readonly api = inject(Api);
   private readonly subscription = new Subscription();
+  readonly models = viewChild(ChatModels);
   readonly history = viewChild<ElementRef<HTMLElement>>('history');
   private abort?: AbortController;
   private readonly streams = new Set<AbortController>();
@@ -69,10 +72,6 @@ export class App implements OnInit, OnDestroy {
   async copyId(): Promise<void> {
     try { await navigator.clipboard.writeText(this.me()?.user_id || ''); this.copied.set(true); }
     catch { this.notice.set('Copy did not work. Select and copy your user ID.'); }
-  }
-  tierLabel(tier: number): string {
-    const title = this.me()?.chat_tier_titles?.[String(tier)];
-    return title ? `${title} - Tier ${tier}` : `Tier ${tier}`;
   }
   accessMessage(): string {
     switch (this.me()?.access) {
@@ -154,6 +153,7 @@ export class App implements OnInit, OnDestroy {
     const content = this.draft;
     const sentAt = new Date().toISOString();
     const tier = this.tier;
+    const thinking = this.models()?.thinking() ?? true;
     this.streaming.set(true); this.notice.set(''); this.forbidden.set(false);
     const controller = new AbortController();
     this.abort = controller;
@@ -171,7 +171,7 @@ export class App implements OnInit, OnDestroy {
     };
     try {
       if (!id) { id = (await this.api.create()).id; this.setCurrent(id); this.title.set(content.slice(0, 60)); }
-      assistant = { role: 'assistant', content: '', created_at: sentAt };
+      assistant = { role: 'assistant', content: '', created_at: sentAt, thinking };
       this.messages.update(old => [...old, {role: 'user', content, created_at: sentAt}, assistant!]);
       this.draft = '';
       await this.api.send(id, content, tier, controller.signal, event => {
@@ -186,7 +186,7 @@ export class App implements OnInit, OnDestroy {
         if (event.type === 'delta') assistant!.content += event.text;
         else if (event.type === 'completed') {
           Object.assign(assistant!, {created_at: new Date().toISOString(), id: event.message_id, tier: event.tier, model_title: event.model_title,
-            input_tokens: event.usage.input_tokens, output_tokens: event.usage.output_tokens, note: event.note, outcome: 'completed'});
+            input_tokens: event.usage.input_tokens, output_tokens: event.usage.output_tokens, note: event.note, thinking_applied: event.thinking_applied, outcome: 'completed'});
           ended = true;
           completed = true;
           this.streaming.set(false);
@@ -200,7 +200,7 @@ export class App implements OnInit, OnDestroy {
           this.failure(new ApiError(event.error.code === 'tier_not_allowed' || event.error.code === 'no_tier' ? 403 : 503, event.error.message));
         }
         this.messages.update(old => [...old]);
-      });
+      }, thinking);
       if (!ended) throw new Error('Stream ended early');
     } catch (error) {
       if (completed || controller.signal.aborted) return;

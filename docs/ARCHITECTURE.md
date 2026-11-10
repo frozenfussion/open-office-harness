@@ -101,7 +101,17 @@ person. Everyone-gate checks belong to 62.
 **Chat (Stage 2):** both apps sign in through Keycloak with code + PKCE S256
 and session storage. Each reads its issuer, client ID and same-host API path from
 `/config.json`. Workspace shows only allowed chat tiers and the user's ID with a
-copy button for grants. It sends a question to its own Harness API. The Harness
+copy button for grants. The chat model picker uses the tier's main title and
+shows a Thinking switch only when that main entry supports it. The browser
+remembers the choice per tier and forwards it with the question. Completion
+metadata identifies the actual answering model and reports when thinking-off
+was requested but unsupported, including backup/fallback answers. This notice
+is live metadata rather than stored history. Request another model opens a
+small panel using requestable_tiers from the Harness. Requests go through the
+Harness as the verified person; the Control Centre enforces approved access,
+excludes granted tiers and tier 99, prevents duplicate pending requests, caps
+pending requests at 20 and enforces seven days after rejection before retry.
+Reasons are plain text and never logged. It sends a question to its own Harness API. The Harness
 checks the conversation owner and asks the Control Centre for `chat.tier` with
 the selected tier. Missing policy fails closed. A refused tier is a 403 with a
 plain message; it is not sent to a model. The browser reads the POST answer using fetch and SSE. User messages stay
@@ -117,7 +127,13 @@ a separate copy control. Stored timestamps survive reload, while new messages
 use send/completion times.
 
 The Harness sends the last 20 completed, nonempty conversation messages,
-starting with a user message, then the new question, with no system message.
+starting with a user message, then the new question. Part B's HA_SYSTEM_PROMPT
+adds the configured reply-language system message. After the first completed
+assistant answer, a separate title call may generate a short title using the
+answering tier and its own system message, with a 20-second limit. Completed
+enables the Workspace composer immediately; an optional later title event
+updates only its conversation's heading/list without changing updated_at.
+Failure keeps the default title and completed answer.
 Only allowed skills are offered as tools. A tool request produces a fixed
 sentence saying skills arrive in the next stage; it runs no job. Conversations
 belong to the Harness database, and messages cannot be updated or deleted.
