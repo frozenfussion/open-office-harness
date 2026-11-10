@@ -117,6 +117,8 @@ class Engine:
                     "type": "completed",
                     "model_entry_id": str(entry.id),
                     "model_title": entry.title,
+                    "thinking_applied": call.thinking
+                    or entry.request_settings_thinking_off is not None,
                     "tier": entry.tier,
                     "usage": {
                         "input_tokens": input_tokens,

@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from gateway.models import Call, Entry
+
 
 class ProviderError(RuntimeError):
     def __init__(self, status: int | None = None, message: str | None = None) -> None:
@@ -79,6 +81,13 @@ def failure_info(error: BaseException) -> tuple[int | None, str | None, str]:
 def settings(body: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
     result = body | extra
     return {key: value for key, value in result.items() if value is not None}
+
+
+def request_body(body: dict[str, Any], entry: Entry, call: Call) -> dict[str, Any]:
+    body = settings(body, entry.request_settings)
+    if not call.thinking and entry.request_settings_thinking_off is not None:
+        body = settings(body, entry.request_settings_thinking_off)
+    return body
 
 
 def tool_event(tool: dict[str, Any]) -> dict[str, Any]:

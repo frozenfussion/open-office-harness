@@ -374,3 +374,87 @@ async def test_provider_error_body_read_is_bounded(entry: Entry, call: Call) -> 
                 ]
     assert body.reads == 1 and body.closed
     assert error.value.status == 500 and error.value.provider_message == "x" * 300
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", TYPES)
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize(
+    "thinking,off_settings",
+    [
+        (True, {"extra": "off", "remove_me": None, "nested": {"mode": "off"}}),
+        (False, {"extra": "off", "remove_me": None, "nested": {"mode": "off"}}),
+        (False, None),
+        (False, {}),
+    ],
+)
+async def test_thinking_off_settings_merge_last(
+    entry: Entry,
+    call: Call,
+    kind: str,
+    stream: bool,
+    thinking: bool,
+    off_settings: dict | None,
+) -> None:
+    normal = {
+        "extra": "normal",
+        "remove_me": "normal",
+        "nested": {"keep": "normal"},
+        "normal_only": "kept",
+    }
+    entry = entry.model_copy(
+        update={
+            "api_type": kind,
+            "request_settings": normal,
+            "request_settings_thinking_off": off_settings,
+        }
+    )
+    call = call.model_copy(update={"stream": stream, "thinking": thinking})
+    response = (
+        httpx.Response(
+            200,
+            text="".join(
+                "data: " + json.dumps(value) + "\n\n" for value in chunks(kind)
+            ),
+        )
+        if stream
+        else httpx.Response(200, json=answer(kind))
+    )
+    with respx.mock as mock:
+        route = mock.post(url__startswith="https://example.invalid/").mock(
+            return_value=response
+        )
+        async with httpx.AsyncClient() as client:
+            _ = [
+                event async for event in resolve(entry)(client, entry, "fake-key", call)
+            ]
+        body = json.loads(route.calls[0].request.content)
+    assert body["normal_only"] == "kept"
+    if not thinking and off_settings:
+        assert body["extra"] == "off" and "remove_me" not in body
+        assert body["nested"] == {"mode": "off"}
+    else:
+        assert body["extra"] == "normal" and body["remove_me"] == "normal"
+        assert body["nested"] == {"keep": "normal"}
+    assert "thinking" not in body
+    assert entry.request_settings == normal
+
+
+def test_thinking_defaults_true_and_registry_off_settings_are_objects(
+    entry: Entry, call: Call
+) -> None:
+    from pydantic import ValidationError
+
+    assert Call.model_validate(call.model_dump(exclude={"thinking"})).thinking is True
+    assert (
+        Entry.model_validate(
+            entry.model_dump(by_alias=True, exclude={"request_settings_thinking_off"})
+        ).request_settings_thinking_off
+        is None
+    )
+    for invalid in ([], "fake", 1, False):
+        with pytest.raises(ValidationError):
+            Entry.model_validate(
+                entry.model_dump(by_alias=True)
+                | {"request_settings_thinking_off": invalid}
+            )

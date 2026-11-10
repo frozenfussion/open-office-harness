@@ -115,6 +115,22 @@ Each SSE `data:` line contains one JSON object (`delta`, `tool_call`, `completed
 
 Extra request settings replace top-level fields after the adapter builds the request; `null` removes a field. They must be a JSON object. Newer Anthropic versions may refuse `temperature`, `top_p` or `top_k` supplied here. The two compatible connection formats impose no length limit unless configured; the Messages format defaults to 4096 output tokens.
 
+## Thinking switch (Row19)
+
+`/v1/call` accepts optional boolean `thinking`, default true. The registry may supply `request_settings_thinking_off` as a JSON object; null or an absent field means there is no off switch. When thinking is false and this object is present, the adapter merges it over the body **after** ordinary `request_settings`. Top-level fields replace previous values, and null removes a field. An empty object is still a configured switch. When thinking is true or omitted, only the ordinary settings apply; the Gateway adds no provider-specific thinking field itself.
+
+The completed SSE event and the non-streamed answer include `thinking_applied`, meaning the caller's choice was honoured: true for thinking on/default, true for thinking off when the answering entry has off settings, false for thinking off when it has none. The flag comes from the entry that actually answered after any failover. The Workspace can show "thinking off not supported by this model" for the last case.
+
+Configure off settings by connection type in the Admin Console; use placeholder model IDs such as `example-model`, never a real model name in this repository:
+
+| Connection type | Off-settings object |
+|---|---|
+| `openai_chat_completions` | For a service that supports it: `{"thinking":{"type":"disabled"}}` or `{"reasoning_effort":"low"}`. |
+| `openai_responses` | `{"reasoning":{"effort":"low"}}`. |
+| `anthropic_messages` | Leave empty when the model has no off switch. |
+
+The Control Centre's fixed test call must omit `thinking`, including an explicit true value, and all other extra fields. Its default thinking choice remains on. This Gateway update needs no migration, dependency or settings change outside the registry entry. Automated checks use fake providers; no paid call is needed to test this behavior.
+
 ## Test connection (section 16)
 
 In the Admin Console's Models & tiers screen, save a key and press **Test** beside that entry. Each click makes one short paid call, counts against that entry's rate limit and daily budget, and writes usage like a chat call. This builder's automated tests use fake providers only.

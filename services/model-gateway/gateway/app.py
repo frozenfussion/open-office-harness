@@ -30,6 +30,8 @@ def authorize_call(body: Call, claims: dict[str, Any]) -> bool:
         return False
     if (
         claims.get("azp") == "ooh-control-centre"
+        and body.model_fields_set
+        <= {"purpose", "tier", "user_id", "messages", "stream", "model_entry_id"}
         and body.model_entry_id is not None
         and not body.stream
         and [message.model_dump() for message in body.messages]

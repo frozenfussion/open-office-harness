@@ -77,6 +77,7 @@ async def test_signature_claims_and_jwks_cache(signed: tuple, changes: dict) -> 
 async def test_registry_key_and_service_token_caches(
     entry: Entry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    entry = entry.model_copy(update={"request_settings_thinking_off": {"extra": "off"}})
     clock = [1000.0]
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])
     with respx.mock as mock:
@@ -97,6 +98,9 @@ async def test_registry_key_and_service_token_caches(
             registry = Registry(CONFIG, client, Identity(CONFIG, client))
             for _ in range(2):
                 assert (await registry.get("chat", 1))[0].id == entry.id
+                assert (await registry.get("chat", 1))[
+                    0
+                ].request_settings_thinking_off == {"extra": "off"}
                 assert await registry.key(entry) == "fake-provider-key"
             assert entries.call_count == keys.call_count == tokens.call_count == 1
             clock[0] += 31
@@ -907,3 +911,123 @@ async def test_keyless_entry_missing_key_is_not_logged_as_failure(
                 )
         assert route.call_count == 1
     assert not [record for record in caplog.records if record.name == "gateway"]
+
+
+@pytest.mark.parametrize(
+    "extra", [{"thinking": True}, {"thinking": False}, {"tools": []}]
+)
+def test_control_centre_test_call_refuses_extra_fields(
+    http: tuple, entry: Entry, extra: dict
+) -> None:
+    client, key = http
+    with respx.mock as mock:
+        response = client.post(
+            "/v1/call",
+            json=connection_body(entry) | extra,
+            headers={"Authorization": "Bearer " + token(key, azp="ooh-control-centre")},
+        )
+        assert not mock.calls
+    assert response.status_code == 403 and response.json()["code"] == "forbidden"
+    assert not client.app.state.db.rows
+
+
+@pytest.mark.parametrize("thinking", [None, "not a boolean", [], {}, 1, "true"])
+def test_harness_rejects_invalid_thinking_input(
+    http: tuple, call: Call, thinking: object
+) -> None:
+    client, key = http
+    response = client.post(
+        "/v1/call",
+        json=call.model_dump(mode="json") | {"thinking": thinking},
+        headers={"Authorization": "Bearer " + token(key)},
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("off_settings", [None, {}, {"extra": "off"}])
+def test_answer_reports_thinking_off_application(
+    http: tuple, entry: Entry, stream: bool, off_settings: dict | None
+) -> None:
+    client, key = http
+    client.app.state.engine.registry = FakeRegistry(
+        [entry.model_copy(update={"request_settings_thinking_off": off_settings})]
+    )
+    answer = {
+        "choices": [{"message": {"content": "OK"}}],
+        "usage": {"prompt_tokens": 8, "completion_tokens": 3},
+    }
+    payload = 'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}\n\n'
+    with respx.mock as mock:
+        route = mock.post("https://example.invalid/chat/completions").mock(
+            return_value=httpx.Response(200, text=payload)
+            if stream
+            else httpx.Response(200, json=answer)
+        )
+        response = client.post(
+            "/v1/call",
+            json=connection_body(entry) | {"thinking": False, "stream": stream},
+            headers={"Authorization": "Bearer " + token(key)},
+        )
+        body = json.loads(route.calls[0].request.content)
+        assert body.get("extra") == ("off" if off_settings else None)
+    assert response.status_code == 200
+    if stream:
+        events = [
+            json.loads(line[6:])
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        assert [event["type"] for event in events] == ["delta", "completed"]
+        result = events[-1]
+    else:
+        result = response.json()
+    assert result["thinking_applied"] is (off_settings is not None)
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("off_settings", [None, {"extra": "off"}])
+def test_thinking_on_or_absent_is_honoured(
+    http: tuple, entry: Entry, stream: bool, explicit: bool, off_settings: dict | None
+) -> None:
+    client, key = http
+    client.app.state.engine.registry = FakeRegistry(
+        [
+            entry.model_copy(
+                update={
+                    "request_settings": {"extra": "normal"},
+                    "request_settings_thinking_off": off_settings,
+                }
+            )
+        ]
+    )
+    body = connection_body(entry) | {"stream": stream}
+    if explicit:
+        body["thinking"] = True
+    answer = {
+        "choices": [{"message": {"content": "OK"}}],
+        "usage": {"prompt_tokens": 8, "completion_tokens": 3},
+    }
+    payload = 'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}\n\n'
+    with respx.mock as mock:
+        route = mock.post("https://example.invalid/chat/completions").mock(
+            return_value=httpx.Response(200, text=payload)
+            if stream
+            else httpx.Response(200, json=answer)
+        )
+        response = client.post(
+            "/v1/call", json=body, headers={"Authorization": "Bearer " + token(key)}
+        )
+        assert json.loads(route.calls[0].request.content)["extra"] == "normal"
+    assert response.status_code == 200
+    result = (
+        [
+            json.loads(line[6:])
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ][-1]
+        if stream
+        else response.json()
+    )
+    assert result["thinking_applied"] is True
