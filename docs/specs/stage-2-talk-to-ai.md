@@ -196,7 +196,7 @@ Codex makes branch `stage-2` from `stage-2-base` in a new worktree `~/projects/w
 
 | What | Value |
 |---|---|
-| Ports | every service and app container listens on 8080; probes: readiness `GET /health` (services) or `GET /` (apps); liveness TCP 8080 |
+| Ports | every service and app container listens on 8080 (the Control Centre also on 8081 for the Gateway-only routes, no Ingress); probes: readiness `GET /health` (services) or `GET /` (apps); liveness TCP 8080 |
 | Images | `ghcr.io/frozenfussion/ooh-<model-gateway, harness-api, workspace, admin-console>:<first 12 characters of the commit hash>`; init container args `["migrate"]` for the two Python services |
 | Gateway environment | `GW_DB_CONNECTION` (Secret `model-gateway-db` key `connection`), `GW_DB_MIGRATE_CONNECTION` (same Secret, key `migrate-connection`, init container only), `GW_OIDC_ISSUER` `https://auth.${DOMAIN}/realms/ooh`, `GW_OIDC_AUDIENCE` `ooh-model-gateway`, `GW_CLIENT_ID` `ooh-model-gateway`, `GW_CLIENT_SECRET` (Secret `model-gateway-oidc` key `client-secret`), `GW_CONTROL_CENTRE_URL` `http://control-centre.${APPS_NAMESPACE}.svc:8081` |
 | Harness environment | `HA_DB_CONNECTION`, `HA_DB_MIGRATE_CONNECTION` (Secret `harness-api-db`), `HA_OIDC_ISSUER`, `HA_OIDC_AUDIENCE` `ooh-harness-api`, `HA_CLIENT_ID` `ooh-harness-api`, `HA_CLIENT_SECRET` (Secret `harness-api-oidc` key `client-secret`), `HA_CONTROL_CENTRE_URL`, `HA_GATEWAY_URL` `http://model-gateway.${APPS_NAMESPACE}.svc:8080` |
@@ -208,15 +208,16 @@ Codex makes branch `stage-2` from `stage-2-base` in a new worktree `~/projects/w
 
 ## 9. `install/70-check-stage-2.sh` (Part C), one `PASS`/`FAIL` line each, then `DONE`
 
-1. `https://harness.<domain>/` and `https://admin.<domain>/` answer 200 with each app's root element; `/config.json` of each holds the right client id.
-2. `https://harness.<domain>/api/conversations` without a token → 401; with a wrong-audience token (the Control Centre's own service token) → 401.
-3. The Gateway has no Ingress and no public route (`https://harness.<domain>/v1/call` and `https://admin.<domain>/v1/call` are not the Gateway: 404 or the app page).
-4. Through a short-lived `kubectl port-forward` to the Gateway Service (started and stopped by the script): the Control Centre's service token → 403 or 401 on `/v1/call`; the Harness service token with purpose `chat` and a tier that has no entries → 404 `no_model`.
-5. For **every active chat entry with a key** in the registry (read with the Gateway's service token): one non-streamed `/v1/call` pinned to that entry's purpose and tier with the message `Reply with the single word OK.` → 200 with non-empty content, the entry's title, usage > 0. (Entries of the same tier are main/backup; the check reports which entry answered.) One streamed call per connection type in use → at least two `delta` events then `completed`.
-6. The Gateway's `usage` table has a new row per call above (psql in the PostgreSQL pod, count by time window).
-7. Admin views never contain a key: `GET /api/admin/models` and `GET /api/models` (as the Gateway) have `has_key` and no field holding a key; the Control Centre logs since the check began contain none of the key values (the script reads each key once through the Gateway route, keeps it in a variable, searches the logs, never prints it).
-8. `GET /api/models/{id}/key` as the Harness service account → 403.
-The device sign-in is not needed: every call above uses service accounts, and the browser test of Done-when 5 covers a real user.
+Every token comes from client secrets read inside the Keycloak pod as `62` does. Two port-forwards, started and stopped by the script (section 15): 18080 → Service `model-gateway` 8080, 18081 → Service `control-centre` 8081.
+1. `https://harness.<domain>/` and `https://admin.<domain>/` answer 200 with each app's root element; each app's `/config.json` holds its client id.
+2. `https://harness.<domain>/api/conversations` without a token → 401; with the Control Centre's own service token (wrong audience) → 401.
+3. No Ingress in any namespace has a backend Service `model-gateway`.
+4. Gateway through 18080: the Control Centre's service token on `/v1/call` → 401 or 403; the Harness service token with purpose `chat` and tier 98 (no entries) → 404 `no_model`.
+5. Tiers: as the Gateway's service account through 18081, `GET /api/models?purpose=chat&tier=N` for N = 1..20. For every active entry with `has_key` true: one non-streamed `/v1/call` pinned with `model_entry_id`, message `Reply with the single word OK.`, a new `user_id` `stage-check-<uuid>` per call → 200, non-empty content, that entry's title, usage > 0; an entry skipped for budget prints `FAIL <title>: over its daily budget today`. Then one streamed pinned call per connection type in use → at least two `delta` events, then `completed`.
+6. The Gateway's `usage` table has one new row per call above: counted from a short-lived check pod as `modelgateway_app`, password from its Secret through the environment (as `40` does), never on a command line.
+7. No key in the logs: each key is read once through 18081 (`GET /api/models/{id}/key`, Gateway token) into a variable; the Control Centre, Gateway and Harness logs since the check began are read and compared inside bash (`[[ $logs == *"$key"* ]]`); never printed, never an argument.
+8. `GET /api/models/{id}/key` as the Harness service account through 18081 → 403; the same route on the public host `https://admin.<domain>/api/models/<id>/key` with the Gateway's token → 404 (the route is not public).
+The device sign-in is not needed: every call above uses service accounts; the browser tests of Done-when 3 and 5 cover real people. Each run makes one short paid call per entry with a key (README says so).
 
 ## 10. README Quick Guide additions (Part C writes them; each with where to type, which password, good result)
 1. The Stage 2 order on a fresh server: 63 → 61 → 64 → 65 → 66 → 67 → 68 → 69 → 35 → (admin adds models in the browser) → 70.
@@ -252,6 +253,7 @@ Skill jobs on Kafka and the Slides worker, uploads, files and job events, the st
 |---|---|---|
 | 1 | Spec review by Claude Code before the builders started (38 findings, `reviews/stage-2-spec-review` in the course folder): every finding is resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 10 Nov 14:00 |
 | 2 | Spec re-review (37 of 38 fixed, 8 new small findings, `reviews/stage-2-spec-rereview`): the earlier sections edited in place to agree with section 15; section 15 gains "Re-review additions" | Spec author, 10 Nov 14:04 |
+| 3 | Final check (`reviews/stage-2-spec-final`): section 9 rewritten to match section 15; port 8081 in the Ports row; 62 keeps one check user; tiers with grants but no model stay visible | Spec author, 10 Nov 14:08 |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees)
 
@@ -331,10 +333,10 @@ A failure after the stream started is a `failed` event with the same codes and t
 **Kept simple.** The key cache is 60 s, with no retry rule. Health reporting from the Gateway moves to Stage 3 with Test connection: no health route, no health state in Stage 2 (the `health` field keeps its value). The budget fallback stays (Aziz's approved form). `request_settings` must be a JSON object (the Admin Console and the Control Centre both refuse anything else).
 
 **Re-review additions.**
-- `70` (and the tier-99 calls in `62`) use a new `stage-check-<uuid>` per call, so the check never hits its own rate limit; an entry skipped for its budget prints `FAIL <entry title>: over its daily budget today`.
+- `70` uses a new `stage-check-<uuid>` for each Gateway `/v1/call`, so the check never hits its own rate limit (`62` keeps one `stage-check-<uuid>` for its whole run, as today: it makes no Gateway calls); an entry skipped for its budget prints `FAIL <entry title>: over its daily budget today`.
 - A pinned `model_entry_id` must be one of the active entries of the given purpose and tier, else 404 `no_model`; rate limit and budget still apply to a pinned call.
 - A user message is stored with outcome `completed`. The history window is read **before** the new user message is stored, then the new message is appended once.
 - With the unique index gone, Part D removes the duplicate-entry 409 for model entries from the contract, its example and its test, and drops the matching unique `HasIndex` in the EF model (`has-pending-model-changes` must say no changes).
-- The Admin Console builds its tier cards and "Who may use this tier" rows from **active chat model entries**, never from rights (so the Stage 1 check's tier 99 never shows).
+- The Admin Console shows a tier row for every tier that has an active chat model entry **or** an active grant, except tier 99 (the Stage 1 check's tier); a tier with grants but no model shows "No model yet", so grants are never hidden.
 - GitHub packages: Claude opens each package's settings page (`https://github.com/users/frozenfussion/packages/container/<name>/settings`) in a new tab of Aziz's built-in browser on his PC; Aziz clicks Change visibility → Public.
 - Every `kubectl port-forward` in `62` and `70` is started by the script on a fixed local port (`62`: 18081; `70`: 18080 for the Gateway, 18081 for the Control Centre), stopped by a trap on exit, and a busy port is `STOP: local port <n> is busy; stop the old port-forward (pkill -f "port-forward.*<n>") and re-run`.
