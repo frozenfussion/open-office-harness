@@ -380,3 +380,38 @@ While a test runs the button shows "Testing…" and is disabled. No key is ever 
 **Realm (Part C).** `ooh-control-centre` gets the audience mapper `audience-ooh-model-gateway` (access token only), in `deploy/platform/keycloak/realm-ooh.yaml`; `install/35-realm-sync.sh` already syncs audience mappers for every client and must add this one on an existing realm. `install/70-check-stage-2.sh` step 4 changes: the Control Centre's service token on `/v1/call` **unpinned** → 403, and pinned + streamed → 403.
 
 **Order to deploy.** 35 → 71 → 65 (new Gateway image) → 61 (new Control Centre image) → 69 (new console image) → 70.
+
+### 16.1 Review decisions for section 16 (Claude Code review `reviews/stage-2-test-button-spec-review`; binding, override section 16 where they differ)
+
+1. **Result mapping goes by the Gateway's `code` first**, `provider_status` only when the Gateway passed the provider's answer through:
+
+   | Gateway answer | Reason shown |
+   |---|---|
+   | 401 / 403 from the Gateway itself | the Control Centre could not sign in to the Gateway (also one setup-error log line in the Control Centre) |
+   | `no_model` | entry is not active or its connection type is not supported |
+   | `rate_limited` | over this entry's rate limit; wait a minute |
+   | `budget_exceeded` | over its daily budget today |
+   | `registry_unavailable` | the Control Centre registry did not answer |
+   | `unavailable` + `provider_status` 401 or 403 | key refused |
+   | `unavailable` + 402 | the provider account has no credit |
+   | `unavailable` + 404 | model or endpoint not found |
+   | `unavailable` + 429 | rate limited by the provider |
+   | `unavailable`, no status, "time limit reached" | took longer than its time limit |
+   | `unavailable`, no status, "could not connect" | could not reach the endpoint |
+   | anything else | unexpected answer |
+2. **The Control Centre caller can send only the test call:** `model_entry_id` given, `stream` false, `messages` exactly `[{"role":"user","content":"Reply with the single word OK."}]`, no `tools`, `user_id` starting `admin-test-`. Anything else → 403 `forbidden`; one test per refusal.
+3. `caller()` stays authentication only. One rule after body validation decides: Harness → as today; Control Centre → only the call in item 2; anyone else → 403. `/v1/classify` stays 403 for the Control Centre.
+4. **`provider_message`:** at most 300 characters. Remove the full key, any run of 8 or more characters that appears in the key, and anything matching `sk-[A-Za-z0-9_-]+` or `sk-ant-[A-Za-z0-9_-]+`, each replaced with `[removed]`. The Admin Console shows it as plain text only (no HTML binding). Neither the Gateway nor the Control Centre ever logs `provider_message` or the reply.
+5. **Reading the provider's error:** on a non-2xx answer the adapter reads at most 4 KiB of the body and takes `error.message` (OpenAI and Anthropic shape), else the text. Attached only to pinned calls; the Harness path never receives these fields. **Also, for every failed provider attempt (pinned or not), the Gateway logs one JSON line `{"message":"provider_failed","model_entry_id":...,"provider_status":<int or null>,"reason":"http|timeout|connect|bad_answer"}`, never the body.** (Found live: the first DeepSeek test failed and the logs showed only "failover".)
+6. **Contracts:** Part A adds a `PinnedError` schema (`code`, `message`, `provider_status` int or null, `provider_message` string or null) for 503 answers of pinned calls, with examples in `index.model-gateway.json`. Part D adds the test route's 200 shapes (`ok` true / false), 403, 404 and 409 to the Control Centre contract, with examples in `index.control-centre.json`.
+7. **Overrides Stage 0 section 13 row 6** ("The Control Centre client gets no Model Gateway audience"). Part D updates `contracts/identity.md`: the Control Centre service account may call Gateway `/v1/call` only for the pinned test call. Part C updates `docs/ARCHITECTURE.md`: the Control Centre "calls AI only through the Gateway's pinned test call".
+8. **Files per Part (in addition to section 7):**
+   - Part A: `services/model-gateway/**`, `contracts/http/model-gateway.openapi.yaml`, its examples, `index.model-gateway.json`.
+   - Part C: `deploy/platform/keycloak/realm-ooh.yaml`, `install/35-realm-sync.sh`, `install/70-check-stage-2.sh`, `README.md` (order gains 71: 63 → 71 → 61 → …), `docs/ARCHITECTURE.md`.
+   - Part D: `services/control-centre/**`, `apps/admin-console/**`, `contracts/http/control-centre.openapi.yaml`, its examples, `index.control-centre.json`, `contracts/identity.md`, `deploy/apps/control-centre/configmap.yaml` and `deployment.yaml`, `install/61-control-centre-deploy.sh`, `install/71-control-centre-oidc.sh`.
+9. **Where the work happens:** each Part keeps its branch and worktree (`stage-2-part-a`, `-c`, `-d`), first merges `origin/stage-2-test-button` into it (that is `stage-2` plus this section), builds, runs its section 7 checks, pushes, and reports. Claude Code reviews each Part; then Claude merges the three branches into `stage-2` and reruns the section 2 item 7 checks before deploying.
+10. **`control-centre-oidc`:** 71 behaves like 64: create if missing; if present and different from Keycloak's current secret, `STOP: the Control Centre client secret changed; …`. `CC_CLIENT_SECRET` is **optional** in the Deployment (`optional: true`): without it the Control Centre starts normally and the test route answers `{ok:false, reason:"the Control Centre has no service credentials"}`. 61 does not stop for it.
+11. Token URL = `CC_OIDC_ISSUER` + `/protocol/openid-connect/token`; client ID fixed `ooh-control-centre`; the secret goes only in the form body, never in a URL or log line.
+12. **Audit:** `action` `model.tested`, `target` = the entry's `model_id` (as other model rows), detail `{model_entry_id, ok, reason, duration_ms}`; one row for success and for failure, plus the usual `audit.events` message.
+13. **Time limits:** the Admin Console stops waiting at `timeout_seconds` + 15 s and shows "took longer than its time limit". When the Control Centre's own limit fires it answers 200 `{ok:false, reason:"took longer than its time limit", provider_status:null, provider_message:null}`.
+14. **70 positive check:** the Control Centre's service token, pinned to an entry with a key, the fixed test message, `stream` false → 200 with non-empty content (one paid call, skipped with a note when no keyed entry exists). Plus the refusals: unpinned → 403, streamed → 403, other messages → 403.
