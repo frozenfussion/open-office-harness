@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-gateway
+  namespace: ${APPS_NAMESPACE}
+  labels:
+    app: model-gateway
+spec:
+  selector:
+    app: model-gateway
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http

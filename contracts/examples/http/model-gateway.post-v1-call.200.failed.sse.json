@@ -1,0 +1,7 @@
+{
+  "type": "failed",
+  "error": {
+    "code": "unavailable",
+    "message": "The model did not answer. Try again."
+  }
+}
