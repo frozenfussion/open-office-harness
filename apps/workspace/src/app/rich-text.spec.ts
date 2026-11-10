@@ -21,6 +21,11 @@ describe('safe Markdown and maths', () => {
     expect(result.fragment.querySelector('math')).not.toBeNull();
     expect(Boolean(result.fragment.querySelector('.katex-display'))).toBe(source.startsWith('$$') || source.startsWith('\\['));
   });
+  it('renders adjacent inline formulae without treating their boundary as display maths', () => {
+    const result = renderRichText('Terms $x$$y$ together');
+    expect(result.fragment.querySelectorAll('.katex')).toHaveLength(2);
+    expect(result.fragment.querySelector('.katex-display')).toBeNull();
+  });
   it.each(['$x^2', '$$x^2', '\\(x^2', '\\[x^2'])('leaves unfinished maths as text: %s', source => {
     const result = renderRichText(source);
     expect(result.fragment.querySelector('.ooh-math-pending')?.textContent).toBe(source);

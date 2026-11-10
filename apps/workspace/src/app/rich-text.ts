@@ -25,7 +25,7 @@ function mathToken(source: string): MathToken | undefined {
   if (!open) return undefined;
   const close = open === '\\[' ? '\\]' : open === '\\(' ? '\\)' : open;
   let end = source.indexOf(close, open.length);
-  while (end !== -1 && (escaped(source, end) || (open === '$' && source[end + 1] === '$'))) {
+  while (end !== -1 && escaped(source, end)) {
     end = source.indexOf(close, end + close.length);
   }
   return {
