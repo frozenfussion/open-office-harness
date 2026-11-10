@@ -58,6 +58,18 @@ public static class RegistryRoutes
       Api.Found(row is not null && row.DeletedAt == null);
       return Results.Ok(View(row!));
     }).RequireAuthorization();
+    app.MapPost("/api/admin/models/{id}/test", async (string id, HttpContext c, CentreDb db, ModelConnection connection) =>
+    {
+      Api.Authorize(c); Api.Query(c);
+      if (c.Request.ContentLength is > 0 || c.Request.Headers.ContainsKey("Transfer-Encoding")) await Api.Body(c, []);
+      var row = await db.Models.FindAsync(Api.Id(id));
+      Api.Found(row is { DeletedAt: null });
+      var result = row!.ApiKeyEncrypted is null ? new ConnectionResult(false, 0, "no key saved") : await connection.Test(row, Api.Actor(c), c.RequestAborted);
+      Api.Change(db, Api.Actor(c), "model.tested", row.ModelId, Api.Correlation(c), new JsonObject
+      { ["model_entry_id"] = row.Id.ToString(), ["ok"] = result.Ok, ["reason"] = result.Reason, ["duration_ms"] = result.DurationMs });
+      await db.SaveChangesAsync();
+      return row.ApiKeyEncrypted is null ? Api.Error(409, "no_key", "no key saved") : Results.Ok(result.View());
+    }).RequireAuthorization();
     app.MapPost("/api/admin/models", async (HttpContext c, CentreDb db) => await SaveModel(c, db, null)).RequireAuthorization();
     app.MapPut("/api/admin/models/{id}", async (string id, HttpContext c, CentreDb db) => { Api.Authorize(c); return await SaveModel(c, db, Api.Id(id)); }).RequireAuthorization();
     app.MapDelete("/api/admin/models/{id}", async (string id, HttpContext c, CentreDb db) =>

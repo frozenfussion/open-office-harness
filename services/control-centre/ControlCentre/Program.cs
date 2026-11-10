@@ -66,6 +66,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 builder.Services.AddAuthorization();
 builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
 builder.Services.AddSingleton<SchemaChecks>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton(_ => new HttpClient(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) }) { Timeout = Timeout.InfiniteTimeSpan });
+builder.Services.AddSingleton<ModelConnection>();
 builder.Services.AddSingleton<IKafka, KafkaClient>();
 builder.Services.AddSingleton<IRetryDelay, RetryDelay>();
 builder.Services.AddScoped<ApprovalConsumer>();

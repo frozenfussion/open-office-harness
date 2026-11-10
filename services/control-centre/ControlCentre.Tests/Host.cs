@@ -63,8 +63,11 @@ public sealed class Host : WebApplicationFactory<Program>
   private readonly SymmetricSecurityKey key = new(RandomNumberGenerator.GetBytes(64));
   public FakeKafka Kafka { get; } = new();
   public TestLogs Logs { get; } = new();
-  public Host(bool database = false)
+  public TestGatewayHttp Gateway { get; } = new();
+  public Host(bool database = false, string clientSecret = "")
   {
+    Environment.SetEnvironmentVariable("CC_CLIENT_SECRET", clientSecret);
+    Environment.SetEnvironmentVariable("CC_GATEWAY_URL", "http://gateway.invalid:8080");
     Environment.SetEnvironmentVariable("CC_KEY_ENCRYPTION_KEY", Convert.ToBase64String(new byte[32]));
     Environment.SetEnvironmentVariable("CC_DB_CONNECTION", database ? TestSettings.Load()["CC_TEST_DB_CONNECTION"] : "Host=127.0.0.1;Port=1;Database=controlcentre_test;Timeout=1");
     Environment.SetEnvironmentVariable("CC_OIDC_ISSUER", "https://issuer.invalid");
@@ -77,6 +80,7 @@ public sealed class Host : WebApplicationFactory<Program>
     {
       foreach (var descriptor in services.Where(x => x.ServiceType == typeof(IHostedService) && x.ImplementationType == typeof(KafkaWorker)).ToArray()) services.Remove(descriptor);
       services.AddTransient<IStartupFilter, TestPort>();
+      services.RemoveAll<HttpClient>(); services.AddSingleton(new HttpClient(Gateway) { Timeout = Timeout.InfiniteTimeSpan });
       services.RemoveAll<IKafka>(); services.AddSingleton<IKafka>(Kafka);
       services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
           {

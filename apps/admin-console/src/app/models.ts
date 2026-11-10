@@ -28,3 +28,12 @@ export function modelPayload(model: ModelEntry, key: string, removeKey: boolean,
   if (removeKey || key.length) payload['api_key'] = removeKey ? '' : key;
   return payload;
 }
+export type ConnectionResult = {
+  ok: true; model_title: string; reply: string; duration_ms: number;
+  usage: { input_tokens: number; output_tokens: number }; cost_usd: number;
+} | { ok: false; reason: string; provider_status: number | null; provider_message: string | null };
+export function connectionSummary(result: ConnectionResult): string {
+  if (result.ok) return `Works · ${(result.duration_ms / 1000).toFixed(1)} s · reply: "${[...result.reply].slice(0, 80).join('')}" · ${result.usage.input_tokens}/${result.usage.output_tokens} tokens · $${result.cost_usd.toFixed(6)}`;
+  return `Failed · ${result.reason}` + (result.provider_status === null ? '' : ` (provider answered ${result.provider_status})`)
+    + (result.provider_message ? ` · ${result.provider_message}` : '');
+}
