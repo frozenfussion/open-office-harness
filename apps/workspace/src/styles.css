@@ -1,0 +1,5 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--font-sans); }
+* { box-sizing: border-box; }
+button, textarea, select { font: inherit; }
+button:focus-visible { outline: 2px solid var(--phosphor); }

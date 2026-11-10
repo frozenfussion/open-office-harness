@@ -1,0 +1,77 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+@if (!ready()) {
+  <p class="startup" role="status">Opening Workspace…</p>
+} @else if (!signedIn()) {
+  <main class="sign-in">
+    <app-rain />
+    <section class="sign-in-card">
+      <span class="ooh-label brand">Open Office Harness</span>
+      <h1>Good morning.</h1>
+      <p>Sign in to your workspace to chat.</p>
+      @if (notice()) { <p class="notice" role="alert">{{ notice() }}</p> }
+      <button class="ooh-btn ooh-btn--primary" (click)="signIn()">Sign in with company account</button>
+      <span class="ooh-help">Your company account keeps your conversations private.</span>
+    </section>
+  </main>
+} @else {
+  <div class="workspace">
+    <nav class="ooh-nav" aria-label="Workspace">
+      <div class="ooh-nav__brand">Open Office Harness<span>Workspace</span></div>
+      <span class="ooh-nav__item" aria-current="page">Chat</span>
+      <button class="ooh-btn ooh-btn--secondary" [disabled]="streaming() || loading()" (click)="newChat()">New chat</button>
+      <div class="ooh-nav__section">Recent</div>
+      <div class="recent">
+        @for (conversation of conversations(); track conversation.id) {
+          <button class="ooh-nav__item conversation" [attr.aria-current]="currentId() === conversation.id ? 'page' : null"
+            [disabled]="streaming() || loading()" (click)="open(conversation.id)">{{ conversation.title || 'New chat' }}</button>
+        }
+        @if (more()) { <button class="ooh-btn ooh-btn--ghost" [disabled]="loading() || streaming()" (click)="loadMore()">More conversations</button> }
+      </div>
+      <div class="person">
+        <span>{{ me()?.name || 'Workspace user' }}</span>
+        @if (me(); as person) {
+          <div class="about"><span>About me · Your user ID</span><span class="user-id">{{ person.user_id }}</span>
+            <button class="ooh-btn ooh-btn--ghost ooh-btn--sm" (click)="copyId()">{{ copied() ? 'Copied' : 'Copy user ID' }}</button>
+          </div>
+        }
+        <button class="ooh-btn ooh-btn--ghost" (click)="signOut()">Sign out</button>
+      </div>
+    </nav>
+    <main class="chat">
+      <header><h1>{{ title() }}</h1>
+        <label class="ooh-field"><span class="ooh-label">Chat tier</span>
+          <select class="ooh-select" aria-label="Chat tier" [(ngModel)]="tier" [disabled]="streaming() || loading()">
+            @for (allowed of me()?.chat_tiers || []; track allowed) { <option [ngValue]="allowed">Tier {{ allowed }}</option> }
+          </select>
+        </label>
+      </header>
+      @if (loading()) { <p class="startup" role="status">Loading…</p> }
+      @if (notice()) { <p class="notice" [class.forbidden]="forbidden()" role="alert">{{ notice() }}</p> }
+      @if (me() && !me()!.chat_tiers.length) {
+        <p class="notice forbidden">You have no chat tier yet. An admin can grant one.</p>
+      }
+      <section #history class="messages" aria-label="Messages" aria-live="polite" aria-relevant="additions text">
+        @if (!messages().length) {
+          <div class="empty"><app-rain /><div><h2>What shall we work on?</h2><p>Start a conversation with your workspace.</p></div></div>
+        }
+        @for (message of messages(); track $index) {
+          <article class="ooh-msg" [class.ooh-msg--user]="message.role === 'user'" [class.ooh-msg--assistant]="message.role === 'assistant'">
+            <div class="ooh-msg__body">{{ message.content }}@if (streaming() && $last && message.role === 'assistant') {<span class="ooh-cursor" aria-label="Streaming"></span>}</div>
+            @if (message.role === 'assistant') {
+              <div class="ooh-msg__meta">{{ metaLine(message) }}@if (message.outcome === 'failed') { · Answer interrupted }</div>
+            }
+          </article>
+        }
+      </section>
+      <form class="composer" (ngSubmit)="send()">
+        <label class="ooh-field"><span class="ooh-label">Message</span>
+          <textarea class="ooh-textarea" name="message" [(ngModel)]="draft" rows="3" placeholder="Ask a question…"
+            [disabled]="streaming() || loading() || tier === null" (keydown)="keydown($event)"></textarea>
+        </label>
+        <div class="composer-actions"><span class="ooh-help">Enter to send · Shift+Enter for a new line</span>
+          <button class="ooh-btn ooh-btn--primary" type="submit" [disabled]="streaming() || loading() || !draft.trim() || tier === null">{{ streaming() ? 'Sending…' : 'Send' }}</button>
+        </div>
+      </form>
+    </main>
+  </div>
+}

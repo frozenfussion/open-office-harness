@@ -145,6 +145,14 @@ install/35-realm-sync.sh
 retain_existing
 for file in "$tmp"/deploy/platform/placeholders/*.yaml "$tmp"/deploy/platform/keycloak/ingress.yaml; do
   [[ "$file" != "$tmp/deploy/platform/placeholders/control-centre-api.yaml" ]] || continue
+  case "$(basename "$file")" in
+    workspace.yaml|harness-api.yaml|admin-console.yaml)
+      name="$(basename "$file" .yaml)"
+      deployment="$(kubectl -n "$APPS_NAMESPACE" get deployment "$name" --ignore-not-found -o json)"
+      if [[ -n "$deployment" ]] && jq -e '.spec.template.metadata.labels["ooh/app"] == "real"' <<< "$deployment" >/dev/null; then
+        continue
+      fi ;;
+  esac
   # A successful re-run must not request staging certificates again.
   case "$file" in
     *ingress.yaml)

@@ -135,6 +135,15 @@ while IFS= read -r client; do
     stop "client $client is missing from realm ooh; realm sync cannot create clients; inspect the initial realm setup"
   fi
   id="$(jq -er --arg client "$client" 'if length == 1 and .[0].clientId == $client then .[0].id else error("client missing or ambiguous") end' <<< "$representation")"
+  if [[ "$client" == ooh-workspace || "$client" == ooh-admin-console ]]; then
+    client_config="$(kcadm get "clients/$id" -r ooh)"
+    jq '.attributes = ((.attributes // {}) + {"post.logout.redirect.uris":"+"})' <<< "$client_config" |
+      kcadm update "clients/$id" -r ooh -n -f - >/dev/null
+    client_config="$(kcadm get "clients/$id" -r ooh)"
+    jq -e '.attributes["post.logout.redirect.uris"] == "+"' <<< "$client_config" >/dev/null ||
+      stop "sign-out redirect is not enabled for $client; inspect the existing client"
+    unset client_config
+  fi
   if [[ "$client" == ooh-admin-console ]]; then
     client_config="$(kcadm get "clients/$id" -r ooh)"
     printf '%s' "$client_config" | jq '.attributes = ((.attributes // {}) + {"oauth2.device.authorization.grant.enabled":"true"})' |
