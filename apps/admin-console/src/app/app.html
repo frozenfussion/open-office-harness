@@ -17,10 +17,10 @@
     <div class="ooh-table-wrap"><table class="ooh-table"><thead><tr><th>Purpose · tier</th><th>Main</th><th>Backup</th><th>Where</th><th>Rate limit</th><th>Cost today</th><th>Actions</th></tr></thead><tbody>
     @for (m of models(); track m.model_entry_id) {<tr><td>{{ label(m) }}</td><td>{{ m.role === 'main' ? (m.title || m.model_id) : '—' }}</td><td>{{ m.role === 'backup' ? (m.title || m.model_id) : '—' }}</td><td>{{ m.location === 'cloud' ? 'Cloud' : 'On-prem' }}</td><td>{{ m.rate_limit_per_minute }} / minute / user</td><td>—</td><td><button class="ooh-btn ooh-btn--ghost ooh-btn--sm" (click)="edit(m)">Edit</button><button class="ooh-btn ooh-btn--danger ooh-btn--sm" [disabled]="busy()" (click)="switchOff(m)">Switch off</button></td></tr>}
     </tbody></table></div>
-    @for (tier of tiers(); track tier) {<section class="card"><h2>Tier {{ tier }} · Who may use this tier</h2>@if (!tierModels(tier).length) {<p>No model yet</p>}
-      <label><input type="checkbox" [checked]="everyone(tier)" [disabled]="busy()" (change)="toggleEveryone(tier)"> Everyone</label>
+    @for (tier of tiers(); track tier) {<section class="card tier-access"><h2>Tier {{ tier }} · Who may use this tier</h2>@if (!tierModels(tier).length) {<p>No model yet</p>}
+      <label class="ooh-field"><span class="ooh-label">Everyone</span><input type="checkbox" [checked]="everyone(tier)" [disabled]="busy()" (change)="toggleEveryone(tier)"></label>
       <form class="person-form" (ngSubmit)="addPerson(tier)"><label class="ooh-field"><span class="ooh-label">Add person by user ID</span><input class="ooh-input" [name]="'person-' + tier" [(ngModel)]="people[tier]" required></label><button class="ooh-btn ooh-btn--secondary" [disabled]="busy()">Add person</button></form>
-      @for (g of tierGrants(tier); track g.id) { @if (g.subject_type === 'user') {<p class="ooh-mono">{{ g.subject_id }} <button class="ooh-btn ooh-btn--danger ooh-btn--sm" [disabled]="busy()" (click)="removeGrant(g)">Remove access</button></p>}}
+      @for (g of tierGrants(tier); track g.id) { @if (g.subject_type === 'user') {<p class="ooh-mono grant-row">{{ g.subject_id }} <button class="ooh-btn ooh-btn--danger ooh-btn--sm" [disabled]="busy()" (click)="removeGrant(g)">Remove access</button></p>}}
     </section>}
     @if (editing(); as m) {<section class="card"><h2>{{ m.model_entry_id ? 'Edit model' : 'Add model' }}</h2><form #modelForm="ngForm" (ngSubmit)="save()" class="model-form">
       <label class="ooh-field"><span class="ooh-label">Name</span><input class="ooh-input" name="title" [(ngModel)]="m.title" required></label>
