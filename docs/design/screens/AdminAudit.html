@@ -1,0 +1,86 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin audit</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/openofficeharness/tokens.css">
+<link rel="stylesheet" href="ds/openofficeharness/components/bundle.css">
+<script src="ds/openofficeharness/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--ground)}
+a{color:var(--phosphor)}a:hover{color:var(--ink)}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 900px; background: var(--ground); color: var(--ink); font-family: var(--font-sans);">
+  <nav class="ooh-nav" aria-label="Admin Console" style="flex: 1 1 220px; max-width: 240px;">
+    <div class="ooh-nav__brand">Open Office Harness<span>Admin Console</span></div>
+    <a class="ooh-nav__item" href="#">Overview</a>
+    <a class="ooh-nav__item" href="#">Approvals <span class="ooh-nav__count">4</span></a>
+    <a class="ooh-nav__item" href="#">People &amp; rights</a>
+    <a class="ooh-nav__item" href="#">Models &amp; tiers</a>
+    <a class="ooh-nav__item" href="#">Skills</a>
+    <div class="ooh-nav__section">Operations</div>
+    <a class="ooh-nav__item" href="#" aria-current="page">Audit</a>
+    <a class="ooh-nav__item" href="#">Failed messages <span class="ooh-nav__count" style="color: var(--signal-red);">1</span></a>
+    <a class="ooh-nav__item" href="#">Settings</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 24px; padding: 32px; box-sizing: border-box;">
+    <header style="display: flex; flex-direction: column; gap: 4px;">
+      <span class="ooh-label">Black-box problem, solved</span>
+      <h1 style="margin: 0; font-family: var(--font-serif); font-weight: 500; font-size: 32px; line-height: 38px;">Audit</h1>
+      <p style="margin: 0; font-size: 15px; line-height: 22px; color: var(--ink-muted);">Every decision, model call, skill job and approval, append-only. Follow one request end to end by its ID.</p>
+    </header>
+
+    <form style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
+      <label class="ooh-field" style="flex: 1 1 220px;"><span class="ooh-label">Request ID</span><input class="ooh-input" value="req-7f3a21" style="font-family: var(--font-mono);"></label>
+      <label class="ooh-field" style="flex: 1 1 180px;"><span class="ooh-label">Who</span><input class="ooh-input" placeholder="Anyone"></label>
+      <label class="ooh-field" style="flex: 1 1 180px;"><span class="ooh-label">Action</span><select class="ooh-select"><option>All actions</option><option>rights.check</option><option>model.call</option><option>skill.*</option><option>approval.*</option></select></label>
+      <button type="button" class="ooh-btn ooh-btn--secondary">Filter</button>
+    </form>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
+      <div class="ooh-table-wrap" style="flex: 999 1 560px; min-width: 0;">
+        <table class="ooh-table">
+          <thead><tr><th>Time</th><th>Producer</th><th>Event</th><th>Detail</th><th>Outcome</th></tr></thead>
+          <tbody>
+            <tr><td class="ooh-mono">09:14:02.114</td><td>harness</td><td>classify</td><td class="ooh-mono">wants_slides 0.93 · needs_tier2 0.12</td><td><span class="ooh-chip ooh-chip--done">Routed</span></td></tr>
+            <tr><td class="ooh-mono">09:14:02.140</td><td>control-centre</td><td>rights.check</td><td>skill.use · slides · Nur Aisyah</td><td><span class="ooh-chip ooh-chip--done">Allowed</span></td></tr>
+            <tr><td class="ooh-mono">09:14:02.161</td><td>harness</td><td>skill.requested</td><td class="ooh-mono">topic skill.requests.slides · p3</td><td><span class="ooh-chip ooh-chip--queued">Queued</span></td></tr>
+            <tr><td class="ooh-mono">09:14:09.502</td><td>slides-worker</td><td>model.call</td><td class="ooh-mono">chat · tier 1 · 3,412 tokens</td><td><span class="ooh-chip ooh-chip--done">200</span></td></tr>
+            <tr><td class="ooh-mono">09:16:43.010</td><td>slides-worker</td><td>skill.result</td><td class="ooh-mono">q3-maintenance-backlog.pptx · 6 slides</td><td><span class="ooh-chip ooh-chip--done">Done</span></td></tr>
+            <tr><td class="ooh-mono">09:16:43.090</td><td>safety-watcher</td><td>classify</td><td class="ooh-mono">data_leak 0.03</td><td><span class="ooh-chip ooh-chip--done">Clear</span></td></tr>
+            <tr><td class="ooh-mono">09:16:43.120</td><td>cost-meter</td><td>usage</td><td class="ooh-mono">Nur Aisyah · 3,412 tokens · on-prem</td><td><span class="ooh-chip ooh-chip--done">Logged</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <section aria-label="Request trace" style="flex: 1 1 280px; max-width: 340px; display: flex; flex-direction: column; gap: 12px; padding: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); box-sizing: border-box;">
+        <span class="ooh-label">Trace · req-7f3a21</span>
+        <ol style="margin: 0; padding: 0 0 0 18px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; line-height: 18px;">
+          <li>Classifier suggested the Slides skill</li>
+          <li>Control Centre allowed it (role: analyst)</li>
+          <li>Job published to Kafka, waited 7s</li>
+          <li>Worker called tier 1 once</li>
+          <li>Deck stored, user notified</li>
+          <li>Safety watcher and cost meter read the result</li>
+        </ol>
+        <span class="ooh-mono">total 2m 41s · 7 events · 1 model call</span>
+        <button class="ooh-btn ooh-btn--secondary ooh-btn--sm">Export trace (JSON)</button>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

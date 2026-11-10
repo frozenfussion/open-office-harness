@@ -1,0 +1,115 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin overview</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/openofficeharness/tokens.css">
+<link rel="stylesheet" href="ds/openofficeharness/components/bundle.css">
+<script src="ds/openofficeharness/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--ground)}
+a{color:var(--phosphor)}a:hover{color:var(--ink)}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 900px; background: var(--ground); color: var(--ink); font-family: var(--font-sans);">
+  <nav class="ooh-nav" aria-label="Admin Console" style="flex: 1 1 220px; max-width: 240px;">
+    <div class="ooh-nav__brand">Open Office Harness<span>Admin Console</span></div>
+    <a class="ooh-nav__item" href="#" aria-current="page">Overview</a>
+    <a class="ooh-nav__item" href="#">Approvals <span class="ooh-nav__count">4</span></a>
+    <a class="ooh-nav__item" href="#">People &amp; rights</a>
+    <a class="ooh-nav__item" href="#">Models &amp; tiers</a>
+    <a class="ooh-nav__item" href="#">Skills</a>
+    <div class="ooh-nav__section">Operations</div>
+    <a class="ooh-nav__item" href="#">Audit</a>
+    <a class="ooh-nav__item" href="#">Failed messages <span class="ooh-nav__count" style="color: var(--signal-red);">1</span></a>
+    <a class="ooh-nav__item" href="#">Settings</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 32px; padding: 40px 32px; box-sizing: border-box;">
+    <header style="display: flex; flex-direction: column; gap: 8px;">
+      <span class="ooh-label">Admin Console · {{today}}</span>
+      <h1 style="margin: 0; font-family: var(--font-serif); font-weight: 500; font-size: 56px; line-height: 60px;">{{greeting}}, Aziz.</h1>
+      <p style="margin: 0; font-size: 15px; line-height: 22px; color: var(--ink-muted);">6 things need you. Nothing waiting on you runs until you decide.</p>
+    </header>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 16px;">
+      <div style="display: flex; flex-direction: column; gap: 4px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);"><span class="ooh-label">People active today</span><span style="font-family: var(--font-tech); font-size: 28px; line-height: 32px; font-weight: 600;">31</span><span class="ooh-mono">of 48</span></div>
+      <div style="display: flex; flex-direction: column; gap: 4px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);"><span class="ooh-label">Skill jobs today</span><span style="font-family: var(--font-tech); font-size: 28px; line-height: 32px; font-weight: 600;">84</span><span class="ooh-mono" style="color: var(--signal-cyan);">3 queued</span></div>
+      <div style="display: flex; flex-direction: column; gap: 4px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);"><span class="ooh-label">Model calls today</span><span style="font-family: var(--font-tech); font-size: 28px; line-height: 32px; font-weight: 600;">1,912</span><span class="ooh-mono">86% on-prem</span></div>
+      <div style="display: flex; flex-direction: column; gap: 4px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);"><span class="ooh-label">Cloud cost today</span><span style="font-family: var(--font-tech); font-size: 28px; line-height: 32px; font-weight: 600;">USD 15.10</span><span class="ooh-mono">budget 40.00</span></div>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
+      <section aria-label="Needs your attention" style="flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 12px;">
+        <h2 style="margin: 0; font-size: 20px; line-height: 28px; font-weight: 600;">Needs your attention</h2>
+        <div style="display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface);">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line);">
+            <span class="ooh-chip ooh-chip--failed">Down</span>
+            <div style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 15px;">Image model not answering for 6 minutes</span><span class="ooh-mono">onprem-image · 3 jobs waiting in Kafka</span></div>
+            <a class="ooh-btn ooh-btn--secondary ooh-btn--sm" href="#" style="text-decoration: none;">Open models</a>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line);">
+            <span class="ooh-chip ooh-chip--approval">Sign-up</span>
+            <div style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 15px;">Ahmad Rizal asked to join</span><span class="ooh-mono">company email verified · asks for role: engineer · 20m ago</span></div>
+            <a class="ooh-btn ooh-btn--secondary ooh-btn--sm" href="#" style="text-decoration: none;">Review</a>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line);">
+            <span class="ooh-chip ooh-chip--approval">Tier 2</span>
+            <div style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 15px;">Daniel Tan asked for the advanced model</span><span class="ooh-mono">reason: "long contract analysis" · 31m ago</span></div>
+            <a class="ooh-btn ooh-btn--secondary ooh-btn--sm" href="#" style="text-decoration: none;">Review</a>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line);">
+            <span class="ooh-chip ooh-chip--approval">Approval</span>
+            <div style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 15px;">Nur Aisyah wants to send an email to 6 vendors</span><span class="ooh-mono">skill.email · needs approval · 4m ago</span></div>
+            <a class="ooh-btn ooh-btn--secondary ooh-btn--sm" href="#" style="text-decoration: none;">Review</a>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line);">
+            <span class="ooh-chip ooh-chip--approval">Safety</span>
+            <div style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 15px;">Possible customer data in a prompt</span><span class="ooh-mono">safety-watcher · score 0.87 · 12m ago</span></div>
+            <a class="ooh-btn ooh-btn--secondary ooh-btn--sm" href="#" style="text-decoration: none;">Review</a>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 16px;">
+            <span class="ooh-chip ooh-chip--failed">Failed</span>
+            <div style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 15px;">A report job failed 3 times and was set aside</span><span class="ooh-mono">dlq.skill.requests.report · req-82aa10</span></div>
+            <a class="ooh-btn ooh-btn--secondary ooh-btn--sm" href="#" style="text-decoration: none;">Retry or drop</a>
+          </div>
+        </div>
+      </section>
+
+      <section aria-label="System health" style="flex: 1 1 280px; max-width: 360px; display: flex; flex-direction: column; gap: 12px;">
+        <h2 style="margin: 0; font-size: 20px; line-height: 28px; font-weight: 600;">System health</h2>
+        <div style="display: flex; flex-direction: column; gap: 10px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span style="font-size: 13px;">Kafka</span><span class="ooh-chip ooh-chip--done">OK</span></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span style="font-size: 13px;">Keycloak sign-in</span><span class="ooh-chip ooh-chip--done">OK</span></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span style="font-size: 13px;">Model gateway</span><span class="ooh-chip ooh-chip--done">OK</span></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span style="font-size: 13px;">Image model</span><span class="ooh-chip ooh-chip--failed">Down</span></div>
+          <div style="height: 1px; background: var(--line);"></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span style="font-size: 13px;">Slides workers</span><span class="ooh-mono">2 of 2 up</span></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span style="font-size: 13px;">Report workers</span><span class="ooh-mono">1 of 1 up</span></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span style="font-size: 13px;">Animated deck workers</span><span class="ooh-mono">1 of 1 up</span></div>
+        </div>
+        <p class="ooh-mono" style="margin: 0; white-space: normal;">Figures on this screen are sample data.</p>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":920}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const now = new Date();
+    const h = now.getHours();
+    const greeting = h < 12 ? 'Good morning' : (h < 18 ? 'Good afternoon' : 'Good evening');
+    const today = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+    return { greeting, today };
+  }
+}
+</script>
+</body>
+</html>

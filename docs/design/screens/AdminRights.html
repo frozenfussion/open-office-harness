@@ -1,0 +1,81 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin people and rights</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/openofficeharness/tokens.css">
+<link rel="stylesheet" href="ds/openofficeharness/components/bundle.css">
+<script src="ds/openofficeharness/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--ground)}
+a{color:var(--phosphor)}a:hover{color:var(--ink)}
+input[type=checkbox]{accent-color:var(--phosphor);width:16px;height:16px}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 900px; background: var(--ground); color: var(--ink); font-family: var(--font-sans);">
+  <nav class="ooh-nav" aria-label="Admin Console" style="flex: 1 1 220px; max-width: 240px;">
+    <div class="ooh-nav__brand">Open Office Harness<span>Admin Console</span></div>
+    <a class="ooh-nav__item" href="#">Overview</a>
+    <a class="ooh-nav__item" href="#">Approvals <span class="ooh-nav__count">4</span></a>
+    <a class="ooh-nav__item" href="#" aria-current="page">People &amp; rights</a>
+    <a class="ooh-nav__item" href="#">Models &amp; tiers</a>
+    <a class="ooh-nav__item" href="#">Skills</a>
+    <div class="ooh-nav__section">Operations</div>
+    <a class="ooh-nav__item" href="#">Audit</a>
+    <a class="ooh-nav__item" href="#">Failed messages <span class="ooh-nav__count" style="color: var(--signal-red);">1</span></a>
+    <a class="ooh-nav__item" href="#">Settings</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 24px; padding: 32px; box-sizing: border-box;">
+    <header style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <span class="ooh-label">Deterministic access</span>
+        <h1 style="margin: 0; font-family: var(--font-serif); font-weight: 500; font-size: 32px; line-height: 38px;">People &amp; rights</h1>
+        <p style="margin: 0; font-size: 15px; line-height: 22px; color: var(--ink-muted);">Who may use which model tier and which skill. People sign in through Keycloak; rights live here. A classifier never decides these.</p>
+      </div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+        <label class="ooh-field" style="width: 240px;"><span class="ooh-label">Search people</span><input class="ooh-input" placeholder="Name or role"></label>
+      </div>
+    </header>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+      <button class="ooh-btn ooh-btn--secondary ooh-btn--sm" aria-pressed="true">All · 48</button>
+      <button class="ooh-btn ooh-btn--ghost ooh-btn--sm">Analyst · 21</button>
+      <button class="ooh-btn ooh-btn--ghost ooh-btn--sm">Engineer · 19</button>
+      <button class="ooh-btn ooh-btn--ghost ooh-btn--sm">Manager · 6</button>
+      <button class="ooh-btn ooh-btn--ghost ooh-btn--sm">Admin · 2</button>
+    </div>
+
+    <div class="ooh-table-wrap">
+      <table class="ooh-table">
+        <thead><tr><th>Person</th><th>Role (Keycloak)</th><th>Tier 1</th><th>Tier 2</th><th>Slides</th><th>Report</th><th>Animated deck</th><th>Image</th><th>Last change</th></tr></thead>
+        <tbody>
+          <tr><td>Nur Aisyah</td><td>analyst</td><td><input type="checkbox" checked aria-label="Nur Aisyah tier 1"></td><td><input type="checkbox" aria-label="Nur Aisyah tier 2"></td><td><input type="checkbox" checked aria-label="Nur Aisyah slides"></td><td><input type="checkbox" checked aria-label="Nur Aisyah report"></td><td><input type="checkbox" aria-label="Nur Aisyah animated deck"></td><td><input type="checkbox" aria-label="Nur Aisyah image"></td><td class="ooh-mono">from role</td></tr>
+          <tr><td>Daniel Tan</td><td>engineer</td><td><input type="checkbox" checked aria-label="Daniel Tan tier 1"></td><td><input type="checkbox" aria-label="Daniel Tan tier 2"></td><td><input type="checkbox" checked aria-label="Daniel Tan slides"></td><td><input type="checkbox" checked aria-label="Daniel Tan report"></td><td><input type="checkbox" checked aria-label="Daniel Tan animated deck"></td><td><input type="checkbox" aria-label="Daniel Tan image"></td><td><span class="ooh-chip ooh-chip--approval">Tier 2 asked</span></td></tr>
+          <tr><td>Priya Raman</td><td>manager</td><td><input type="checkbox" checked aria-label="Priya Raman tier 1"></td><td><input type="checkbox" checked aria-label="Priya Raman tier 2"></td><td><input type="checkbox" checked aria-label="Priya Raman slides"></td><td><input type="checkbox" checked aria-label="Priya Raman report"></td><td><input type="checkbox" checked aria-label="Priya Raman animated deck"></td><td><input type="checkbox" checked aria-label="Priya Raman image"></td><td class="ooh-mono">by aziz · 2d ago</td></tr>
+          <tr><td>Lee Wei Ming</td><td>engineer</td><td><input type="checkbox" checked aria-label="Lee Wei Ming tier 1"></td><td><input type="checkbox" aria-label="Lee Wei Ming tier 2"></td><td><input type="checkbox" checked aria-label="Lee Wei Ming slides"></td><td><input type="checkbox" aria-label="Lee Wei Ming report"></td><td><input type="checkbox" aria-label="Lee Wei Ming animated deck"></td><td><input type="checkbox" aria-label="Lee Wei Ming image"></td><td class="ooh-mono">from role</td></tr>
+          <tr><td>Siti Hajar</td><td>analyst</td><td><input type="checkbox" checked aria-label="Siti Hajar tier 1"></td><td><input type="checkbox" aria-label="Siti Hajar tier 2"></td><td><input type="checkbox" aria-label="Siti Hajar slides"></td><td><input type="checkbox" checked aria-label="Siti Hajar report"></td><td><input type="checkbox" aria-label="Siti Hajar animated deck"></td><td><input type="checkbox" aria-label="Siti Hajar image"></td><td><span class="ooh-chip ooh-chip--failed">Inactive</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);">
+      <p style="margin: 0; font-size: 13px; line-height: 18px; color: var(--ink-muted);">Changes apply within 30 seconds. Every change is written to the audit trail with who made it.</p>
+      <div style="display: flex; gap: 8px;"><button class="ooh-btn ooh-btn--ghost ooh-btn--sm">Discard</button><button class="ooh-btn ooh-btn--primary ooh-btn--sm">Save 1 change</button></div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

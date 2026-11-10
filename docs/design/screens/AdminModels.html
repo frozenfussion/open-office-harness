@@ -1,0 +1,116 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin models and tiers</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/openofficeharness/tokens.css">
+<link rel="stylesheet" href="ds/openofficeharness/components/bundle.css">
+<script src="ds/openofficeharness/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--ground)}
+a{color:var(--phosphor)}a:hover{color:var(--ink)}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 900px; background: var(--ground); color: var(--ink); font-family: var(--font-sans);">
+  <nav class="ooh-nav" aria-label="Admin Console" style="flex: 1 1 220px; max-width: 240px;">
+    <div class="ooh-nav__brand">Open Office Harness<span>Admin Console</span></div>
+    <a class="ooh-nav__item" href="#">Overview</a>
+    <a class="ooh-nav__item" href="#">Approvals <span class="ooh-nav__count">4</span></a>
+    <a class="ooh-nav__item" href="#">People &amp; rights</a>
+    <a class="ooh-nav__item" href="#" aria-current="page">Models &amp; tiers</a>
+    <a class="ooh-nav__item" href="#">Skills</a>
+    <div class="ooh-nav__section">Operations</div>
+    <a class="ooh-nav__item" href="#">Audit</a>
+    <a class="ooh-nav__item" href="#">Failed messages <span class="ooh-nav__count" style="color: var(--signal-red);">1</span></a>
+    <a class="ooh-nav__item" href="#">Settings</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 24px; padding: 32px; box-sizing: border-box;">
+    <header style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <span class="ooh-label">Model gateway</span>
+        <h1 style="margin: 0; font-family: var(--font-serif); font-weight: 500; font-size: 32px; line-height: 38px;">Models &amp; tiers</h1>
+        <p style="margin: 0; font-size: 15px; line-height: 22px; color: var(--ink-muted);">The code asks for a purpose, never a model. Here you choose which model serves each purpose, on-prem or cloud.</p>
+      </div>
+      <button class="ooh-btn ooh-btn--primary">Add model</button>
+    </header>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px;">
+      <section style="display: flex; flex-direction: column; gap: 12px; padding: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span class="ooh-label">chat · tier 1</span><span class="ooh-chip ooh-chip--done">Healthy</span></div>
+        <span style="font-family: var(--font-tech); font-size: 28px; line-height: 32px; font-weight: 600;">Standard</span>
+        <span class="ooh-mono">on-prem · vLLM · gpu-node-01</span>
+        <span class="ooh-mono">p95 1.8s · 42 users</span>
+      </section>
+      <section style="display: flex; flex-direction: column; gap: 12px; padding: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span class="ooh-label">chat · tier 2</span><span class="ooh-chip ooh-chip--done">Healthy</span></div>
+        <span style="font-family: var(--font-tech); font-size: 28px; line-height: 32px; font-weight: 600;">Advanced</span>
+        <span class="ooh-mono">cloud API · key set · failover: tier 1</span>
+        <span class="ooh-mono">p95 3.4s · 7 users</span>
+      </section>
+      <section style="display: flex; flex-direction: column; gap: 12px; padding: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span class="ooh-label">classification</span><span class="ooh-chip ooh-chip--done">Healthy</span></div>
+        <span style="font-family: var(--font-tech); font-size: 28px; line-height: 32px; font-weight: 600;">Classifier</span>
+        <span class="ooh-mono">cloud API · routing + safety</span>
+        <span class="ooh-mono">p95 0.5s · threshold 0.80</span>
+      </section>
+      <section style="display: flex; flex-direction: column; gap: 12px; padding: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span class="ooh-label">image</span><span class="ooh-chip ooh-chip--failed">Down</span></div>
+        <span style="font-family: var(--font-tech); font-size: 28px; line-height: 32px; font-weight: 600;">Image</span>
+        <span class="ooh-mono">on-prem · gpu-node-02</span>
+        <span class="ooh-mono" style="color: var(--signal-red);">no answer for 6m · jobs queued</span>
+      </section>
+    </div>
+
+    <div class="ooh-table-wrap">
+      <table class="ooh-table">
+        <thead><tr><th>Purpose</th><th>Main service</th><th>Backup</th><th>Where</th><th>Rate limit</th><th>Cost today</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>chat · tier 1</td><td class="ooh-mono">onprem-chat-standard</td><td class="ooh-mono">none</td><td>On-prem</td><td class="ooh-mono">60 rpm / user</td><td class="ooh-mono">—</td><td><button class="ooh-btn ooh-btn--ghost ooh-btn--sm">Edit</button></td></tr>
+          <tr><td>chat · tier 2</td><td class="ooh-mono">cloud-chat-advanced</td><td class="ooh-mono">onprem-chat-standard</td><td>Cloud</td><td class="ooh-mono">20 rpm / user</td><td class="ooh-mono">USD 14.20</td><td><button class="ooh-btn ooh-btn--ghost ooh-btn--sm">Edit</button></td></tr>
+          <tr><td>classification</td><td class="ooh-mono">cloud-classifier</td><td class="ooh-mono">none · fail closed</td><td>Cloud</td><td class="ooh-mono">600 rpm</td><td class="ooh-mono">USD 0.90</td><td><button class="ooh-btn ooh-btn--ghost ooh-btn--sm">Edit</button></td></tr>
+          <tr><td>image</td><td class="ooh-mono">onprem-image</td><td class="ooh-mono">none</td><td>On-prem</td><td class="ooh-mono">10 rpm / user</td><td class="ooh-mono">—</td><td><button class="ooh-btn ooh-btn--ghost ooh-btn--sm">Edit</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <section aria-label="Edit model" style="display: flex; flex-direction: column; gap: 20px; padding: 24px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-md);">
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;">
+        <div style="display: flex; flex-direction: column; gap: 2px;"><span class="ooh-label">Edit model</span><h2 style="margin: 0; font-size: 20px; line-height: 28px; font-weight: 600;">cloud-chat-advanced</h2></div>
+        <span class="ooh-chip ooh-chip--done">Last test passed · 1.2s</span>
+      </div>
+      <form style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 16px 20px;">
+        <label class="ooh-field"><span class="ooh-label">Name</span><input class="ooh-input" value="cloud-chat-advanced"></label>
+        <label class="ooh-field"><span class="ooh-label">Purpose</span><select class="ooh-select"><option selected>chat</option><option>classification</option><option>image</option><option>embedding</option></select><span class="ooh-help">What the code asks for. Never a model name.</span></label>
+        <label class="ooh-field"><span class="ooh-label">Tier</span><select class="ooh-select"><option>Tier 1</option><option selected>Tier 2</option><option>Tier 3 (new)</option></select><span class="ooh-help">Chat only. A new tier adds a matching right in People &amp; rights.</span></label>
+        <label class="ooh-field"><span class="ooh-label">Role</span><select class="ooh-select"><option selected>Main</option><option>Backup</option></select><span class="ooh-help">Backup takes over when the main one fails.</span></label>
+        <label class="ooh-field"><span class="ooh-label">Where it runs</span><select class="ooh-select"><option>On-prem</option><option selected>Cloud</option></select></label>
+        <label class="ooh-field"><span class="ooh-label">API type</span><select class="ooh-select"><option>OpenAI-compatible</option><option selected>Anthropic Messages</option><option>OpenAI Responses</option></select></label>
+        <label class="ooh-field"><span class="ooh-label">Endpoint</span><input class="ooh-input" value="https://api.example-provider.com" style="font-family: var(--font-mono); font-size: 13px;"></label>
+        <label class="ooh-field"><span class="ooh-label">Model ID at provider</span><input class="ooh-input" value="[MODEL ID]" style="font-family: var(--font-mono); font-size: 13px;"><span class="ooh-help">Lives here, never in code.</span></label>
+        <label class="ooh-field"><span class="ooh-label">API key</span><input class="ooh-input" type="password" placeholder="Saved · type to replace"><span class="ooh-help">Stored encrypted. Never shown again.</span></label>
+        <label class="ooh-field"><span class="ooh-label">Rate limit per user</span><input class="ooh-input" value="20 requests / minute"></label>
+        <label class="ooh-field"><span class="ooh-label">Health check every</span><input class="ooh-input" value="30 seconds"></label>
+        <label class="ooh-field"><span class="ooh-label">Daily cost budget</span><input class="ooh-input" value="USD 40.00"><span class="ooh-help">Over budget: tier 2 falls back to tier 1.</span></label>
+      </form>
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px;">
+        <button class="ooh-btn ooh-btn--danger ooh-btn--sm">Switch off</button>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;"><button class="ooh-btn ooh-btn--secondary">Test connection</button><button class="ooh-btn ooh-btn--primary">Save model</button></div>
+      </div>
+    </section>
+    <p class="ooh-mono" style="margin: 0; white-space: normal;">Keys are stored encrypted and never shown again. Example figures are sample data.</p>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1120}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

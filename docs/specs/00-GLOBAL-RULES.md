@@ -8,7 +8,7 @@ Written 2026-11-08, adapted from the HOORA AI method.
 
 | Who | Does |
 |---|---|
-| **Aziz** | Owns every decision. Runs every `sudo` line and every deploy to the cluster himself, in a plain terminal. Sets up the Droplet, DNS and DigitalOcean resources by hand. Tests each stage. Says when a stage is accepted. |
+| **Aziz** | Owns every decision. Runs every `sudo` line himself, in a plain terminal; from Stage 2 Claude runs the non-sudo deploy and check scripts in his shell tile where he watches (Aziz, 10 Nov 2026). Sets up the Droplet, DNS and DigitalOcean resources by hand. Tests each stage. Says when a stage is accepted. |
 | **Claude** (orchestrator) | Writes the stage specs, splits each spec into Parts, keeps `docs/STATUS.md` and the plan in step. Does not write product code. |
 | **Codex** (builder, one window per Part) | Builds exactly what its Part of the spec says, in its own worktree on the Droplet `harness`. Writes code, manifests, scripts, tests and docs. Runs only checks that need no `sudo` and change nothing in the cluster. Reports back in the format in section 7. |
 | **Opus** (reviewer) | Reviews each finished Part against its spec and this file, with the checklist in section 8, before Aziz tests. |
@@ -35,7 +35,7 @@ When Codex needs something only Aziz may do, it writes the exact commands into a
 - Kafka only where it solves a real problem (slow or bursty work, fan-out, survive a service being down, replay). Chat streaming and rights checks are direct HTTP calls.
 - Rights (chat tiers, skills, image) are decided by fixed rules in the Control Centre, never by an AI. If the Control Centre does not answer, the answer is **not allowed** (fail closed). The classifier only *suggests*.
 - A tier is a field on each chat model entry (1..N). Creating a new tier creates its right automatically.
-- **No AI model name, vendor, address or key in code or config in the repo.** AI is used by *purpose* (`chat`, `classification`, `image`, and any purpose added later). Which model serves a purpose and tier is a row in the Control Centre's model registry. Tests use a fake model, never a real one.
+- **No AI model name, vendor, address or key in code or config in the repo** (Aziz, 10 Nov 2026: "There's not going to be any hard code"). AI is used by *purpose* (`chat`, `classification`, `image`, and any purpose added later). Which model serves a purpose and tier is a row in the Control Centre's model registry. Tests use a fake model, never a real one.
 - Each service owns its own database. Nobody reads another service's tables.
 - **Nothing is ever deleted.** Business tables have `deleted_at`; "delete" sets it. The audit trail is append-only, enforced by the database.
 
@@ -48,10 +48,11 @@ When Codex needs something only Aziz may do, it writes the exact commands into a
 - Exact versions are fixed and dated in each stage spec.
 
 **Places and names**
-- Droplet `harness` (DigitalOcean, 143.198.221.2), password login for user `aziz`. Main clone `~/projects/open-office-harness`; one git worktree per Part under `~/projects/worktrees/`; local settings in `~/.config/ooh/`. Everyone works inside the tmux session `harness`, window `work`, four labelled tiles: 0 Codex A (builds), 1 Codex B (builds), 2 Claude Code (reviews), 3 Shell (Aziz, sudo).
+- Droplet `harness` (DigitalOcean, 143.198.221.2), password login for user `aziz`. Main clone `~/projects/open-office-harness`; one git worktree per Part under `~/projects/worktrees/`; local settings in `~/.config/ooh/`. Everyone works inside the tmux session `harness`, window `work`, labelled tiles: 0 Codex A (builds), 1 Codex B (builds), 2 Claude Code (reviews), 3 Shell (Aziz, sudo), and from Stage 2 also 4 Codex C (builds), 5 Codex D (builds).
 - Public hostnames (A records to `harness`): `harness.faysalaziz.com` = Workspace app, with the Harness API under `/api`; `admin.faysalaziz.com` = Admin Console, with the Control Centre API under `/api`; `auth.faysalaziz.com` = Keycloak. Each app talks only to its own host (no cross-site calls). Model Gateway, Kafka and PostgreSQL have no public name.
 - Kubernetes namespaces: `ooh-platform` (Kafka, PostgreSQL, Keycloak) and `ooh-apps` (our services).
 - Secrets live only in Kubernetes Secrets, created by scripts Aziz runs. The repo holds `.env.example` files and `*.example.yaml` files with names and no values.
+  Two agreed exceptions: AI provider keys are typed by an admin in the Admin Console and stored **encrypted** in the Control Centre's database (the encryption key is a Kubernetes Secret; agreed 10 Nov 2026); and the builders' **test** database settings files under `~/.config/ooh/*-test.env` (mode 600, test databases only).
 - Times are stored in UTC. The display time zone is a setting (first value `Asia/Kuala_Lumpur`). All user-facing text is English.
 
 ## 3. Repo layout (one repo, fixed)
@@ -111,10 +112,10 @@ Each service, worker, consumer and app is its own package with its own lock file
 4. When its Part is complete and all checks pass, Codex commits on its branch and writes its report (section 7).
 5. Opus reviews each Part. Codex fixes findings on the same branch. Opus re-reviews.
 6. Codex merges the Parts into `stage-N` (made from the base commit) and runs all checks again on a clean worktree of `stage-N`.
-7. Aziz deploys with the stage's script in `install/` and tests the spec's "Done when" list.
+7. The stage's scripts in `install/` deploy it (Aziz runs the `sudo` ones; from Stage 2 Claude runs the non-sudo ones in Aziz's shell tile while he watches), and Aziz tests the spec's "Done when" list.
 8. When Aziz says the stage is accepted, Codex commits "Stage N: accepted", merges `stage-N` into `main`, pushes, and creates the stage's tag: `git tag -a <tag> -m "Stage N accepted" && git push origin main <tag>`.
 
-Aziz's command-line work is kept to the minimum. Codex runs every git step. Aziz types only what an agent may not do: `sudo` lines, deploys to the cluster, passwords, and steps in the DigitalOcean control panel or on his own PC.
+Aziz's command-line work is kept to the minimum. Codex runs every git step. Aziz types only what an agent may not do: `sudo` lines, passwords, and steps in the DigitalOcean control panel, on GitHub's package settings or on his own PC. From Stage 2 Claude runs the non-sudo deploy and check scripts in his shell tile while he watches.
 
 ## 6. Documentation rule (instructions come first)
 

@@ -1,0 +1,90 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin approvals</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/openofficeharness/tokens.css">
+<link rel="stylesheet" href="ds/openofficeharness/components/bundle.css">
+<script src="ds/openofficeharness/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--ground)}
+a{color:var(--phosphor)}a:hover{color:var(--ink)}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 900px; background: var(--ground); color: var(--ink); font-family: var(--font-sans);">
+  <nav class="ooh-nav" aria-label="Admin Console" style="flex: 1 1 220px; max-width: 240px;">
+    <div class="ooh-nav__brand">Open Office Harness<span>Admin Console</span></div>
+    <a class="ooh-nav__item" href="#">Overview</a>
+    <a class="ooh-nav__item" href="#" aria-current="page">Approvals <span class="ooh-nav__count">4</span></a>
+    <a class="ooh-nav__item" href="#">People &amp; rights</a>
+    <a class="ooh-nav__item" href="#">Models &amp; tiers</a>
+    <a class="ooh-nav__item" href="#">Skills</a>
+    <div class="ooh-nav__section">Operations</div>
+    <a class="ooh-nav__item" href="#">Audit</a>
+    <a class="ooh-nav__item" href="#">Failed messages <span class="ooh-nav__count" style="color: var(--signal-red);">1</span></a>
+    <a class="ooh-nav__item" href="#">Settings</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 24px; padding: 32px; box-sizing: border-box;">
+    <header style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <span class="ooh-label">Human in the loop</span>
+        <h1 style="margin: 0; font-family: var(--font-serif); font-weight: 500; font-size: 32px; line-height: 38px;">Approvals</h1>
+        <p style="margin: 0; font-size: 15px; line-height: 22px; color: var(--ink-muted);">Actions that wait for a person before they run. Nothing here runs until you decide.</p>
+      </div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button class="ooh-btn ooh-btn--secondary ooh-btn--sm" aria-pressed="true">Waiting · 4</button>
+        <button class="ooh-btn ooh-btn--ghost ooh-btn--sm">Decided today · 11</button>
+      </div>
+    </header>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
+      <div class="ooh-table-wrap" style="flex: 999 1 520px; min-width: 0;">
+        <table class="ooh-table">
+          <thead><tr><th>Waiting</th><th>Requested by</th><th>Action</th><th>Why it waits</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr style="background: var(--phosphor-soft);"><td class="ooh-mono">4m</td><td>Nur Aisyah</td><td>skill.email · send to 6 vendors</td><td>Skill needs approval</td><td><span class="ooh-chip ooh-chip--approval">Waiting</span></td></tr>
+            <tr><td class="ooh-mono">12m</td><td>safety-watcher</td><td>flag · possible customer data in prompt</td><td>Safety classifier 0.87</td><td><span class="ooh-chip ooh-chip--approval">Waiting</span></td></tr>
+            <tr><td class="ooh-mono">20m</td><td>Ahmad Rizal</td><td>sign-up · role engineer</td><td>New person</td><td><span class="ooh-chip ooh-chip--approval">Waiting</span></td></tr>
+            <tr><td class="ooh-mono">31m</td><td>Daniel Tan</td><td>right.request · chat tier 2</td><td>Rights change</td><td><span class="ooh-chip ooh-chip--approval">Waiting</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <section aria-label="Selected approval" style="flex: 1 1 340px; max-width: 420px; display: flex; flex-direction: column; gap: 16px; padding: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); box-sizing: border-box;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"><span class="ooh-label">Selected</span><span class="ooh-mono">req-91c4e0</span></div>
+        <h2 style="margin: 0; font-size: 20px; line-height: 28px; font-weight: 600;">Send email to 6 vendors</h2>
+        <dl style="margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;">
+          <div><dt class="ooh-label">Requested by</dt><dd style="margin: 4px 0 0; font-size: 13px;">Nur Aisyah</dd></div>
+          <div><dt class="ooh-label">Skill</dt><dd style="margin: 4px 0 0; font-size: 13px;">email · v1.0.0</dd></div>
+          <div><dt class="ooh-label">Model</dt><dd class="ooh-mono" style="margin: 4px 0 0;">tier 1 · on-prem</dd></div>
+          <div><dt class="ooh-label">Safety score</dt><dd class="ooh-mono" style="margin: 4px 0 0;">0.04 · clear</dd></div>
+        </dl>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <span class="ooh-label">What will be sent</span>
+          <div style="padding: 12px; background: var(--ground); border: 1px solid var(--line); border-radius: var(--radius-md); font-size: 13px; line-height: 18px; color: var(--ink);">Subject: Q3 parts backlog — delivery dates<br>To: 6 approved vendors<br><br>Hello, could you confirm delivery dates for the open orders listed below…</div>
+        </div>
+        <label class="ooh-field"><span class="ooh-label">Note (saved to audit)</span><textarea class="ooh-textarea" rows="2" placeholder="Optional reason"></textarea></label>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="ooh-btn ooh-btn--primary">Approve and run</button>
+          <button class="ooh-btn ooh-btn--danger">Deny</button>
+        </div>
+        <p class="ooh-mono" style="margin: 0; white-space: normal;">Decision goes to approvals.decided → the harness runs or drops the job.</p>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

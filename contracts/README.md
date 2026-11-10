@@ -54,7 +54,7 @@ by these checks. Platform operations are covered by the root README.
 | skills/slides/manifest.json | Registered Slides skill |
 | skills/slides/input.schema.json | Slides request |
 | skills/slides/output.schema.json | Slides output file reference |
-| examples/index.json | Maps each example to its schema or HTTP body |
+| examples/index.json, examples/index.<area>.json | Map each example to its schema or HTTP body; a stage Part may own its own `index.<area>.json` so parallel Parts never share a file |
 | examples/events, examples/skills, examples/http | Synthetic valid examples |
 | check/pyproject.toml, check/uv.lock | Python 3.14 check project and exact dependency versions |
 | check/check_contracts.py | Schema, reference, OpenAPI, example and topic validation |
