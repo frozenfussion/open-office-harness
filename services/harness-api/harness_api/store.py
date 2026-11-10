@@ -41,7 +41,7 @@ class Store:
                 raise ApiError(404, "not_found", "Conversation not found.")
             cursor = await db.execute(
                 "SELECT id,role,content,tier,model_entry_id,model_title,input_tokens,"
-                "output_tokens,note,outcome,created_at FROM messages "
+                "output_tokens,note,outcome,created_at,thinking FROM messages "
                 "WHERE conversation_id=%s ORDER BY created_at,id",
                 (identifier,),
             )
@@ -137,6 +137,7 @@ class Store:
         tier: int,
         metadata: dict[str, Any] | None = None,
         note: str | None = None,
+        thinking: str | None = None,
     ) -> UUID:
         metadata = metadata or {}
         usage = metadata.get("usage", {})
@@ -151,15 +152,16 @@ class Store:
                 (user, role, content[:60], identifier, user),
             )
             await db.execute(
-                "INSERT INTO messages (id,conversation_id,role,content,tier,"
+                "INSERT INTO messages (id,conversation_id,role,content,thinking,tier,"
                 "model_entry_id,model_title,input_tokens,output_tokens,note,outcome,"
-                "created_at,created_by) SELECT %s,id,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+                "created_at,created_by) SELECT %s,id,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
                 "updated_at,%s FROM conversations WHERE id=%s AND user_id=%s "
                 "AND deleted_at IS NULL",
                 (
                     message_id,
                     role,
                     content,
+                    thinking,
                     tier,
                     metadata.get("model_entry_id"),
                     metadata.get("model_title"),

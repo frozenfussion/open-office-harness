@@ -273,6 +273,7 @@ def create_app(
         note: str | None,
     ) -> AsyncGenerator[str]:
         content = ""
+        thinking_text = ""
         outcome = "failed"
         metadata: dict[str, Any] = {}
         saved = False
@@ -285,6 +286,9 @@ def create_app(
                         if not tool_requested:
                             content += event["text"]
                             yield data(event)
+                    case "thinking":
+                        thinking_text += event["text"]
+                        yield data(event)
                     case "tool_call":
                         if event["name"] not in titles:
                             raise ValueError("Unapproved tool")
@@ -309,6 +313,7 @@ def create_app(
                             tier,
                             metadata,
                             note,
+                            thinking=thinking_text or None,
                         )
                         saved = True
                         yield data(
@@ -372,6 +377,7 @@ def create_app(
                                 tier,
                                 metadata,
                                 note,
+                                thinking=thinking_text or None,
                             )
                         except psycopg.Error:
                             record_failure("database_error", "unavailable")

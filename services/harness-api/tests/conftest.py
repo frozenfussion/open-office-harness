@@ -126,6 +126,7 @@ class MemoryStore:
         tier: int,
         metadata: dict[str, Any] | None = None,
         note: str | None = None,
+        thinking: str | None = None,
     ) -> UUID:
         identifier_message = uuid4()
         row = self.rows[identifier]
@@ -139,6 +140,7 @@ class MemoryStore:
                 "outcome": outcome,
                 "tier": tier,
                 "note": note,
+                "thinking": thinking,
                 **{
                     key: value
                     for key, value in (metadata or {}).items()

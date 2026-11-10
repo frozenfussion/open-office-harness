@@ -44,6 +44,7 @@ def db_settings() -> tuple[str, str]:
     "statement",
     [
         "UPDATE messages SET content='changed' WHERE id=%s",
+        "UPDATE messages SET thinking='changed' WHERE id=%s",
         "DELETE FROM messages WHERE id=%s",
         "TRUNCATE messages",
         "DELETE FROM conversations WHERE id=%s",
@@ -252,3 +253,42 @@ async def test_title_source_and_update_preserve_ownership_and_order(
     assert await store.title_source(identifier, db_user, later) is None
     other = await store.create(db_user)
     assert await store.title_source(other, db_user, first) is None
+
+
+@pytest.mark.anyio
+async def test_thinking_is_inserted_and_read_but_not_used_as_model_context(
+    store: Store, db_user: str
+) -> None:
+    identifier = await store.create(db_user)
+    await store.append(identifier, db_user, "user", "Question", "completed", 1)
+    first = await store.append(
+        identifier,
+        db_user,
+        "assistant",
+        "Answer",
+        "completed",
+        1,
+        thinking="PRIVATE_DATABASE_THINKING",
+    )
+    await store.append(
+        identifier,
+        db_user,
+        "assistant",
+        "Partial",
+        "failed",
+        1,
+        thinking="PARTIAL_DATABASE_THINKING",
+    )
+    row = await store.conversation(identifier, db_user)
+    assert row["messages"][0]["thinking"] is None
+    assert row["messages"][1]["thinking"] == "PRIVATE_DATABASE_THINKING"
+    assert row["messages"][2]["thinking"] == "PARTIAL_DATABASE_THINKING"
+    assert row["messages"][2]["outcome"] == "failed"
+    assert await store.history(identifier) == [
+        {"role": "user", "content": "Question"},
+        {"role": "assistant", "content": "Answer"},
+    ]
+    assert await store.title_source(identifier, db_user, first) == {
+        "question": "Question",
+        "answer": "Answer",
+    }

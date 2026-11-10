@@ -205,6 +205,17 @@ paths:
                   - conversation_id
                   - title
                   additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: thinking
+                    text:
+                      type: string
+                      minLength: 1
+                  required:
+                  - type
+                  - text
+                  additionalProperties: false
         '400':
           description: Invalid input
           content:
@@ -264,7 +275,11 @@ paths:
         ends the answer; title may follow on the same stream before it closes. Thinking
         defaults true and is forwarded unchanged through budget fallback; thinking_applied
         in completed reports the actual answering model''s support, and is not stored
-        in history.'
+        in history. Thinking events pass through before or between answer deltas,
+        never after completed. Their text is concatenated into the assistant message''s
+        nullable thinking field, including partial thinking on failure. Thinking is
+        never logged or sent to a model in chat history or title context; empty thinking
+        events are dropped.'
       parameters:
       - name: id
         in: path
@@ -830,6 +845,13 @@ components:
           - failed
           - tool_requested
         created_at: *id006
+        thinking:
+          type:
+          - string
+          - 'null'
+          description: Concatenated assistant thinking, separate from answer content.
+            Null when absent or for older messages. Never logged or sent back to a
+            model.
       required:
       - id
       - role
@@ -842,4 +864,5 @@ components:
       - note
       - outcome
       - created_at
+      - thinking
       additionalProperties: false

@@ -66,6 +66,11 @@ class Delta(BaseModel):
     text: str
 
 
+class Thinking(BaseModel):
+    type: Literal["thinking"]
+    text: str
+
+
 class ToolCall(BaseModel):
     type: Literal["tool_call"]
     id: str
@@ -93,7 +98,9 @@ class Failed(BaseModel):
 
 
 EVENT = TypeAdapter(
-    Annotated[Delta | ToolCall | Completed | Failed, Field(discriminator="type")]
+    Annotated[
+        Delta | Thinking | ToolCall | Completed | Failed, Field(discriminator="type")
+    ]
 )
 SKILLS = TypeAdapter(list[Skill])
 
@@ -111,6 +118,8 @@ class GatewayStream:
                 if data:
                     event = EVENT.validate_json("\n".join(data)).model_dump(mode="json")
                     data.clear()
+                    if event["type"] == "thinking" and event["text"] == "":
+                        continue
                     if event["type"] == "completed" and event["tier"] != self.tier:
                         raise ValueError("Gateway tier differs from requested tier")
                     yield event
