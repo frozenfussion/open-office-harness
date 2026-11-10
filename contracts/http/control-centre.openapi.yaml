@@ -2019,8 +2019,8 @@ paths:
       description: Harness service account only. Creates one pending request per user/tier for an approved
         person and a requestable tier. At most 20 pending per person, serialized with approval and grant
         changes. Rejected requests may retry seven days after rejection. Reason is trimmed, plain text,
-        never logged or audited. 403 not_approved; 400 tier_not_requestable (including cooldown); 409
-        already_requested; 429 too_many_requests.
+        never logged or audited. 403 not_approved; 400 tier_not_requestable; 409 already_requested
+        or too_soon; 429 too_many_requests.
       requestBody:
         required: true
         content:
@@ -2079,7 +2079,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: Request state conflict
+          description: 'already_requested when a request is pending; too_soon when the last rejection
+            was less than 7 days ago, with message "You can ask for this model again 7 days after the last answer".'
           content:
             application/json:
               schema:

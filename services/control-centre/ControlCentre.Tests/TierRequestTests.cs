@@ -128,7 +128,10 @@ public sealed class TierRequestTests
     await using var db = Database(); var row = await db.TierRequests.SingleAsync(x => x.UserId == f.User);
     await Object(f.Admin.PostAsJsonAsync($"/api/admin/tier-requests/{row.Id}/reject", new { }));
     Assert.Equal("rejected", Choice(await f.Me(), tier)!["requested"]!.GetValue<string>());
-    f.Clock.Now = f.Clock.Now.AddDays(7).AddTicks(-10); await Code(f.Request(tier), HttpStatusCode.BadRequest, "tier_not_requestable");
+    f.Clock.Now = f.Clock.Now.AddDays(7).AddTicks(-10);
+    var early = await Object(f.Request(tier), HttpStatusCode.Conflict);
+    Assert.Equal("too_soon", early["code"]!.GetValue<string>());
+    Assert.Equal("You can ask for this model again 7 days after the last answer", early["message"]!.GetValue<string>());
     f.Clock.Now = f.Clock.Now.AddTicks(10); await Object(f.Request(tier), HttpStatusCode.Created);
     Assert.Equal(2, await db.TierRequests.CountAsync(x => x.UserId == f.User));
   }

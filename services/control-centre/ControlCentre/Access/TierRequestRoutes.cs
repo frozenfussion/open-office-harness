@@ -26,7 +26,7 @@ public static class TierRequestRoutes
       if (choice.Requested == "pending") throw new ApiException(409, "already_requested", "This tier is already requested");
       var latest = await db.TierRequests.Where(x => x.UserId == user && x.Tier == tier && x.DeletedAt == null).OrderByDescending(x => x.RequestedAt).ThenByDescending(x => x.Id).FirstOrDefaultAsync();
       if (latest is { Status: "rejected" } && (latest.DecidedAt ?? latest.RequestedAt) > clock.GetUtcNow().AddDays(-7))
-        throw new ApiException(400, "tier_not_requestable", "Wait seven days after rejection before requesting this tier again");
+        throw new ApiException(409, "too_soon", "You can ask for this model again 7 days after the last answer");
       if (await db.TierRequests.CountAsync(x => x.UserId == user && x.Status == "pending" && x.DeletedAt == null) >= 20)
         throw new ApiException(429, "too_many_requests", "You already have 20 waiting model requests");
       var row = new TierRequest { UserId = user, Tier = tier, Reason = reason, RequestedAt = clock.GetUtcNow() };

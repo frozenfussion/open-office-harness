@@ -734,6 +734,15 @@
       "status": "409"
     },
     {
+      "file": "examples/http/control-centre.post-tier-requests.409.too-soon.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/tier-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "409"
+    },
+    {
       "file": "examples/http/control-centre.post-tier-requests.429.json",
       "openapi": "http/control-centre.openapi.yaml",
       "path": "/api/tier-requests",
