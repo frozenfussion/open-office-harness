@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+import asyncio
 import time
 from typing import Any
 
@@ -14,6 +15,8 @@ class Identity:
         self.config, self.client = config, client
         self.keys: dict[str, Any] = {}
         self.keys_until = 0.0
+        self.keys_refresh_after = 0.0
+        self.keys_lock = asyncio.Lock()
         self.token = ""
         self.token_until = 0.0
 
@@ -25,20 +28,25 @@ class Identity:
             header = jwt.get_unverified_header(token)
             if header.get("alg") != "RS256":
                 raise ValueError()
-            if (
-                time.monotonic() >= self.keys_until
-                or header.get("kid") not in self.keys
-            ):
-                response = await self.client.get(
-                    self.config.issuer + "/protocol/openid-connect/certs"
-                )
-                response.raise_for_status()
-                self.keys = {
-                    key["kid"]: jwt.PyJWK.from_dict(key).key
-                    for key in response.json()["keys"]
-                    if key.get("kty") == "RSA" and key.get("use", "sig") == "sig"
-                }
-                self.keys_until = time.monotonic() + 300
+            async with self.keys_lock:
+                now = time.monotonic()
+                if (
+                    now >= self.keys_until or header.get("kid") not in self.keys
+                ) and now >= self.keys_refresh_after:
+                    # Throttle attempts as well as successes, including concurrent junk tokens.
+                    self.keys_refresh_after = now + 30
+                    response = await self.client.get(
+                        self.config.issuer + "/protocol/openid-connect/certs"
+                    )
+                    response.raise_for_status()
+                    self.keys = {
+                        key["kid"]: jwt.PyJWK.from_dict(key).key
+                        for key in response.json()["keys"]
+                        if key.get("kty") == "RSA" and key.get("use", "sig") == "sig"
+                    }
+                    self.keys_until = time.monotonic() + 300
+                if now >= self.keys_until:
+                    raise ValueError()
             claims = jwt.decode(
                 token,
                 self.keys[header["kid"]],

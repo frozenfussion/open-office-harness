@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+import json
+import logging
 import time
 from uuid import UUID
 
@@ -7,6 +9,8 @@ import httpx
 from gateway.config import Config
 from gateway.identity import Identity
 from gateway.models import Entry, GatewayError
+
+logger = logging.getLogger("gateway")
 
 
 class Registry:
@@ -22,6 +26,7 @@ class Registry:
         cached = self.entries.get(cache_key)
         if cached and time.monotonic() < cached[0]:
             return cached[1]
+        status = None
         try:
             token = await self.identity.service_token()
             params = {"purpose": purpose}
@@ -32,11 +37,33 @@ class Registry:
                 params=params,
                 headers={"Authorization": "Bearer " + token},
             )
+            status = response.status_code
             response.raise_for_status()
             entries = [Entry.model_validate(value) for value in response.json()]
             self.entries[cache_key] = time.monotonic() + 30, entries
             return entries
-        except httpx.HTTPError, ValueError, KeyError, TypeError:
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
+            status = (
+                error.response.status_code
+                if isinstance(error, httpx.HTTPStatusError)
+                else status
+            )
+            reason = (
+                "unauthorized"
+                if status in (401, 403)
+                else "unreachable"
+                if isinstance(error, httpx.RequestError)
+                else "bad answer"
+            )
+            logger.warning(
+                json.dumps(
+                    {
+                        "message": "registry " + reason,
+                        "reason": reason,
+                        "status": status,
+                    }
+                )
+            )
             raise GatewayError(
                 503, "registry_unavailable", "The model registry did not answer"
             ) from None

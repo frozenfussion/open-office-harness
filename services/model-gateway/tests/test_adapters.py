@@ -289,3 +289,26 @@ async def test_error_events_fail(
         async with httpx.AsyncClient() as client:
             with pytest.raises(RuntimeError):
                 _ = [e async for e in resolve(entry)(client, entry, "fake-key", call)]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "message", [{}, {"usage": {}}, {"usage": {"output_tokens": 0}}]
+)
+async def test_messages_missing_input_usage_defaults_zero(
+    entry: Entry, call: Call, message: dict
+) -> None:
+    entry = entry.model_copy(update={"api_type": "anthropic_messages"})
+    events = chunks("anthropic_messages")
+    events[2] = {"type": "message_start", "message": message}
+    payload = "".join("data: " + json.dumps(event) + "\n\n" for event in events)
+    with respx.mock as mock:
+        mock.post("https://example.invalid/v1/messages").mock(
+            return_value=httpx.Response(200, text=payload)
+        )
+        async with httpx.AsyncClient() as client:
+            result = [
+                event async for event in resolve(entry)(client, entry, "fake-key", call)
+            ]
+    assert result[0] == {"type": "delta", "text": "Hello "}
+    assert result[-1] == {"type": "usage", "input_tokens": 0, "output_tokens": 3}

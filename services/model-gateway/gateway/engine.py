@@ -167,6 +167,10 @@ class Engine:
             raise GatewayError(
                 503, "budget_exceeded", "Every model is over its daily budget"
             )
-        if all(reason == "skipped_rate" for reason in reasons):
-            raise GatewayError(429, "rate_limited", "Every model is rate limited")
+        if "failed" not in reasons and "skipped_rate" in reasons:
+            raise GatewayError(
+                429,
+                "rate_limited",
+                "No model was called; at least one model is rate limited",
+            )
         raise GatewayError(503, "unavailable", "The model did not answer. Try again.")

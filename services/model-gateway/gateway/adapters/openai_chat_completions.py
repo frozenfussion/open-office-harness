@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+import json
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -41,7 +42,7 @@ async def run(
     ) as response:
         response.raise_for_status()
         if not call.stream:
-            result = __import__("json").loads(await response.aread())
+            result = json.loads(await response.aread())
             message = result["choices"][0]["message"]
             if message.get("content"):
                 yield {"type": "delta", "text": message["content"]}

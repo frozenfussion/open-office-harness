@@ -295,3 +295,219 @@ def test_health_unavailable(http: tuple) -> None:
     client.app.state.db.health = fail
     response = client.get("/health")
     assert response.status_code == 503 and "fake-private" not in response.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failure,reason,status",
+    [
+        (401, "unauthorized", 401),
+        (403, "unauthorized", 403),
+        (500, "bad answer", 500),
+        ("timeout", "unreachable", None),
+        ("malformed", "bad answer", 200),
+        ("token", "unauthorized", 401),
+    ],
+)
+async def test_registry_failure_diagnostics(
+    failure: int | str,
+    reason: str,
+    status: int | None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="gateway")
+    with respx.mock as mock:
+        mock.post(CONFIG.issuer + "/protocol/openid-connect/token").mock(
+            return_value=httpx.Response(401)
+            if failure == "token"
+            else httpx.Response(
+                200, json={"access_token": "fake-service-token", "expires_in": 120}
+            )
+        )
+        route = mock.get(CONFIG.registry_url + "/api/models")
+        if failure == "timeout":
+            route.mock(side_effect=httpx.ConnectTimeout("fake-private-diagnostic"))
+        elif failure == "malformed":
+            route.mock(return_value=httpx.Response(200, text="fake-private-diagnostic"))
+        elif failure != "token":
+            route.mock(
+                return_value=httpx.Response(failure, text="fake-private-diagnostic")
+            )
+        async with httpx.AsyncClient() as client:
+            with pytest.raises(GatewayError, match="registry_unavailable"):
+                await Registry(CONFIG, client, Identity(CONFIG, client)).get("chat", 1)
+    records = [
+        json.loads(record.getMessage())
+        for record in caplog.records
+        if record.name == "gateway"
+    ]
+    assert records == [
+        {"message": "registry " + reason, "reason": reason, "status": status}
+    ]
+    assert "fake-private-diagnostic" not in caplog.text
+    assert "fake-service-token" not in caplog.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("refresh_fails", [False, True])
+async def test_unknown_key_refresh_throttled(
+    signed: tuple, monkeypatch: pytest.MonkeyPatch, refresh_fails: bool
+) -> None:
+    import asyncio
+
+    key, jwk = signed
+    clock = [1000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    claims = jwt.decode(token(key), options={"verify_signature": False})
+    unknown = [
+        jwt.encode(claims, key, algorithm="RS256", headers={"kid": "unknown-" + str(i)})
+        for i in range(10)
+    ]
+    rotated_jwk = jwk | {"kid": "unknown-0"}
+    with respx.mock as mock:
+        route = mock.get(CONFIG.issuer + "/protocol/openid-connect/certs").mock(
+            return_value=httpx.Response(200, json={"keys": [jwk]})
+        )
+        async with httpx.AsyncClient() as client:
+            identity = Identity(CONFIG, client)
+            await identity.authenticate("Bearer " + token(key))
+            results = await asyncio.gather(
+                *(identity.authenticate("Bearer " + value) for value in unknown),
+                return_exceptions=True,
+            )
+            assert all(
+                isinstance(result, GatewayError) and result.status == 401
+                for result in results
+            )
+            assert route.call_count == 1
+            clock[0] += 31
+            route.mock(
+                return_value=httpx.Response(503)
+                if refresh_fails
+                else httpx.Response(200, json={"keys": [jwk, rotated_jwk]})
+            )
+            results = await asyncio.gather(
+                *(identity.authenticate("Bearer " + value) for value in unknown),
+                return_exceptions=True,
+            )
+            assert route.call_count == 2
+            if refresh_fails:
+                assert all(isinstance(result, GatewayError) for result in results)
+            else:
+                assert results[0]["sub"] == "fake-service"
+                assert all(isinstance(result, GatewayError) for result in results[1:])
+
+
+@pytest.mark.parametrize("failure", [None, "provider_401", "key_500"])
+def test_http_path_never_logs_provider_key_or_service_token(
+    entry: Entry,
+    call: Call,
+    signed: tuple,
+    failure: str | None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    provider_key = "synthetic-private-provider-key"
+    service_token = "synthetic-private-service-token"
+    caplog.set_level(logging.DEBUG)
+    key, jwk = signed
+    app = create_app(CONFIG)
+    with respx.mock as mock, TestClient(app) as client:
+        app.state.identity.keys = {"fake-kid": jwt.PyJWK.from_dict(jwk).key}
+        app.state.identity.keys_until = time.monotonic() + 300
+        database = FakeDatabase()
+        app.state.db = database
+        app.state.engine.db = database
+        mock.post(CONFIG.issuer + "/protocol/openid-connect/token").mock(
+            return_value=httpx.Response(
+                200, json={"access_token": service_token, "expires_in": 120}
+            )
+        )
+        mock.get(CONFIG.registry_url + "/api/models").mock(
+            return_value=httpx.Response(
+                200, json=[entry.model_dump(mode="json", by_alias=True)]
+            )
+        )
+        key_route = mock.get(f"{CONFIG.registry_url}/api/models/{entry.id}/key").mock(
+            return_value=httpx.Response(
+                500 if failure == "key_500" else 200,
+                json={"api_key": provider_key, "diagnostic": service_token},
+            )
+        )
+        provider = mock.post("https://example.invalid/chat/completions")
+        if failure != "key_500":
+            provider.mock(
+                return_value=httpx.Response(
+                    401, json={"error": provider_key + service_token}
+                )
+                if failure
+                else httpx.Response(
+                    200,
+                    json={
+                        "choices": [{"message": {"content": "Example"}}],
+                        "usage": {"prompt_tokens": 8, "completion_tokens": 3},
+                    },
+                )
+            )
+        response = client.post(
+            "/v1/call",
+            json=call.model_dump(mode="json") | {"stream": False},
+            headers={"Authorization": "Bearer " + token(key)},
+        )
+        assert response.status_code == (200 if failure is None else 503)
+        assert key_route.call_count == 1
+        assert provider.call_count == (0 if failure == "key_500" else 1)
+    captured = repr([record.__dict__ for record in caplog.records])
+    assert provider_key not in captured and service_token not in captured
+    assert provider_key not in response.text and service_token not in response.text
+
+
+def test_server_log_diagnostics_are_safe() -> None:
+    import logging
+    import sys
+
+    from gateway.__main__ import JsonFormatter
+
+    formatter = JsonFormatter()
+    try:
+        raise RuntimeError("synthetic-private-key-and-token")
+    except RuntimeError:
+        record = logging.LogRecord(
+            "uvicorn.error",
+            logging.ERROR,
+            "",
+            0,
+            "Exception in ASGI application",
+            (),
+            sys.exc_info(),
+        )
+    diagnostic = json.loads(formatter.format(record))
+    assert diagnostic["logger"] == "uvicorn.error"
+    assert diagnostic["exception_type"] == "RuntimeError"
+    assert diagnostic["message_class"] == "unhandled_exception"
+    assert "synthetic-private" not in formatter.format(record)
+    startup = logging.LogRecord(
+        "uvicorn.error",
+        logging.ERROR,
+        "",
+        0,
+        OSError(98, "synthetic-private-key-and-token"),
+        (),
+        None,
+    )
+    assert json.loads(formatter.format(startup))["exception_type"] == "OSError"
+    assert json.loads(formatter.format(startup))["message_class"] == "startup_error"
+    lifecycle = logging.LogRecord(
+        "uvicorn.error",
+        logging.ERROR,
+        "",
+        0,
+        "Traceback (most recent call last):\n  private source text\nKeyError: synthetic-private-key-and-token\nsyntheticprivate: additional secret text\n",
+        (),
+        None,
+    )
+    assert json.loads(formatter.format(lifecycle))["exception_type"] == "KeyError"
+    assert "synthetic-private" not in formatter.format(lifecycle)

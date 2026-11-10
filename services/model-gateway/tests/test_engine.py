@@ -188,3 +188,24 @@ async def test_skip_main_then_backup(entry: Entry, call: Call) -> None:
             ]
         assert route.call_count == 1 and events[-1]["model_entry_id"] == str(backup.id)
     assert [row[2] for row in db.rows] == ["skipped_budget", "ok"]
+
+
+@pytest.mark.anyio
+async def test_mixed_skips_return_rate_limited(entry: Entry, call: Call) -> None:
+    db = FakeDatabase()
+    db.spent = Decimal(1)
+    db.count = 2
+    budget = entry.model_copy(update={"daily_budget": Decimal(1)})
+    rate = entry.model_copy(update={"id": UUID(int=2), "role": "backup"})
+    with respx.mock as mock:
+        async with httpx.AsyncClient() as client:
+            with pytest.raises(GatewayError) as error:
+                _ = [
+                    event
+                    async for event in Engine(
+                        client, FakeRegistry([budget, rate]), db
+                    ).events(call)
+                ]
+        assert not mock.calls
+    assert (error.value.status, error.value.code) == (429, "rate_limited")
+    assert [row[2] for row in db.rows] == ["skipped_budget", "skipped_rate"]

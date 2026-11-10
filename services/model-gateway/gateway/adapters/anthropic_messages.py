@@ -60,7 +60,9 @@ async def run(
             if kind == "error":
                 raise ProviderError()
             if kind == "message_start":
-                usage["input_tokens"] = event["message"]["usage"]["input_tokens"]
+                usage["input_tokens"] = (
+                    event.get("message", {}).get("usage", {}).get("input_tokens", 0)
+                )
             elif (
                 kind == "content_block_start"
                 and event["content_block"]["type"] == "tool_use"

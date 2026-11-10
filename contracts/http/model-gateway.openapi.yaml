@@ -40,16 +40,18 @@ paths:
               schema:
                 type: object
                 properties:
-                  content: &id001
+                  content:
                     type: string
                   tool_calls:
                     type: array
                     items:
                       type: object
                       properties:
-                        id: *id001
-                        name: *id001
-                        arguments: &id003
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        arguments:
                           type: object
                           additionalProperties: true
                       required:
@@ -57,27 +59,30 @@ paths:
                       - name
                       - arguments
                       additionalProperties: false
-                  model_entry_id: &id004
+                  model_entry_id:
                     type: string
                     format: uuid
-                  model_title: *id001
-                  tier: &id005
+                  model_title:
+                    type: string
+                  tier:
                     type:
                     - integer
                     - 'null'
                     minimum: 1
-                  usage: &id006
+                  usage:
                     type: object
                     properties:
-                      input_tokens: &id002
+                      input_tokens:
                         type: integer
                         minimum: 0
-                      output_tokens: *id002
+                      output_tokens:
+                        type: integer
+                        minimum: 0
                     required:
                     - input_tokens
                     - output_tokens
                     additionalProperties: false
-                  cost_usd: &id007
+                  cost_usd:
                     type: number
                     minimum: 0
                 required:
@@ -96,7 +101,8 @@ paths:
                   properties:
                     type:
                       const: delta
-                    text: *id001
+                    text:
+                      type: string
                   required:
                   - type
                   - text
@@ -105,9 +111,13 @@ paths:
                   properties:
                     type:
                       const: tool_call
-                    id: *id001
-                    name: *id001
-                    arguments: *id003
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    arguments:
+                      type: object
+                      additionalProperties: true
                   required:
                   - type
                   - id
@@ -118,11 +128,32 @@ paths:
                   properties:
                     type:
                       const: completed
-                    model_entry_id: *id004
-                    model_title: *id001
-                    tier: *id005
-                    usage: *id006
-                    cost_usd: *id007
+                    model_entry_id:
+                      type: string
+                      format: uuid
+                    model_title:
+                      type: string
+                    tier:
+                      type:
+                      - integer
+                      - 'null'
+                      minimum: 1
+                    usage:
+                      type: object
+                      properties:
+                        input_tokens:
+                          type: integer
+                          minimum: 0
+                        output_tokens:
+                          type: integer
+                          minimum: 0
+                      required:
+                      - input_tokens
+                      - output_tokens
+                      additionalProperties: false
+                    cost_usd:
+                      type: number
+                      minimum: 0
                   required:
                   - type
                   - model_entry_id
@@ -135,7 +166,7 @@ paths:
                   properties:
                     type:
                       const: failed
-                    error: &id008
+                    error:
                       $ref: '#/components/schemas/Error'
                   required:
                   - type
@@ -169,12 +200,15 @@ paths:
           description: 'no_model: no active supported matching entry'
           content:
             application/json:
-              schema: *id008
+              schema:
+                $ref: '#/components/schemas/Error'
         '429':
-          description: 'rate_limited: every entry skipped for rate'
+          description: 'rate_limited: no entry called and at least one skipped for
+            rate'
           content:
             application/json:
-              schema: *id008
+              schema:
+                $ref: '#/components/schemas/Error'
       requestBody:
         required: true
         content:
@@ -204,7 +238,8 @@ paths:
                         - system
                         - user
                         - assistant
-                      content: *id001
+                      content:
+                        type: string
                     required:
                     - role
                     - content
@@ -217,7 +252,8 @@ paths:
                       name:
                         type: string
                         minLength: 1
-                      description: *id001
+                      description:
+                        type: string
                       input_schema:
                         type: object
                         additionalProperties: true

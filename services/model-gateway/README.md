@@ -101,11 +101,13 @@
 
 Only the Harness service account (`azp: ooh-harness-api`) with a valid realm signature, issuer, audience, expiry and subject can call `/v1/call` and `/v1/classify`. `/health` is public and checks the database. Classification validates its input and returns `not_built_yet` until Stage 3. Interactive API documentation routes are disabled.
 
-The Control Centre supplies all model addresses, IDs, keys, prices and settings. Its registry response must include `model_entry_id`, `created_at`, title, purpose, tier, role, priority, connection type and the configured limits. Aziz approved exposing `created_at` on 10 November 2026 so the Gateway can order equal-priority entries itself. Part D owns that response.
+The Control Centre supplies all model addresses, IDs, keys, prices and settings. Its registry response must include `model_entry_id`, `created_at`, title, purpose, tier, role, priority, connection type and the configured limits. The spec author agreed to expose `created_at` on 10 November 2026 so the Gateway can order equal-priority entries itself. Part D owns that response.
 
 The Gateway caches registry replies for 30 seconds, decrypted keys for 60 seconds and service tokens until 30 seconds before expiry. Expired cache entries are never used when a refresh fails. A missing key for an entry without a key allows a keyless on-prem connection. Redirects are refused, so provider credentials stay at the configured address.
 
-Active supported entries are tried main first, then backup, then priority ascending, then creation time. A pinned `model_entry_id` must match the active purpose and tier and never fails over. Rate checks count only `ok` and `failed` rows for the same entry and user over the last 60 seconds. Budget checks sum the entry's costs since midnight UTC; zero budget means no limit. Skips are recorded with zero cost. Costs use decimal arithmetic, rounded to the database's six decimal places. A call still streaming has no usage row yet.
+Active supported entries are tried main first, then backup, then priority ascending, then creation time. A pinned `model_entry_id` must match the active purpose and tier and never fails over. Unknown signing key IDs trigger at most one realm-key refresh every 30 seconds, including concurrent requests and failed refreshes. Registry failures log only their reason class and HTTP status; server logs retain logger, message class and exception type without raw exception text.
+
+Rate checks count only `ok` and `failed` rows for the same entry and user over the last 60 seconds. Budget checks sum the entry's costs since midnight UTC; zero budget means no limit. Skips are recorded with zero cost. Costs use decimal arithmetic, rounded to the database's six decimal places. A call still streaming has no usage row yet.
 
 Before the first text or tool event, a failed connection can move to the next entry. After output, failure emits `failed` and ends the answer. Disconnection closes the provider stream and records a failed attempt. Usage is append-only for owner and application roles. The application can only SELECT and INSERT; migrations run as the owner in an init container, with an advisory lock and numbered migration ledger.
 
@@ -148,7 +150,7 @@ Scripts make no destructive database changes and can be rerun. Existing role pas
 | HTTP 400 `invalid_input` | Supply the documented body; chat needs a positive tier. |
 | HTTP 401 / 403 | Supply a valid token for the Gateway from the Harness service account. |
 | HTTP 404 `no_model` | Add a supported active model for this purpose and tier; check any pinned entry. |
-| HTTP 429 `rate_limited` | Wait a minute; every entry reached this user's rate limit. |
+| HTTP 429 `rate_limited` | Wait a minute; no entry was called and at least one reached this user's rate limit. |
 | HTTP 503 `budget_exceeded` | Every entry reached its daily budget; wait for tomorrow UTC or ask an admin. |
 | HTTP 503 `registry_unavailable` | Inspect the internal Control Centre route and service credentials. |
 | HTTP 503 `unavailable` | Inspect database readiness or model connectivity and retry. |
