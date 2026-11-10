@@ -791,3 +791,119 @@ def test_control_centre_limits_and_registry_errors(
             response.json()["provider_status"] is None
             and response.json()["provider_message"] is None
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failure,status,reason",
+    [
+        (401, 401, "unauthorized"),
+        (403, 403, "unauthorized"),
+        (404, 404, "missing"),
+        (500, 500, "bad answer"),
+        ("connect", None, "unreachable"),
+        ("timeout", None, "unreachable"),
+        ("bad_json", 200, "bad answer"),
+        ("missing_field", 200, "bad answer"),
+        ("empty_key", 200, "bad answer"),
+        ("token", 401, "unauthorized"),
+    ],
+)
+async def test_key_fetch_failure_diagnostics(
+    entry: Entry,
+    failure: int | str,
+    status: int | None,
+    reason: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="gateway")
+    with respx.mock as mock:
+        mock.post(CONFIG.issuer + "/protocol/openid-connect/token").mock(
+            return_value=httpx.Response(401, text="synthetic-private-body")
+            if failure == "token"
+            else httpx.Response(
+                200,
+                json={
+                    "access_token": "synthetic-private-service-token",
+                    "expires_in": 120,
+                },
+            )
+        )
+        route = mock.get(f"{CONFIG.registry_url}/api/models/{entry.id}/key")
+        if failure in ("connect", "timeout"):
+            route.mock(
+                side_effect=(
+                    httpx.ConnectError if failure == "connect" else httpx.ReadTimeout
+                )("synthetic-private-body")
+            )
+        elif failure == "bad_json":
+            route.mock(return_value=httpx.Response(200, text="synthetic-private-body"))
+        elif failure == "missing_field":
+            route.mock(
+                return_value=httpx.Response(
+                    200, json={"diagnostic": "synthetic-private-body"}
+                )
+            )
+        elif failure == "empty_key":
+            route.mock(
+                return_value=httpx.Response(
+                    200, json={"api_key": "", "diagnostic": "synthetic-private-body"}
+                )
+            )
+        elif failure != "token":
+            route.mock(
+                return_value=httpx.Response(
+                    failure,
+                    json={
+                        "api_key": "synthetic-private-provider-key",
+                        "diagnostic": "synthetic-private-body",
+                    },
+                )
+            )
+        async with httpx.AsyncClient() as client:
+            registry = Registry(CONFIG, client, Identity(CONFIG, client))
+            with pytest.raises((httpx.HTTPError, ValueError, KeyError, TypeError)):
+                await registry.key(entry)
+            assert entry.id not in registry.keys
+    records = [
+        json.loads(record.getMessage())
+        for record in caplog.records
+        if record.name == "gateway"
+    ]
+    assert records == [
+        {
+            "message": "key unavailable",
+            "model_entry_id": str(entry.id),
+            "status": status,
+            "reason": reason,
+        }
+    ]
+    assert "synthetic-private" not in repr(
+        [record.__dict__ for record in caplog.records]
+    )
+
+
+@pytest.mark.anyio
+async def test_keyless_entry_missing_key_is_not_logged_as_failure(
+    entry: Entry, caplog: pytest.LogCaptureFixture
+) -> None:
+    with respx.mock as mock:
+        mock.post(CONFIG.issuer + "/protocol/openid-connect/token").mock(
+            return_value=httpx.Response(
+                200, json={"access_token": "fake-token", "expires_in": 120}
+            )
+        )
+        route = mock.get(f"{CONFIG.registry_url}/api/models/{entry.id}/key").mock(
+            return_value=httpx.Response(404)
+        )
+        async with httpx.AsyncClient() as client:
+            registry = Registry(CONFIG, client, Identity(CONFIG, client))
+            for _ in range(2):
+                assert (
+                    await registry.key(entry.model_copy(update={"has_key": False}))
+                    == ""
+                )
+        assert route.call_count == 1
+    assert not [record for record in caplog.records if record.name == "gateway"]
