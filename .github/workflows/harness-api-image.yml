@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: Harness API image
+on:
+  push:
+    branches: ['**']
+    paths:
+    - services/harness-api/**
+    - .github/workflows/harness-api-image.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+    - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Image tag
+      id: tag
+      run: echo "value=${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
+    - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      with:
+        context: services/harness-api
+        file: services/harness-api/Dockerfile
+        load: true
+        push: false
+        tags: ghcr.io/frozenfussion/ooh-harness-api:${{ steps.tag.outputs.value }}
+        labels: org.opencontainers.image.source=https://github.com/frozenfussion/open-office-harness
+    - name: Check read-only runtime
+      env:
+        IMAGE_TAG: ${{ steps.tag.outputs.value }}
+      run: |
+        docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m -i \
+          --entrypoint python \
+          -e HA_DB_CONNECTION='host=127.0.0.1 port=1 dbname=harness connect_timeout=1' \
+          -e HA_OIDC_ISSUER=https://identity.invalid/realms/ooh \
+          -e HA_OIDC_AUDIENCE=ooh-harness-api -e HA_CLIENT_ID=ooh-harness-api \
+          -e HA_CLIENT_SECRET=synthetic-check -e HA_CONTROL_CENTRE_URL=http://centre.invalid \
+          -e HA_GATEWAY_URL=http://gateway.invalid \
+          "ghcr.io/frozenfussion/ooh-harness-api:$IMAGE_TAG" -B - <<'PY'
+        import asyncio
+        import errno
+        import os
+        import shutil
+        import httpx
+        from harness_api.app import factory
+        assert os.getuid() == 10001
+        assert shutil.which("uv") is None
+        try:
+            open("/app/read-only-probe", "w")
+        except OSError as error:
+            assert error.errno in (errno.EROFS, errno.EACCES)
+        else:
+            raise AssertionError("Root filesystem is writable")
+        async def check():
+            app = factory()
+            async with app.router.lifespan_context(app):
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                    assert (await client.get("/api/conversations")).status_code == 401
+                    assert (await client.get("/health")).status_code == 503
+        asyncio.run(check())
+        PY
+    - name: Publish checked image
+      env:
+        IMAGE_TAG: ${{ steps.tag.outputs.value }}
+      run: docker push "ghcr.io/frozenfussion/ooh-harness-api:$IMAGE_TAG"

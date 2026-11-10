@@ -87,14 +87,21 @@ owner_password="$(kubectl -n "$PLATFORM_NAMESPACE" get secret harness-db -o json
 app_password="$(kubectl -n "$PLATFORM_NAMESPACE" get secret harness-app-db -o jsonpath='{.data.password}' | base64 --decode)"
 [[ "$owner_password" =~ ^[a-f0-9]{64}$ && "$app_password" =~ ^[a-f0-9]{64}$ ]] || stop "database passwords have an unexpected format; inspect their Secrets privately"
 existing="$(kubectl -n "$APPS_NAMESPACE" get secret harness-api-db --ignore-not-found -o name)"
-if [[ -z "$existing" ]]; then
+expected_connection="host=ooh-pg-rw.$PLATFORM_NAMESPACE.svc port=5432 dbname=harness user=harness_app password=$app_password"
+expected_migrate="host=ooh-pg-rw.$PLATFORM_NAMESPACE.svc port=5432 dbname=harness user=harness password=$owner_password"
+if [[ -n "$existing" ]]; then
+  stored_connection="$(kubectl -n "$APPS_NAMESPACE" get secret harness-api-db -o jsonpath='{.data.connection}' | base64 --decode)"
+  stored_migrate="$(kubectl -n "$APPS_NAMESPACE" get secret harness-api-db -o jsonpath='{.data.migrate-connection}' | base64 --decode)"
+  [[ "$stored_connection" == "$expected_connection" && "$stored_migrate" == "$expected_migrate" ]] ||
+    stop "existing application database credentials differ; inspect role and application Secrets privately"
+else
   printf '%s\0' \
     "host=ooh-pg-rw.$PLATFORM_NAMESPACE.svc port=5432 dbname=harness user=harness_app password=$app_password" \
     "host=ooh-pg-rw.$PLATFORM_NAMESPACE.svc port=5432 dbname=harness user=harness password=$owner_password" |
     jq -Rs --arg namespace "$APPS_NAMESPACE" 'split("\u0000") as $v | {apiVersion:"v1",kind:"Secret",metadata:{name:"harness-api-db",namespace:$namespace},type:"Opaque",stringData:{connection:$v[0],"migrate-connection":$v[1]}}' |
     kubectl create -f - >/dev/null
 fi
-unset owner_password app_password
+unset owner_password app_password expected_connection expected_migrate stored_connection stored_migrate
 # Authentication and CLI settings remain inside the Keycloak pod.
 # shellcheck disable=SC2016
 client_secret="$(kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- /bin/bash -c '
