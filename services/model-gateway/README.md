@@ -115,6 +115,14 @@ Each SSE `data:` line contains one JSON object (`delta`, `tool_call`, `completed
 
 Extra request settings replace top-level fields after the adapter builds the request; `null` removes a field. They must be a JSON object. Newer Anthropic versions may refuse `temperature`, `top_p` or `top_k` supplied here. The two compatible connection formats impose no length limit unless configured; the Messages format defaults to 4096 output tokens.
 
+## Visible thinking (Rows24-26, Gateway row 24)
+
+When a provider returns visible thinking text, the Gateway emits `{"type":"thinking","text":"..."}` SSE events before or between answer deltas, followed by the usual completed event. Non-streamed answers include a separate `thinking` string, or null when no non-empty thinking arrived. Empty thinking strings are dropped. Signatures, encrypted reasoning and redacted blocks are never forwarded; thinking and answer text are never logged. Usage and cost still use the provider's token counts.
+
+The chat-completions adapter reads `message.reasoning_content` or streamed `delta.reasoning_content`. This field was confirmed on 10 November 2026 against the [official provider guide](https://api-docs.deepseek.com/guides/thinking_mode/). The Messages adapter reads thinking blocks and `thinking_delta` text; configure `{"thinking":{"display":"summarized"}}` in that entry's ordinary extra settings as the [official streaming reference](https://platform.claude.com/docs/en/build-with-claude/streaming) describes. The Gateway does not inject that setting. The Responses adapter forwards no reasoning text.
+
+Once any thinking has been streamed, a later failure ends the stream with failed rather than switching to a backup. Stored thinking is never sent back to a model; storing/displaying it belongs to the Harness and Workspace Parts. No Gateway database migration, new dependency or deployment was performed for this update.
+
 ## Thinking switch (Row19)
 
 `/v1/call` accepts optional boolean `thinking`, default true. The registry may supply `request_settings_thinking_off` as a JSON object; null or an absent field means there is no off switch. When thinking is false and this object is present, the adapter merges it over the body **after** ordinary `request_settings`. Top-level fields replace previous values, and null removes a field. An empty object is still a configured switch. When thinking is true or omitted, only the ordinary settings apply; the Gateway adds no provider-specific thinking field itself.

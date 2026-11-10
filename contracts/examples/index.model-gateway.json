@@ -123,6 +123,24 @@
       "kind": "response",
       "media_type": "text/event-stream",
       "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.thinking.sse.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.visible-thinking.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
     }
   ]
 }

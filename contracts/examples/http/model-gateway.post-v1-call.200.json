@@ -9,5 +9,6 @@
     "output_tokens": 3
   },
   "cost_usd": 2.8e-05,
-  "thinking_applied": true
+  "thinking_applied": true,
+  "thinking": null
 }

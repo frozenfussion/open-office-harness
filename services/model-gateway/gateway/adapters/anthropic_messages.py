@@ -35,7 +35,9 @@ async def run(
         if not call.stream:
             result = json.loads(await response.aread())
             for block in result["content"]:
-                if block["type"] == "text" and block["text"]:
+                if block["type"] == "thinking" and block.get("thinking"):
+                    yield {"type": "thinking", "text": block["thinking"]}
+                elif block["type"] == "text" and block["text"]:
                     yield {"type": "delta", "text": block["text"]}
                 elif block["type"] == "tool_use":
                     yield tool_event(
@@ -54,6 +56,7 @@ async def run(
             }
             return
         tools: dict[int, dict[str, Any]] = {}
+        redacted_indexes: set[int] = set()
         usage = {"input_tokens": 0, "output_tokens": 0}
         async for event in sse(response):
             kind = event.get("type")
@@ -63,20 +66,28 @@ async def run(
                 usage["input_tokens"] = (
                     event.get("message", {}).get("usage", {}).get("input_tokens", 0)
                 )
-            elif (
-                kind == "content_block_start"
-                and event["content_block"]["type"] == "tool_use"
-            ):
+            elif kind == "content_block_start":
                 block = event["content_block"]
-                tools[event["index"]] = {
-                    "id": block["id"],
-                    "name": block["name"],
-                    "arguments": "",
-                    "initial": block.get("input", {}),
-                }
+                if block["type"] == "redacted_thinking":
+                    redacted_indexes.add(event["index"])
+                elif block["type"] == "thinking" and block.get("thinking"):
+                    yield {"type": "thinking", "text": block["thinking"]}
+                elif block["type"] == "tool_use":
+                    tools[event["index"]] = {
+                        "id": block["id"],
+                        "name": block["name"],
+                        "arguments": "",
+                        "initial": block.get("input", {}),
+                    }
             elif kind == "content_block_delta":
                 delta = event["delta"]
-                if delta["type"] == "text_delta" and delta["text"]:
+                if (
+                    delta["type"] == "thinking_delta"
+                    and event.get("index") not in redacted_indexes
+                    and delta.get("thinking")
+                ):
+                    yield {"type": "thinking", "text": delta["thinking"]}
+                elif delta["type"] == "text_delta" and delta["text"]:
                     yield {"type": "delta", "text": delta["text"]}
                 elif delta["type"] == "input_json_delta":
                     tools[event["index"]]["arguments"] += delta["partial_json"]

@@ -1031,3 +1031,122 @@ def test_thinking_on_or_absent_is_honoured(
         else response.json()
     )
     assert result["thinking_applied"] is True
+
+
+@pytest.mark.parametrize(
+    "kind,path",
+    [
+        ("openai_chat_completions", "/chat/completions"),
+        ("anthropic_messages", "/v1/messages"),
+    ],
+)
+@pytest.mark.parametrize("stream", [False, True])
+def test_http_visible_thinking_separate_from_answer_and_logs(
+    http: tuple,
+    entry: Entry,
+    kind: str,
+    path: str,
+    stream: bool,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    from test_adapters import thinking_answer, thinking_chunks
+
+    client, key = http
+    client.app.state.engine.registry = FakeRegistry(
+        [entry.model_copy(update={"api_type": kind})]
+    )
+    caplog.set_level(logging.DEBUG, logger="gateway")
+    response = (
+        httpx.Response(
+            200,
+            text="".join(
+                "data: " + json.dumps(event) + "\n\n" for event in thinking_chunks(kind)
+            ),
+        )
+        if stream
+        else httpx.Response(200, json=thinking_answer(kind))
+    )
+    with respx.mock as mock:
+        mock.post("https://example.invalid" + path).mock(return_value=response)
+        result = client.post(
+            "/v1/call",
+            json=connection_body(entry) | {"stream": stream},
+            headers={"Authorization": "Bearer " + token(key)},
+        )
+    assert result.status_code == 200 and "private-" not in result.text
+    if stream:
+        events = [
+            json.loads(line[6:])
+            for line in result.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        assert [event["type"] for event in events] == [
+            "thinking",
+            "delta",
+            "thinking",
+            "delta",
+            "completed",
+        ]
+        assert (
+            "".join(event["text"] for event in events if event["type"] == "thinking")
+            == "Consider this"
+        )
+        assert events[-1]["usage"] == {"input_tokens": 8, "output_tokens": 3}
+    else:
+        assert (
+            result.json()["thinking"] == "Consider this"
+            and result.json()["content"] == "Hello world"
+        )
+        assert result.json()["usage"] == {"input_tokens": 8, "output_tokens": 3}
+    captured = repr([record.__dict__ for record in caplog.records])
+    assert (
+        "Consider" not in captured
+        and "Hello" not in captured
+        and "private-" not in captured
+    )
+    assert len(client.app.state.db.rows) == 1 and client.app.state.db.rows[0][2] == "ok"
+    assert client.app.state.db.rows[0][3:5] == (8, 3)
+
+
+@pytest.mark.parametrize(
+    "kind,path",
+    [
+        ("openai_chat_completions", "/chat/completions"),
+        ("anthropic_messages", "/v1/messages"),
+        ("openai_responses", "/responses"),
+    ],
+)
+def test_no_visible_thinking_is_null(
+    http: tuple, entry: Entry, kind: str, path: str
+) -> None:
+    from test_adapters import answer
+
+    client, key = http
+    client.app.state.engine.registry = FakeRegistry(
+        [entry.model_copy(update={"api_type": kind})]
+    )
+    value = answer(kind)
+    if kind == "openai_chat_completions":
+        value["choices"][0]["message"]["reasoning_content"] = ""
+    elif kind == "anthropic_messages":
+        value["content"][:0] = [
+            {"type": "thinking", "thinking": "", "signature": "private-signature"},
+            {
+                "type": "redacted_thinking",
+                "thinking": "private-redacted",
+                "data": "private-redacted",
+            },
+        ]
+    with respx.mock as mock:
+        mock.post("https://example.invalid" + path).mock(
+            return_value=httpx.Response(200, json=value)
+        )
+        response = client.post(
+            "/v1/call",
+            json=connection_body(entry),
+            headers={"Authorization": "Bearer " + token(key)},
+        )
+    assert response.status_code == 200 and response.json()["thinking"] is None
+    assert "private-" not in response.text

@@ -44,6 +44,8 @@ async def run(
         if not call.stream:
             result = json.loads(await response.aread())
             message = result["choices"][0]["message"]
+            if message.get("reasoning_content"):
+                yield {"type": "thinking", "text": message["reasoning_content"]}
             if message.get("content"):
                 yield {"type": "delta", "text": message["content"]}
             for tool in message.get("tool_calls", []):
@@ -70,6 +72,8 @@ async def run(
                 if choice.get("finish_reason") is not None:
                     finished = True
                 delta = choice.get("delta", {})
+                if delta.get("reasoning_content"):
+                    yield {"type": "thinking", "text": delta["reasoning_content"]}
                 if delta.get("content"):
                     yield {"type": "delta", "text": delta["content"]}
                 for part in delta.get("tool_calls", []):
