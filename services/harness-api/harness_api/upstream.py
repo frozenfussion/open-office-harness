@@ -66,6 +66,11 @@ class Delta(BaseModel):
     text: str
 
 
+class Thinking(BaseModel):
+    type: Literal["thinking"]
+    text: str
+
+
 class ToolCall(BaseModel):
     type: Literal["tool_call"]
     id: str
@@ -93,7 +98,9 @@ class Failed(BaseModel):
 
 
 EVENT = TypeAdapter(
-    Annotated[Delta | ToolCall | Completed | Failed, Field(discriminator="type")]
+    Annotated[
+        Delta | Thinking | ToolCall | Completed | Failed, Field(discriminator="type")
+    ]
 )
 SKILLS = TypeAdapter(list[Skill])
 
@@ -109,8 +116,21 @@ class GatewayStream:
         async for line in self.response.aiter_lines():
             if not line:
                 if data:
-                    event = EVENT.validate_json("\n".join(data)).model_dump(mode="json")
+                    body = json.loads("\n".join(data))
                     data.clear()
+                    if (
+                        isinstance(body, dict)
+                        and isinstance(body.get("type"), str)
+                        and body["type"]
+                        not in {"delta", "thinking", "tool_call", "completed", "failed"}
+                    ):
+                        continue
+                    try:
+                        event = EVENT.validate_python(body).model_dump(mode="json")
+                    except ValueError:
+                        raise ValueError("Unexpected Gateway event") from None
+                    if event["type"] == "thinking" and event["text"] == "":
+                        continue
                     if event["type"] == "completed" and event["tier"] != self.tier:
                         raise ValueError("Gateway tier differs from requested tier")
                     yield event
@@ -283,6 +303,7 @@ class Upstream:
                 ],
                 "tools": [],
                 "stream": False,
+                "thinking": False,
             },
             timeout=httpx.Timeout(20),
         )
@@ -296,7 +317,10 @@ class Upstream:
             if not isinstance(code, str):
                 code = "unavailable"
             raise ApiError(response.status_code, code, "Title could not be made.")
-        content = TitleContent.model_validate(response.json()).content
+        body = response.json()
+        if not isinstance(body, dict) or not isinstance(body.get("content"), str):
+            raise ValueError("Unexpected title answer")
+        content = TitleContent.model_validate({"content": body["content"]}).content
         title = (
             content.strip()
             .strip("\"'“”‘’")

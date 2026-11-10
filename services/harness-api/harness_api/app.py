@@ -29,7 +29,7 @@ from .config import Settings
 from .diagnostics import JsonFormatter
 from .diagnostics import failure as record_failure
 from .errors import ApiError, gateway_error
-from .store import Store
+from .store import MAX_THINKING_CHARS, Store
 from .upstream import GatewayStream, Upstream
 
 TITLE_TIMEOUT_SECONDS = 20
@@ -273,6 +273,7 @@ def create_app(
         note: str | None,
     ) -> AsyncGenerator[str]:
         content = ""
+        thinking_text = ""
         outcome = "failed"
         metadata: dict[str, Any] = {}
         saved = False
@@ -285,6 +286,12 @@ def create_app(
                         if not tool_requested:
                             content += event["text"]
                             yield data(event)
+                    case "thinking":
+                        if len(thinking_text) < MAX_THINKING_CHARS:
+                            thinking_text += event["text"][
+                                : MAX_THINKING_CHARS - len(thinking_text)
+                            ]
+                        yield data(event)
                     case "tool_call":
                         if event["name"] not in titles:
                             raise ValueError("Unapproved tool")
@@ -309,6 +316,7 @@ def create_app(
                             tier,
                             metadata,
                             note,
+                            thinking=thinking_text or None,
                         )
                         saved = True
                         yield data(
@@ -372,6 +380,7 @@ def create_app(
                                 tier,
                                 metadata,
                                 note,
+                                thinking=thinking_text or None,
                             )
                         except psycopg.Error:
                             record_failure("database_error", "unavailable")
