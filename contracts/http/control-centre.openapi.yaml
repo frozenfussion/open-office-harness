@@ -1323,7 +1323,7 @@ paths:
       operationId: get_api_admin_approvals
       security:
       - bearerAuth: []
-      description: Administrator only. Unknown input fields are refused.
+      description: Administrator only. Normal lists, including the pending list used by badges, hide reserved check and service-account requesters. Supplying correlation_id returns matching active approvals regardless of requester. Unknown input fields are refused.
       responses:
         '200':
           description: Success
@@ -1383,7 +1383,7 @@ paths:
       operationId: get_api_admin_approvals_id
       security:
       - bearerAuth: []
-      description: Administrator only. Unknown input fields are refused.
+      description: Administrator only. Returns an active approval by id regardless of whether its requester is a reserved check identity or service account. Unknown input fields are refused.
       responses:
         '200':
           description: Success

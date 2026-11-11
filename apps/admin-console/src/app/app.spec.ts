@@ -156,4 +156,14 @@ describe('Admin console', () => {
     expect(fixture.nativeElement.textContent).toContain('Jev System One'); expect(fixture.nativeElement.textContent).toContain('http_503');
   });
 
+  it('counts approvals in the badge using only the normal pending list', async () => {
+    const { fixture } = await create(true); const app = fixture.componentInstance;
+    const request = vi.spyOn(app, 'request').mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce([{ id: 'synthetic-visible-approval', created_at: '2026-11-11T00:00:00Z' }]);
+    await app.loadAccessCount(); fixture.detectChanges();
+    expect(app.pendingCount()).toBe(1);
+    expect(request).toHaveBeenCalledWith('/admin/approvals?status=pending&limit=200');
+    expect(fixture.nativeElement.querySelector('.ooh-nav__count').textContent).toBe('1');
+  });
+
 });

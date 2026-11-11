@@ -25,6 +25,7 @@ public sealed class TestGatewayHttp : HttpMessageHandler
   public JsonObject? GatewayBody { get; private set; }
   public string? Authorization { get; private set; }
   public string? GatewayUrl { get; private set; }
+  public string? GatewayQuery { get; private set; }
   public HttpStatusCode TokenStatus { get; set; } = HttpStatusCode.OK;
   public Func<CancellationToken, Task<HttpResponseMessage>>? Answer { get; set; }
   protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -34,7 +35,7 @@ public sealed class TestGatewayHttp : HttpMessageHandler
       TokenCalls++; TokenUrl = request.RequestUri.ToString(); TokenBody = await request.Content!.ReadAsStringAsync(ct);
       return new HttpResponseMessage(TokenStatus) { Content = JsonContent.Create(new { access_token = "synthetic-service-token", expires_in = 300 }) };
     }
-    GatewayUrl = request.RequestUri.AbsolutePath; GatewayCalls++; Authorization = request.Headers.Authorization?.ToString();
+    GatewayQuery = request.RequestUri.Query; GatewayUrl = request.RequestUri.AbsolutePath; GatewayCalls++; Authorization = request.Headers.Authorization?.ToString();
     GatewayBody = request.Content is null ? null : await request.Content.ReadFromJsonAsync<JsonObject>(ct);
     if (Answer is not null) return await Answer(ct);
     if (GatewayUrl == "/v1/classify") return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { scores = new { test = 0.9m }, model_entry_id = GatewayBody!["model_entry_id"]!.GetValue<string>(), model_title = "Synthetic model", usage = new { input_tokens = 2, output_tokens = 1 }, cost_usd = 0.000123m }) };

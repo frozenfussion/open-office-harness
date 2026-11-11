@@ -401,7 +401,13 @@ The Harness passes `is_service_account` from its verified token. The Control
 Centre stores that marker on access and people rows. Its own token observation
 uses the presence of `client_id` or a `preferred_username` beginning with
 `service-account-`. People and waiting-decision lists exclude those identities
-and reserved check users. Display profiles fall back to the access request;
+and reserved check users in normal lists and counts. An administrator can still
+retrieve any active approval by `correlation_id` or by its approval ID, regardless
+of its requester. The badge continues to count only the normal pending list, and
+Overview continues to hide those requesters. Dead-letter diagnostics retain all
+requesters; the trail proxy forwards explicit correlation and user filters without
+requester filtering. Script 62 uses the explicit correlation lookup unchanged.
+Display profiles fall back to the access request;
 observe does not copy profiles into its audit rows.
 
 No dependency was added. The new Kafka calls use the existing Confluent.Kafka
