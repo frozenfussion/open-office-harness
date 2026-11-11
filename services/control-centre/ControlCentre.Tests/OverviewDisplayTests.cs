@@ -27,7 +27,8 @@ public sealed class OverviewDisplayTests
     };
     rows.AddRange(new[] { "stage-check-", "admin-test-", "title-", "service-account-" }.Select(prefix => new Person { UserId = prefix + suffix, LastSeenAt = clock.Now }));
     var baseline = (await admin.GetFromJsonAsync<JsonObject>("/api/admin/overview"))!["people_active_today"]!.GetValue<int>();
-    db.People.AddRange(rows); await db.SaveChangesAsync();
+    var access = rows.Select(row => new AccessRequest { UserId = row.UserId, Status = "approved", IsServiceAccount = row.IsServiceAccount }).ToList();
+    db.People.AddRange(rows); db.AccessRequests.AddRange(access); await db.SaveChangesAsync();
     try
     {
       var response = await admin.GetAsync("/api/admin/overview"); Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -35,7 +36,24 @@ public sealed class OverviewDisplayTests
       var overview = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
       Assert.Equal(baseline + 2, overview["people_active_today"]!.GetValue<int>());
     }
-    finally { foreach (var row in rows) row.DeletedAt = clock.Now; await db.SaveChangesAsync(); }
+    finally { foreach (var row in rows) row.DeletedAt = clock.Now; foreach (var row in access) row.DeletedAt = clock.Now; await db.SaveChangesAsync(); }
+  }
+  [DatabaseFact]
+  public async Task PendingPersonSeenTodayIsNotCounted()
+  {
+    await Migrate(); var clock = new TestClock { Now = DateTimeOffset.Parse("2051-03-02T17:00:00Z") }; using var host = new Host(true) { Clock = clock }; using var admin = host.Client();
+    await using var db = Database(); var suffix = Guid.NewGuid().ToString();
+    var rows = new[] { "pending", "rejected", "approved", "deleted-access", "no-access" }.Select(status => new Person { UserId = "synthetic-" + status + "-" + suffix, LastSeenAt = clock.Now }).ToList();
+    var access = rows.Take(4).Select((row, index) => new AccessRequest { UserId = row.UserId, Status = index < 2 ? new[] { "pending", "rejected" }[index] : "approved", DeletedAt = index == 3 ? clock.Now : null }).ToList();
+    var before = (await admin.GetFromJsonAsync<JsonObject>("/api/admin/overview"))!;
+    db.People.AddRange(rows); db.AccessRequests.AddRange(access); await db.SaveChangesAsync();
+    try
+    {
+      var overview = (await admin.GetFromJsonAsync<JsonObject>("/api/admin/overview"))!;
+      Assert.Equal(before["people_active_today"]!.GetValue<int>() + 1, overview["people_active_today"]!.GetValue<int>());
+      Assert.Equal(before["people_approved"]!.GetValue<int>() + 1, overview["people_approved"]!.GetValue<int>());
+    }
+    finally { foreach (var row in rows) row.DeletedAt = clock.Now; foreach (var row in access) row.DeletedAt = clock.Now; await db.SaveChangesAsync(); }
   }
   [DatabaseFact]
   public async Task HarnessObservationRefreshesTheFirstSightingOnANewLocalDayWithinOneHour()

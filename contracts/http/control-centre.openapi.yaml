@@ -3960,7 +3960,7 @@ components:
         people_active_today:
           type: integer
           minimum: 0
-          description: Active non-service people seen in the configured local day; excludes reserved check, admin-test and title identities.
+          description: Approved non-service people seen in the configured local day; excludes reserved check, admin-test and title identities.
         people_approved:
           type: integer
           minimum: 0

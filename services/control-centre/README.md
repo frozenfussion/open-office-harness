@@ -388,12 +388,19 @@ uses `CC_HARNESS_API_URL`, `CC_GATEWAY_URL`, `CC_SLIDES_WORKER_URL`,
 `CC_AUDIT_WRITER_URL`, `CC_COST_METER_URL`, `CC_SAFETY_WATCHER_URL`, and the existing
 issuer/Kafka settings. No health table exists.
 
-Overview obtains UTC-day figures and trail rows through the audit writer and cost
-meter HTTP contracts, using the Control Centre's cached service token. Realm sync
+Overview obtains counts, costs and trail rows through the audit writer and cost
+meter HTTP contracts, using the Control Centre's cached service token. The agreed
+day for every Overview figure is the display-zone day. Part B currently requires
+`day=YYYY-MM-DD` (UTC), so helper figures temporarily retain that query until its
+range support exists. The coordinated replacement is
+`GET /v1/counts?from=<ISO UTC>&to=<ISO UTC>` and
+`GET /v1/costs?from=<ISO UTC>&to=<ISO UTC>`, using the display-zone day's UTC
+start and end, half-open `[from, to)`, with unchanged response shapes. Realm sync
 must add the two custom audiences to that client. A missing credential, timeout,
 refused request or unavailable helper leaves its figures null; the other helper
 still supplies its figures. Approved people come from local approved access rows;
-active people come from the Control Centre's own active people rows whose
+active people are always a non-null count from the Control Centre's own active
+people rows with a non-deleted approved access request, whose
 `last_seen_at` falls within today in `CC_DISPLAY_TIME_ZONE` (first value
 `Asia/Kuala_Lumpur`). Service markers and `stage-check-`, `service-account-`,
 `admin-test-` and `title-` identities are excluded. The first observation after

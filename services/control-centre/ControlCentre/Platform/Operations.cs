@@ -128,7 +128,7 @@ public static class OperationsRoutes
       var since = now.AddHours(-24); var recentDead = db.DeadLetters.Where(x => x.ReceivedAt >= since); var dead = await recentDead.CountAsync();
       if (dead > 0) attention.Add(new { kind = "dead_letter", title = "Failed messages", detail = dead + " in the last 24 hours", at = await recentDead.MaxAsync(x => x.ReceivedAt), link = "#overview" });
       var (start, end) = calendar.Day(now);
-      var activePeople = await db.People.CountAsync(x => x.DeletedAt == null && !x.IsServiceAccount && !x.UserId.StartsWith("stage-check-") && !x.UserId.StartsWith("service-account-") && !x.UserId.StartsWith("admin-test-") && !x.UserId.StartsWith("title-") && x.LastSeenAt >= start && x.LastSeenAt < end);
+      var activePeople = await db.People.CountAsync(x => x.DeletedAt == null && !x.IsServiceAccount && !x.UserId.StartsWith("stage-check-") && !x.UserId.StartsWith("service-account-") && !x.UserId.StartsWith("admin-test-") && !x.UserId.StartsWith("title-") && x.LastSeenAt >= start && x.LastSeenAt < end && db.AccessRequests.Any(a => a.UserId == x.UserId && a.DeletedAt == null && a.Status == "approved"));
       return Results.Ok(new JsonObject
       {
         ["people_active_today"] = activePeople,
