@@ -88,7 +88,6 @@ class Engine:
         provider_details: bool = False,
         correlation_id: UUID | None = None,
         classification: Classify | None = None,
-        background: Any = None,
     ) -> AsyncIterator[dict[str, Any]]:
         effects: list[tuple[Callable[[], Awaitable[None]], str]] = []
         result: dict[str, Any] = {}
@@ -130,10 +129,7 @@ class Engine:
                 effects.append(
                     (lambda: self.publisher.publish(value), "audit_publish_failed")
                 )
-            if background is None:
-                await self.dispatch(effects)
-            else:
-                background.add_task(self.dispatch, effects)
+            await self.dispatch(effects)
 
     async def classify(
         self,
@@ -141,7 +137,6 @@ class Engine:
         correlation_id: UUID | None = None,
         *,
         provider_details: bool = False,
-        background: Any = None,
     ) -> dict[str, Any]:
         call = Call(
             purpose="classification",
@@ -163,7 +158,6 @@ class Engine:
             correlation_id=correlation_id,
             classification=body,
             provider_details=provider_details,
-            background=background,
         ):
             if event["type"] == "completed":
                 result = {

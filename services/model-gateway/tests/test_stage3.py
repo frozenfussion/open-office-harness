@@ -332,7 +332,7 @@ async def test_forced_tools_effective_thinking_choice(
                 )
             ]
         body = json.loads(route.calls[0].request.content)
-    assert events[-1]["tool_choice_applied"] == (not thinking)
+    assert events[-1]["tool_choice_applied"] == (not thinking or kind == TYPES[2])
     assert (
         body["tool_choice"]
         == ({"type": "auto"} if thinking else {"type": "tool", "name": "fake_tool"})
@@ -344,8 +344,7 @@ async def test_forced_tools_effective_thinking_choice(
             else {"type": "function", "function": {"name": "fake_tool"}}
         )
         if kind == TYPES[0]
-        else body["tool_choice"]
-        == ("auto" if thinking else {"type": "function", "name": "fake_tool"})
+        else body["tool_choice"] == {"type": "function", "name": "fake_tool"}
     )
 
 

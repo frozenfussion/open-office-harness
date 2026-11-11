@@ -2,15 +2,16 @@
 import json
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from typing import Annotated, Any
 from uuid import UUID
 
 import httpx
 import psycopg
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, Request
+from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.types import Send
 
 from gateway.config import Config
 from gateway.database import Database
@@ -19,6 +20,13 @@ from gateway.events import Events
 from gateway.identity import Identity
 from gateway.models import Call, Classify, GatewayError
 from gateway.registry import Registry
+
+
+class GatewayStreamingResponse(StreamingResponse):
+    async def stream_response(self, send: Send) -> None:
+        # A failed send must close the provider iterator without waiting for GC.
+        async with aclosing(self.body_iterator):
+            await super().stream_response(send)
 
 
 async def caller(
@@ -88,11 +96,7 @@ def create_app(config: Config | None = None) -> FastAPI:
                 "provider_status": error.provider_status,
                 "provider_message": error.provider_message,
             }
-        return JSONResponse(
-            body,
-            status_code=error.status,
-            background=getattr(request.state, "gateway_background", None),
-        )
+        return JSONResponse(body, status_code=error.status)
 
     @app.exception_handler(RequestValidationError)
     async def invalid(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -115,17 +119,14 @@ def create_app(config: Config | None = None) -> FastAPI:
     async def call(
         body: Call,
         request: Request,
-        background: BackgroundTasks,
         claims: Annotated[dict[str, Any], Depends(caller)],
         x_correlation_id: Annotated[UUID | None, Header()] = None,
     ) -> Any:
-        request.state.gateway_background = background
         request.state.test_connection = authorize_call(body, claims)
         events = request.app.state.engine.events(
             body,
             provider_details=request.state.test_connection,
             correlation_id=x_correlation_id,
-            background=background,
         )
         try:
             first = await anext(events)
@@ -145,9 +146,8 @@ def create_app(config: Config | None = None) -> FastAPI:
                 finally:
                     await events.aclose()
 
-            return StreamingResponse(
+            return GatewayStreamingResponse(
                 stream(),
-                background=background,
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
             )
@@ -191,7 +191,6 @@ def create_app(config: Config | None = None) -> FastAPI:
     async def classify(
         body: Classify,
         request: Request,
-        background: BackgroundTasks,
         claims: Annotated[dict[str, Any], Depends(caller)],
         x_correlation_id: Annotated[UUID | None, Header()] = None,
     ) -> dict[str, Any]:
@@ -205,10 +204,9 @@ def create_app(config: Config | None = None) -> FastAPI:
         )
         if azp not in {"ooh-harness-api", "ooh-safety-watcher"} and not pinned_test:
             raise GatewayError(403, "forbidden", "This caller may not classify")
-        request.state.gateway_background = background
         request.state.test_connection = pinned_test
         return await request.app.state.engine.classify(
-            body, x_correlation_id, provider_details=pinned_test, background=background
+            body, x_correlation_id, provider_details=pinned_test
         )
 
     return app

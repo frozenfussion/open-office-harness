@@ -459,12 +459,13 @@ paths:
         calls; Messages replays complete ordered content blocks with thinking signatures
         and redacted thinking; Responses requests reasoning.encrypted_content with
         store:false and replays output items before function_call_output. Forced tools
-        use auto unless thinking is exactly disabled, with tool_choice_applied:false;
+        use auto only for explicit non-disabled thinking in Messages or Chat Completions,
+        with tool_choice_applied:false; absent thinking and Responses permit forcing;
         none disables tools. Provider details are scrubbed and returned only for Control
         Centre tests. Visible thinking remains separate from answer text. Opaque reasoning
         is never logged or published on Kafka. Audit events contain only IDs, model
-        title, usage, cost and classification scores. Health changes and audit publishes run after the answer in retained background
-        tasks with two-second limits. A forced-tool HTTP 400 before output retries once
+        title, usage, cost and classification scores. Health changes and audit publishes dispatch from iterator cleanup,
+        including client disconnect, as retained background tasks with two-second limits. A forced-tool HTTP 400 before output retries once
         on the same entry with auto, without a health report for the initial 400.'
       parameters:
       - name: X-Correlation-Id

@@ -30,7 +30,7 @@ from gateway.models import Call, Entry, GatewayError, ToolChoice
         {"type": "disabled", "extra": True},
     ],
 )
-async def test_only_exact_disabled_thinking_allows_forcing(
+async def test_thinking_rule_applies_only_to_explicit_chat_or_messages_settings(
     entry: Entry, call: Call, kind: str, thinking: Any
 ) -> None:
     entry = entry.model_copy(
@@ -52,7 +52,11 @@ async def test_only_exact_disabled_thinking_allows_forcing(
             ]
         body = json.loads(route.calls[0].request.content)
     applied = next(e["applied"] for e in events if e["type"] == "tool_choice_applied")
-    assert applied == (thinking == {"type": "disabled"})
+    assert applied == (
+        kind == "openai_responses"
+        or thinking is None
+        or thinking == {"type": "disabled"}
+    )
     if not applied:
         assert body["tool_choice"] == ({"type": "auto"} if kind == TYPES[1] else "auto")
 
@@ -330,3 +334,117 @@ async def test_slow_side_effects_start_after_response_and_timeout_without_delay(
     assert (
         "health_report_failed" in caplog.text and "audit_publish_failed" in caplog.text
     )
+
+
+async def assert_forced_without_thinking(entry: Entry, call: Call, kind: str) -> None:
+    entry = entry.model_copy(update={"api_type": kind, "request_settings": {}})
+    forced = call.model_copy(
+        update={"stream": False, "tool_choice": ToolChoice(name="fake_tool")}
+    )
+    with respx.mock as mock:
+        route = mock.post(entry.endpoint_url + PATHS[kind]).mock(
+            return_value=provider(kind, response(kind), False)
+        )
+        async with httpx.AsyncClient() as client:
+            engine = Engine(client, FakeRegistry([entry]), FakeDatabase())
+            events = [e async for e in engine.events(forced)]
+            await engine.drain_background()
+        body = json.loads(route.calls[0].request.content)
+    assert "thinking" not in body
+    expected = (
+        {"type": "function", "name": "fake_tool"}
+        if kind == "openai_responses"
+        else {"type": "function", "function": {"name": "fake_tool"}}
+    )
+    assert body["tool_choice"] == expected
+    assert events[-1]["tool_choice_applied"] is True
+
+
+@pytest.mark.anyio
+async def test_responses_entry_sends_forced_tool_without_thinking_setting(
+    entry: Entry, call: Call
+) -> None:
+    await assert_forced_without_thinking(entry, call, "openai_responses")
+
+
+@pytest.mark.anyio
+async def test_chat_entry_sends_forced_tool_without_thinking_setting(
+    entry: Entry, call: Call
+) -> None:
+    await assert_forced_without_thinking(entry, call, "openai_chat_completions")
+
+
+@pytest.mark.anyio
+async def test_client_disconnect_right_after_completed_still_publishes_audit(
+    entry: Entry, call: Call
+) -> None:
+    from starlette.requests import ClientDisconnect
+
+    sent, audits, reports = [], [], []
+
+    class Publisher:
+        async def publish(self, value: dict) -> None:
+            audits.append(value)
+
+    class Identity:
+        async def authenticate(self, authorization: str | None) -> dict:
+            return {"azp": "ooh-harness-api", "sub": "fake-service"}
+
+    async def health(entry: Entry, status: str, reason: str | None) -> None:
+        reports.append((status, reason))
+
+    async with respx.mock as mock, httpx.AsyncClient() as client:
+        mock.post(entry.endpoint_url + PATHS[entry.api_type]).mock(
+            return_value=provider(entry.api_type, response(entry.api_type), True)
+        )
+        registry = FakeRegistry([entry])
+        registry.report_health = health
+        engine = Engine(client, registry, FakeDatabase(), Publisher())
+        app = create_app()
+        app.state.engine, app.state.identity = engine, Identity()
+
+        async def receive() -> dict:
+            return {
+                "type": "http.request",
+                "body": json.dumps(
+                    call.model_dump(mode="json") | {"stream": True}
+                ).encode(),
+                "more_body": False,
+            }
+
+        async def send(message: dict) -> None:
+            sent.append(message)
+            if message["type"] == "http.response.body" and message.get(
+                "body", b""
+            ).startswith(b"data: "):
+                event = json.loads(message["body"][6:])
+                if event["type"] == "completed":
+                    raise OSError("synthetic client disconnect after completed")
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "method": "POST",
+            "scheme": "http",
+            "path": "/v1/call",
+            "raw_path": b"/v1/call",
+            "query_string": b"",
+            "root_path": "",
+            "headers": [(b"content-type", b"application/json")],
+            "server": ("test", 80),
+            "client": ("test", 123),
+        }
+        with pytest.raises(ClientDisconnect):
+            await app(scope, receive, send)
+        await asyncio.wait_for(engine.drain_background(), timeout=0.3)
+        assert not engine.background_tasks
+    assert not any(
+        m["type"] == "http.response.body" and not m.get("more_body", False)
+        for m in sent
+    )
+    assert len(audits) == 1 and audits[0]["payload"]["action"] == "model.call"
+    assert (
+        audits[0]["payload"]["outcome"] == "ok" and audits[0]["payload"]["tokens"] == 11
+    )
+    assert audits[0]["payload"]["cost_usd"] > 0
+    assert reports == [("ok", None)]

@@ -137,8 +137,12 @@ def forced_choice(
             {"type": "none"} if kind == "anthropic_messages" else "none"
         )
         return True
-    # The binding rule treats absent and adaptive thinking as on, too.
-    if auto or body.get("thinking") != {"type": "disabled"}:
+    thinking_on = (
+        kind in {"anthropic_messages", "openai_chat_completions"}
+        and "thinking" in body
+        and body["thinking"] != {"type": "disabled"}
+    )
+    if auto or thinking_on:
         body["tool_choice"] = (
             {"type": "auto"} if kind == "anthropic_messages" else "auto"
         )
