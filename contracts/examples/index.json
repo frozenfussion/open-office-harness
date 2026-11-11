@@ -1896,6 +1896,10 @@
       "kind": "response",
       "media_type": "application/json",
       "status": "503"
+    },
+    {
+      "file": "examples/events/payloads/chat.message.example.json",
+      "schema": "events/payloads/chat.message.schema.json"
     }
   ]
 }

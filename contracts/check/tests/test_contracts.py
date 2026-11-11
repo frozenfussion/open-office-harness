@@ -11,7 +11,7 @@ from check_contracts import ROOT, check_contracts, load, validate_example
 
 
 def test_all_contracts() -> None:
-    assert check_contracts()["topics"] == 11
+    assert check_contracts()["topics"] == 13
     for document, route, field in [
         ("control-centre", "/api/models", "endpoint_url"),
         ("harness-api", "/api/files/{key}", "url"),

@@ -15,7 +15,8 @@
         "approval.requested",
         "approval.decided",
         "audit.event",
-        "dlq.entry"
+        "dlq.entry",
+        "chat.message"
       ]
     },
     "version": {

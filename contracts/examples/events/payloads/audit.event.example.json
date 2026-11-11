@@ -1,10 +1,12 @@
 {
   "actor": "u-123",
-  "action": "classification",
-  "target": "request",
-  "outcome": "suggested",
+  "action": "model.classify",
+  "target": "classification",
+  "outcome": "ok",
   "model": "fake-model",
-  "tokens": 0,
+  "tokens": 42,
+  "cost_usd": 0.0001,
+  "model_entry_id": "00000000-0000-4000-8000-000000000001",
   "scores": {
     "needs_tier2": 0.81
   }
