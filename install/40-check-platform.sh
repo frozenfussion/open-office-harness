@@ -69,13 +69,13 @@ rc=0
 body="$(curl --connect-timeout 10 --max-time 30 -fsS "$issuer/.well-known/openid-configuration" 2>/dev/null)" || rc=1
 jq -e --arg issuer "$issuer" '.issuer == $issuer' <<< "$body" >/dev/null 2>&1 || rc=1
 result "$rc" 'OIDC issuer and trusted TLS' 'expected ooh issuer; check realm import, hostname and certificate'
-while read -r name partitions retention; do
+while read -r name partitions retention <&3; do
   resource="${name//./-}"
   rc=0
   topic="$(kubectl -n "$PLATFORM_NAMESPACE" get kafkatopic "$resource" -o json 2>/dev/null)" || rc=1
   jq -e --arg name "$name" --argjson p "$partitions" --argjson r "$retention" '.spec.topicName == $name and .spec.partitions == $p and .spec.replicas == 1 and .spec.config["retention.ms"] == $r and .spec.config["min.insync.replicas"] == 1 and (.metadata.generation as $g | .status.observedGeneration == $g) and any(.status.conditions[]?; .type == "Ready" and .status == "True")' <<< "$topic" >/dev/null 2>&1 || rc=1
   result "$rc" "topic $name" 'topic configuration or reconciliation differs; re-run platform apply and inspect KafkaTopic'
-done <<'TOPICS'
+done 3<<'TOPICS'
 skill.requests.slides 3 604800000
 skill.results 3 604800000
 approvals.requested 3 2592000000
@@ -170,11 +170,11 @@ check_retention() {
   shift 2
   claims="$(kubectl -n "$namespace" get pvc "$@" -o json 2>/dev/null)" || rc=1
   jq -e '.items | length > 0 and all(.[]; .status.phase == "Bound" and (.spec.volumeName // "") != "")' <<< "$claims" >/dev/null 2>&1 || rc=1
-  while IFS=$'\t' read -r name volume; do
+  while IFS=$'\t' read -r name volume <&3; do
     [[ -n "$volume" ]] || continue
     pv="$(kubectl get pv "$volume" -o json 2>/dev/null)" || rc=1
     jq -e --arg namespace "$namespace" --arg name "$name" '.spec.persistentVolumeReclaimPolicy == "Retain" and .spec.storageClassName == "local-path" and .status.phase == "Bound" and .spec.claimRef.namespace == $namespace and .spec.claimRef.name == $name' <<< "$pv" >/dev/null 2>&1 || rc=1
-  done < <(jq -r '.items[]? | select(.status.phase == "Bound") | [.metadata.name,.spec.volumeName] | @tsv' <<< "$claims" 2>/dev/null)
+  done 3< <(jq -r '.items[]? | select(.status.phase == "Bound") | [.metadata.name,.spec.volumeName] | @tsv' <<< "$claims" 2>/dev/null)
   result "$rc" "PV retention $label" 'expected bound local-path PVs with Retain; re-run step 6 and inspect claims and PVs'
 }
 check_retention "$PLATFORM_NAMESPACE" Kafka -l strimzi.io/cluster=ooh-kafka

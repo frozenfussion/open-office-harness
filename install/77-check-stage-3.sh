@@ -349,7 +349,7 @@ while :; do
   after="&after=$cursor"
 done
 [[ "$(jq length <<< "$entries")" != 0 ]] || stop 'no chat model with a saved key; add one in Models & tiers'
-while IFS= read -r entry; do
+while IFS= read -r entry <&3; do
   id="$(jq -r '.model_entry_id' <<< "$entry")"
   # Display only bounded titles, never endpoint settings or provider responses.
   title="$(jq -r '.title | gsub("[\\r\\n\\t]"; " ") | .[0:100]' <<< "$entry")"
@@ -378,7 +378,7 @@ while IFS= read -r entry; do
   fi
   unset answer body payload follow third
 # One representative per connection type; registry values stay in memory only.
-done < <(jq -c 'sort_by(.api_type) | group_by(.api_type) | .[] | first' <<< "$entries")
+done 3< <(jq -c 'sort_by(.api_type) | group_by(.api_type) | .[] | first' <<< "$entries")
 rc=0
 unknown_job="$(cat /proc/sys/kernel/random/uuid)"
 request check GET "$harness_base/api/jobs/$unknown_job/file" && [[ "$status" == 404 ]] || rc=1

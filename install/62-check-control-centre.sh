@@ -275,11 +275,11 @@ kafka start >/dev/null || rc=1
 require "$rc" 'start Kafka check at newest offsets' 'check Kafka access and ensure no other ooh-stage-check consumer is running; retry this check'
 expect_request admin GET '/api/admin/models?limit=200' 200 'read check model entries'
 old_models="$(jq -er '[.[] | select(.model_id == "stage-check") | .model_entry_id] | .[]' <<< "$body")" || old_models=''
-while IFS= read -r old_id; do
+while IFS= read -r old_id <&3; do
   [[ -n "$old_id" ]] || continue
   uuid "$old_id" || stop "model response has an invalid id; inspect the API contract"
   expect_request admin DELETE "/api/admin/models/$old_id" 200 'remove earlier check model entry'
-done <<< "$old_models"
+done 3<<< "$old_models"
 model_payload='{"purpose":"chat","tier":99,"role":"backup","location":"cloud","api_type":"stage-check","endpoint_url":"https://stage-check.invalid","model_id":"stage-check","secret_ref":"stage-check-none","rate_limit_per_minute":1,"daily_budget":0}'
 expect_request admin POST /api/admin/models 201 'create tier 99 check model entry' "$model_payload"
 model_entry_id="$(jq -er '.model_entry_id' <<< "$body")"
@@ -360,11 +360,11 @@ while :; do
   pending_page="$body"
   jq -e 'type == "array"' <<< "$pending_page" >/dev/null || stop "approval list is not an array; inspect the API contract"
   stale_ids="$(jq -r '.[] | select(.action == "stage.check") | .id' <<< "$pending_page")"
-  while IFS= read -r stale_id; do
+  while IFS= read -r stale_id <&3; do
     [[ -n "$stale_id" ]] || continue
     uuid "$stale_id" || stop "approval response has an invalid id; inspect the API contract"
     expect_request admin POST "/api/admin/approvals/$stale_id/decision" 200 'reject stale stage check' '{"approved":false,"note":"stale stage check"}'
-  done <<< "$stale_ids"
+  done 3<<< "$stale_ids"
   [[ "$(jq 'length' <<< "$pending_page")" == 200 ]] || break
   cursor="$(jq -er 'last | .created_at + "," + .id' <<< "$pending_page")"
   next_before="&before=$(printf '%s' "$cursor" | form_encode)"
