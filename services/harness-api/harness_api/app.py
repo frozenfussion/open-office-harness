@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import sys
+import time
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
@@ -36,6 +37,7 @@ from .store import MAX_THINKING_CHARS, Store
 from .upstream import GatewayStream, Upstream
 
 TITLE_TIMEOUT_SECONDS = 20
+CHAT_PUBLISH_TIMEOUT_SECONDS = 12
 
 
 class Empty(BaseModel):
@@ -112,6 +114,8 @@ def create_app(
     notifications = JobEvents()
     job_store = jobs or Jobs(settings.database, upstream, bus, notifications)
 
+    chat_tasks: set[asyncio.Task[None]] = set()
+
     async def publish_chat(
         role: str,
         content: str,
@@ -125,39 +129,53 @@ def create_app(
         if not content or bus is None:
             return
         try:
-            await bus.publish(
-                "chat.messages",
-                envelope(
-                    "chat.message",
-                    str(correlation),
-                    user,
-                    {
-                        "conversation_id": str(conversation),
-                        "message_id": str(message),
-                        "role": role,
-                        "text": content[:20000],
-                        "tier": tier,
-                        "model_title": title,
-                    },
-                ),
-            )
+            async with asyncio.timeout(CHAT_PUBLISH_TIMEOUT_SECONDS):
+                await bus.publish(
+                    "chat.messages",
+                    envelope(
+                        "chat.message",
+                        str(correlation),
+                        user,
+                        {
+                            "conversation_id": str(conversation),
+                            "message_id": str(message),
+                            "role": role,
+                            "text": content[:20000],
+                            "tier": tier,
+                            "model_title": title,
+                        },
+                    ),
+                )
         except Exception:
-            record_failure("kafka_error", "chat_publish_failed")
+            record_failure(
+                "kafka_error", "chat_publish_failed", correlation_id=str(correlation)
+            )
+
+    def schedule_chat(*args: Any) -> None:
+        task = asyncio.create_task(publish_chat(*args))
+        chat_tasks.add(task)
+        task.add_done_callback(chat_tasks.discard)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         stop = asyncio.Event()
-        task = asyncio.create_task(kafka.run(job_store.handle, stop)) if kafka else None
+        task = (
+            asyncio.create_task(kafka.serve(job_store.handle, stop)) if kafka else None
+        )
         try:
             yield
         finally:
             stop.set()
             if task:
                 await task
+            if chat_tasks:
+                await asyncio.gather(*chat_tasks)
             if client is None:
                 await http.aclose()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app.state.chat_tasks = chat_tasks
+    app.state.kafka = kafka
     app.state.auth = auth
     app.state.upstream = upstream
     app.state.store = database
@@ -242,8 +260,6 @@ def create_app(
     async def health(request: Request) -> dict[str, str]:
         query(request)
         await database.health()
-        if kafka is not None and not kafka.alive:
-            raise ApiError(503, "unavailable", "Job consumer is unavailable.")
         return {"status": "ok"}
 
     @app.get("/api/me")
@@ -444,7 +460,7 @@ def create_app(
                         saved = True
                         if job_ids:
                             await job_store.attach(job_ids, message_id)
-                        await publish_chat(
+                        schedule_chat(
                             "assistant",
                             content,
                             identifier,
@@ -551,9 +567,7 @@ def create_app(
         correlation = await database.append(
             id, user_id, "user", body.content, "completed", tier
         )
-        await publish_chat(
-            "user", body.content, id, correlation, correlation, user_id, tier
-        )
+        schedule_chat("user", body.content, id, correlation, correlation, user_id, tier)
         note = None
         stream = None
         try:
@@ -637,10 +651,19 @@ def create_app(
             subscribers.add(queue)
             try:
                 while True:
+                    remaining = float(claims["exp"]) - time.time()
+                    if remaining <= 0:
+                        return
                     try:
-                        event = await asyncio.wait_for(queue.get(), timeout=15)
+                        event = await asyncio.wait_for(
+                            queue.get(), timeout=min(15, remaining)
+                        )
+                        if time.time() >= float(claims["exp"]):
+                            return
                         yield data(event)
                     except TimeoutError:
+                        if time.time() >= float(claims["exp"]):
+                            return
                         yield ": keep-alive\n\n"
             finally:
                 subscribers.discard(queue)

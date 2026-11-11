@@ -479,3 +479,52 @@ async def test_jobs_refusal_queue_failure_and_paging(
     assert (await jobs.listing(db_user, 20, None))[0]["error"][
         "code"
     ] == "queue_unavailable"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failed_audit", ["rights.check", "skill.requested"])
+async def test_audit_failure_keeps_queued_job_completable(
+    store: Store,
+    db_user: str,
+    h: Any,
+    failed_audit: str,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from harness_api.events import JobEvents, envelope
+    from harness_api.jobs import Jobs
+
+    published = []
+
+    async def publish(topic: str, event: dict[str, Any]) -> None:
+        if topic == "audit.events" and event["payload"]["action"] == failed_audit:
+            raise RuntimeError("synthetic audit outage")
+        published.append((topic, event))
+
+    monkeypatch.setattr(h.publisher, "publish", publish)
+    jobs = Jobs(store.connection, h.app.state.upstream, h.publisher, JobEvents())
+    conversation = await store.create(db_user)
+    result, card = await jobs.start(
+        db_user, conversation, {"name": "slides", "arguments": {"topic": "Example"}}
+    )
+    assert result["status"] == card["status"] == "queued"
+    assert any(topic == "skill.requests.slides" for topic, _ in published)
+    output = {
+        "file_key": "outputs/slides/example.pptx",
+        "mime": "application/octet-stream",
+        "summary": "Example",
+    }
+    await jobs.handle(
+        "skill.results",
+        envelope(
+            "skill.result",
+            result["job_id"],
+            db_user,
+            {"skill": "slides", "status": "completed", "output": output, "error": None},
+        ),
+    )
+    assert (await jobs.get(UUID(result["job_id"]), db_user))["status"] == "completed"
+    assert any(
+        getattr(record, "code", "") == "audit_publish_failed"
+        for record in caplog.records
+    )

@@ -63,34 +63,60 @@ class Kafka:
             "sasl.password": settings.kafka_password,
             "log_level": 0,
         }
-        self.producer = Producer(config)
-        self.consumer = Consumer(
-            {
-                **config,
-                "group.id": "harness-api",
-                "enable.auto.commit": False,
-                "auto.offset.reset": "earliest",
-            }
-        )
-        self.consumer.subscribe(["skill.results", "approvals.decided"])
+        self.producer = Producer({**config, "message.timeout.ms": 10000})
+        self.consumer_config = {
+            **config,
+            "group.id": "harness-api",
+            "enable.auto.commit": False,
+            "auto.offset.reset": "earliest",
+        }
+        self.consumer = self.new_consumer()
         self.schema = validator()
         self.alive = False
 
+    def new_consumer(self) -> Consumer:
+        consumer = Consumer(self.consumer_config)
+        consumer.subscribe(["skill.results", "approvals.decided"])
+        return consumer
+
     async def publish(self, topic: str, event: dict[str, Any]) -> None:
         def send() -> None:
-            errors = []
+            deliveries: list[Any] = []
             self.producer.produce(
                 topic,
                 key=event["correlation_id"],
                 value=json.dumps(event),
-                on_delivery=lambda error, message: (
-                    errors.append(error) if error else None
-                ),
+                on_delivery=lambda error, message: deliveries.append(error),
             )
-            if self.producer.flush(10) or errors:
+            # Allow the client's delivery deadline to expire before declaring failure.
+            self.producer.flush(11)
+            if not deliveries:
+                self.producer.purge(in_queue=True, in_flight=True, blocking=True)
+                self.producer.flush(1)
+            if deliveries != [None]:
                 raise RuntimeError("queue_unavailable")
 
         await asyncio.to_thread(send)
+
+    async def serve(
+        self,
+        handle: Callable[[str, dict[str, Any]], Awaitable[None]],
+        stop: asyncio.Event,
+    ) -> None:
+        rebuild = False
+        while not stop.is_set():
+            try:
+                if rebuild:
+                    self.consumer = await asyncio.to_thread(self.new_consumer)
+                await self.run(handle, stop)
+            except Exception:
+                failure("kafka_error", "consumer_stopped")
+            if not stop.is_set():
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=5)
+                except TimeoutError:
+                    pass
+            rebuild = True
 
     async def run(
         self,
@@ -103,8 +129,12 @@ class Kafka:
                 message = await asyncio.to_thread(self.consumer.poll, 1)
                 if message is None:
                     continue
-                if message.error():
-                    raise RuntimeError("consumer_error")
+                error = message.error()
+                if error:
+                    if error.fatal():
+                        raise RuntimeError("consumer_error")
+                    failure("kafka_error", "consumer_poll_error")
+                    continue
                 raw = message.value().decode("utf-8", errors="replace")
                 event: dict[str, Any] = {}
                 try:
@@ -133,9 +163,6 @@ class Kafka:
                 await asyncio.to_thread(
                     self.consumer.commit, message=message, asynchronous=False
                 )
-        except Exception:
-            failure("kafka_error", "consumer_stopped")
-            raise
         finally:
             self.alive = False
             await asyncio.to_thread(self.consumer.close)

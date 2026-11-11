@@ -475,7 +475,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       description: 'User-scoped job events. Sends : keep-alive comments every 15 seconds. Reload /api/jobs
-        on every reconnect.'
+        on every reconnect. Closes when the verified access token expires.'
   /api/me:
     get:
       operationId: get_api_me

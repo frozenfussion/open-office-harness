@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
@@ -306,5 +307,9 @@ async def h(private_key: Any) -> AsyncIterator[Harness]:
     with respx.mock(assert_all_called=False) as router:
         harness = Harness(router, private_key)
         yield harness
+        tasks = list(harness.app.state.chat_tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         await harness.client.aclose()
         await harness.http.aclose()

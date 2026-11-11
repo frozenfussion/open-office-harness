@@ -60,7 +60,7 @@
    kubectl -n ooh-apps logs deployment/harness-api -c harness-api --tail=100
    ```
 
-   Logs identify API failures with fixed event names and codes (and a tier for stream failures or budget fallback). Server log lines keep the logger name, a fixed message category and the exception type when available; exception messages and traceback text are excluded. They contain no prompts, answers, user IDs or credentials. Access logs are disabled.
+   Logs identify API failures with fixed event names and codes (and a tier for stream failures or budget fallback). Kafka failures include only fixed codes and validated correlation ids. Server log lines keep the logger name, a fixed message category and the exception type when available; exception messages and traceback text are excluded. They contain no prompts, answers, user IDs or credentials. Access logs are disabled.
 
 6. **Read migration logs if deployment stops.**
 
@@ -148,7 +148,7 @@ Neither script needs sudo. Resolve the named problem and run the same script aga
 
 ## API and storage
 
-Every `/api` route requires a signed, unexpired Keycloak user token with audience `ooh-harness-api`, issuer `HA_OIDC_ISSUER` and non-empty `sub`. Health alone is public and checks PostgreSQL and the Kafka consumer. Unknown inputs return `400` JSON without echoing the input. Jobs, downloads and live job events are built. Uploads return `503 not_built_yet` with "Uploads are not built yet."
+Every `/api` route requires a signed, unexpired Keycloak user token with audience `ooh-harness-api`, issuer `HA_OIDC_ISSUER` and non-empty `sub`. Health alone is public and checks PostgreSQL. Unknown inputs return `400` JSON without echoing the input. Jobs, downloads and live job events are built. Uploads return `503 not_built_yet` with "Uploads are not built yet."
 
 `GET /api/me` first observes the verified user's profile through the Control Centre, then reads rights and allowed skill titles. Its answer includes `access`: `approved`, `pending`, `rejected` or `closed` (new requests are temporarily full). The observe call uses the Harness service token and the exact user `sub`. Only the signed token supplies profile fields: name, email, organisation and access reason are trimmed and limited to 200, 320, 100 and 300 characters respectively; missing or non-string values become null. `is_admin` is true only when the verified token's `realm_access.roles` list contains `ooh-admin`. An observe failure or invalid status returns `503 rights_unavailable` before any rights call. The Control Centre owns approval and blocks grants for unapproved people; the Harness does not decide access. Other Harness routes are unchanged.
 
@@ -180,7 +180,7 @@ The ConfigMap supplies `HA_OIDC_ISSUER`, `HA_OIDC_AUDIENCE`, `HA_CLIENT_ID`, `HA
 
 Python is 3.14.10. The image uses `python:3.14.10-slim-trixie` for both stages; uv 0.13.7 is digest-pinned and present only in the build stage. The runtime uses user 10001, a read-only root, disabled bytecode writes and unbuffered stdout. `/tmp` is a bounded memory volume. The workflow builds, loads, checks the runtime, then pushes its 12-character commit tag. Runtime dependencies and all transitive versions are fixed in `uv.lock`.
 
-The migration command applies numbered SQL files in order under a transaction advisory lock. SHA-256 checksums prevent changed applied migrations. It accepts only databases `harness` and `harness_test`; the journal is append-only. The in-process Kafka consumer uses group `harness-api`, handles `skill.results` and `approvals.decided`, inserts `processed_events` in the same transaction as the job update and ignores duplicate and unknown events. Invalid messages go straight to their dead-letter topic; other failures retry after 1, 5 and 15 seconds. A terminal job never changes from a later result. Approval rechecks rights and fails closed with `right_removed` or `rights_unavailable`. The consumer uses no real Kafka in unit tests.
+The migration command applies numbered SQL files in order under a transaction advisory lock. SHA-256 checksums prevent changed applied migrations. It accepts only databases `harness` and `harness_test`; the journal is append-only. The in-process Kafka consumer uses group `harness-api`, handles `skill.results` and `approvals.decided`, inserts `processed_events` in the same transaction as the job update and ignores duplicate and unknown events. Non-fatal Kafka errors keep polling. After a stopped consumer or failed dead-letter publish, the consumer is rebuilt after five seconds; chat readiness depends only on the database. Invalid messages go straight to their dead-letter topic; other failures retry after 1, 5 and 15 seconds. A terminal job never changes from a later result. Approval rechecks rights and fails closed with `right_removed` or `rights_unavailable`. The consumer uses no real Kafka in unit tests.
 
 ## Jobs, files and Kafka
 
@@ -189,7 +189,7 @@ creation time then id, newest first. `before` must identify this user's job.
 Rows carry title, label (topic cut to 80 characters), state, times, output and
 error. The Jobs panel reloads on each SSE reconnect. `GET /api/events` sends
 user-scoped `job.*` events in the existing contract shape (`correlation_id`
-is the job id), with `: keep-alive` comments every 15 seconds.
+is the job id), with `: keep-alive` comments every 15 seconds. The stream closes when its verified token expires; the Workspace reconnects with a fresh token.
 
 `GET /api/jobs/{job_id}/file` streams only this user's completed job file under
 `/files/outputs/` as an attachment. Unknown jobs, other owners, missing files,
@@ -203,8 +203,11 @@ The observe call marks service accounts from a verified `client_id` claim or a
 `preferred_username` beginning `service-account-`.
 
 Stored user and completed assistant text is published to `chat.messages`, cut
-to 20,000 characters; empty text is omitted and a publish failure does not stop
-chat. The turn's user message id is its correlation id, also used on chat and
+to 20,000 characters; empty text is omitted. Publishing runs in retained asynchronous tasks with a
+12-second limit, so broker failure cannot delay chat. Both Kafka producers use
+a 10-second message delivery timeout; unresolved messages are purged before
+reporting failure. Audit publish failures are logged and never fail a job whose
+request was queued successfully. The turn's user message id is its correlation id, also used on chat and
 title Gateway calls. Job events and worker calls use the job's own id.
 
 Configuration adds `HA_KAFKA_BOOTSTRAP`, `HA_KAFKA_USERNAME`,

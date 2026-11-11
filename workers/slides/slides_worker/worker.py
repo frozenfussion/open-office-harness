@@ -254,6 +254,13 @@ class Worker:
             for attempt in range(2):
                 text = self.gateway.call(event, correction)
                 try:
+                    lines = text.strip().splitlines()
+                    if (
+                        len(lines) >= 3
+                        and lines[0].strip().lower() in {"```", "```json"}
+                        and lines[-1].strip() == "```"
+                    ):
+                        text = "\n".join(lines[1:-1]).strip()
                     deck = Deck.model_validate_json(text)
                     break
                 except ValueError:

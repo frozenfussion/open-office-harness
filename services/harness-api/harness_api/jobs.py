@@ -8,6 +8,7 @@ from jsonschema import Draft202012Validator
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from .diagnostics import failure
 from .errors import ApiError
 from .events import JobEvents, Publisher, envelope
 from .upstream import Upstream
@@ -74,8 +75,7 @@ class Jobs:
                 ),
             )
         try:
-            await self.publisher.publish(
-                "audit.events",
+            await self.audit(
                 envelope(
                     "audit.event",
                     str(identifier),
@@ -112,8 +112,7 @@ class Jobs:
             await self.publisher.publish(
                 topic, envelope(kind, str(identifier), user, payload)
             )
-            await self.publisher.publish(
-                "audit.events",
+            await self.audit(
                 envelope(
                     "audit.event",
                     str(identifier),
@@ -169,6 +168,16 @@ class Jobs:
             },
         )
         return result, event
+
+    async def audit(self, event: dict[str, Any]) -> None:
+        try:
+            await self.publisher.publish("audit.events", event)
+        except Exception:
+            failure(
+                "kafka_error",
+                "audit_publish_failed",
+                correlation_id=event["correlation_id"],
+            )
 
     async def attach(self, identifiers: list[str], message_id: UUID) -> None:
         async with await psycopg.AsyncConnection.connect(self.connection) as db:

@@ -9,7 +9,7 @@ EKS storage is Stage 6; workers and the Harness will keep the same paths.
 |---|---|
 | Skill output | `outputs/<skill>/<correlation_id>/<file>` |
 | Slides output | `outputs/slides/<correlation_id>/<safe-title>.pptx` |
-| Worker health probe | `checks/slides-worker-health` |
+| Worker health probe | `outputs/slides/.health` |
 
 The Slides worker creates `outputs/slides/` with mode 0755, writes a temporary
 file in the destination folder, then renames it when complete. The title slug

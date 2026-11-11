@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import asyncio
 import json
+import time
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -250,7 +251,9 @@ async def test_event_stream_isolated_and_cleanup(h: Harness) -> None:
     from starlette.requests import Request
 
     request = Request({"type": "http", "query_string": b""})
-    response = await route.endpoint(request, {"sub": "test-user"})
+    response = await route.endpoint(
+        request, {"sub": "test-user", "exp": time.time() + 300}
+    )
     iterator = response.body_iterator
     waiting = asyncio.create_task(anext(iterator))
     await asyncio.sleep(0)
@@ -309,7 +312,8 @@ async def test_keep_alive(h: Harness, monkeypatch: pytest.MonkeyPatch) -> None:
 
     route = next(route for route in h.app.routes if route.path == "/api/events")
     response = await route.endpoint(
-        Request({"type": "http", "query_string": b""}), {"sub": "test-user"}
+        Request({"type": "http", "query_string": b""}),
+        {"sub": "test-user", "exp": time.time() + 300},
     )
 
     async def timeout(awaitable: Any, **kwargs: Any) -> None:

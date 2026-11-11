@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import json
 import logging
+import os
 import sys
 import threading
 from collections.abc import AsyncIterator
@@ -28,7 +29,7 @@ class Kafka:
             "sasl.password": settings.kafka_password,
             "log_level": 0,
         }
-        self.producer = Producer(config)
+        self.producer = Producer({**config, "message.timeout.ms": 10000})
         self.consumer = Consumer(
             {
                 **config,
@@ -41,14 +42,18 @@ class Kafka:
         self.consumer.subscribe(["skill.requests.slides"])
 
     def publish(self, topic: str, event: dict[str, Any]) -> None:
-        errors: list[Any] = []
+        deliveries: list[Any] = []
         self.producer.produce(
             topic,
             key=event["correlation_id"],
             value=json.dumps(event),
-            on_delivery=lambda error, message: errors.append(error) if error else None,
+            on_delivery=lambda error, message: deliveries.append(error),
         )
-        if self.producer.flush(10) or errors:
+        self.producer.flush(11)
+        if not deliveries:
+            self.producer.purge(in_queue=True, in_flight=True, blocking=True)
+            self.producer.flush(1)
+        if deliveries != [None]:
             raise RuntimeError("queue_unavailable")
 
 
@@ -65,15 +70,31 @@ class Runtime:
                 message = self.kafka.consumer.poll(1)
                 if message is None:
                     continue
-                if message.error():
-                    raise RuntimeError("consumer_error")
+                error = message.error()
+                if error:
+                    if error.fatal():
+                        raise RuntimeError("consumer_error")
+                    logging.getLogger("slides").warning(
+                        "consumer_poll_error",
+                        extra={"event": "consumer_poll_error", "code": "unavailable"},
+                    )
+                    continue
                 self.worker.process(message.value().decode("utf-8", errors="replace"))
                 self.kafka.consumer.commit(message=message, asynchronous=False)
         except Exception:
             self.fatal = True
-            logging.getLogger("slides").error("consumer_stopped")
         finally:
-            self.kafka.consumer.close()
+            try:
+                self.kafka.consumer.close()
+            except Exception:
+                self.fatal = True
+            if self.fatal or not self.stop.is_set():
+                logging.getLogger("slides").error(
+                    "consumer_stopped",
+                    extra={"event": "consumer_stopped", "code": "unavailable"},
+                )
+                logging.shutdown()
+                os._exit(1)
 
     def healthy(self) -> bool:
         return self.thread.is_alive() and not self.fatal
@@ -108,9 +129,9 @@ def create_app(settings: Settings, runtime: Runtime | None = None) -> FastAPI:
         try:
             if runtime is None or not runtime.healthy():
                 raise OSError("consumer_unavailable")
-            checks = Path(settings.files_root) / "checks"
-            checks.mkdir(mode=0o755, exist_ok=True)
-            (checks / "slides-worker-health").write_text("ok\n")
+            outputs = Path(settings.files_root) / "outputs/slides"
+            outputs.mkdir(mode=0o755, parents=True, exist_ok=True)
+            (outputs / ".health").write_text("ok\n")
         except OSError:
             return JSONResponse({"status": "down"}, status_code=503)
         return JSONResponse({"status": "ok"})

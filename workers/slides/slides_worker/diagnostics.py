@@ -20,6 +20,8 @@ EVENTS = frozenset(
         "token_error",
         "request_error",
         "title_failed",
+        "consumer_stopped",
+        "consumer_poll_error",
     }
 )
 CODES = frozenset(

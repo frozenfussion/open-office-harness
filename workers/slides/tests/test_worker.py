@@ -202,15 +202,17 @@ async def test_health_fixed_file(tmp_path: Path) -> None:
         "http://gateway.invalid",
         str(tmp_path),
     )
+    (tmp_path / "checks").write_text("unavailable platform check path")
     app = create_app(settings, Healthy())
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app), base_url="http://worker.test"
     ) as client:
         for _ in range(2):
             assert (await client.get("/health")).status_code == 200
-    assert [path.name for path in (tmp_path / "checks").iterdir()] == [
-        "slides-worker-health"
+    assert [path.name for path in (tmp_path / "outputs/slides").iterdir()] == [
+        ".health"
     ]
+    assert (tmp_path / "checks").read_text() == "unavailable platform check path"
 
 
 @pytest.fixture
@@ -250,3 +252,147 @@ def test_gateway_contract_and_timeout() -> None:
         assert gateway.call(event, None) == "{}"
         assert gateway.call(event, "Expected JSON") == "{}"
     assert len(calls) == 3
+
+
+@pytest.mark.parametrize("fence", ["```json", "```", "  ```json  "])
+def test_fenced_json_needs_one_model_call(tmp_path: Path, fence: str) -> None:
+    model, publisher = Model(), Publisher()
+    model.output = " \n" + fence + "\n" + model.output + "\n```\n "
+    Worker(str(tmp_path), model, publisher).process(json.dumps(request()))
+    assert model.calls == 1
+    assert publisher.events[0][1]["payload"]["status"] == "completed"
+
+
+@pytest.mark.parametrize("failure", ["none", "fatal", "publish", "close"])
+def test_consumer_nonfatal_errors_and_process_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    failure: str,
+) -> None:
+    import slides_worker.app as module
+
+    model, publisher = Model(), Publisher()
+    worker = Worker(str(tmp_path), model, publisher)
+    processed = []
+
+    def process(raw: str) -> None:
+        processed.append(raw)
+        if failure == "publish":
+            raise RuntimeError("synthetic publish failure")
+
+    monkeypatch.setattr(worker, "process", process)
+
+    class Error:
+        def fatal(self) -> bool:
+            return failure == "fatal"
+
+    class Message:
+        def __init__(self, error: Error | None) -> None:
+            self.poll_error = error
+
+        def error(self) -> Error | None:
+            return self.poll_error
+
+        def value(self) -> bytes:
+            return b"synthetic"
+
+    class Consumer:
+        def __init__(self) -> None:
+            self.messages = [Message(Error()), Message(None)]
+            self.closed = False
+            self.commits = 0
+
+        def poll(self, seconds: int) -> Message:
+            return self.messages.pop(0)
+
+        def commit(self, **kwargs: Any) -> None:
+            self.commits += 1
+            runtime.stop.set()
+
+        def close(self) -> None:
+            self.closed = True
+            if failure == "close":
+                raise RuntimeError("synthetic close failure")
+
+    class Kafka:
+        consumer = Consumer()
+
+    kafka = Kafka()
+    runtime = Runtime(worker, kafka)
+    exits = []
+    monkeypatch.setattr(module.os, "_exit", exits.append)
+    monkeypatch.setattr(module.logging, "shutdown", lambda: None)
+    runtime.run()
+    assert kafka.consumer.closed
+    if failure == "none":
+        assert processed == ["synthetic"] and kafka.consumer.commits == 1
+        assert exits == [] and not runtime.fatal
+        assert any(record.message == "consumer_poll_error" for record in caplog.records)
+    else:
+        assert exits == [1] and runtime.fatal
+        assert any(
+            getattr(record, "event", "") == "consumer_stopped"
+            for record in caplog.records
+        )
+        assert kafka.consumer.commits == (1 if failure == "close" else 0)
+
+
+@pytest.mark.parametrize("mode", ["success", "timeout", "hang"])
+def test_worker_producer_deadline_and_purge(
+    monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    import slides_worker.app as module
+
+    class Producer:
+        def __init__(self, config: dict[str, Any]) -> None:
+            assert config["message.timeout.ms"] == 10000
+            self.callback: Any = None
+            self.pending = False
+            self.purged = False
+
+        def produce(self, topic: str, **kwargs: Any) -> None:
+            self.callback = kwargs["on_delivery"]
+            self.pending = True
+
+        def flush(self, seconds: int) -> int:
+            assert seconds in {1, 11}
+            if mode != "hang" and self.pending:
+                self.pending = False
+                self.callback(
+                    None if mode == "success" else RuntimeError("timeout"), None
+                )
+            return int(self.pending)
+
+        def purge(self, **kwargs: Any) -> None:
+            assert kwargs == {"in_queue": True, "in_flight": True, "blocking": True}
+            self.purged = True
+            self.pending = False
+            self.callback(RuntimeError("purged"), None)
+
+    class Consumer:
+        def __init__(self, config: dict[str, Any]) -> None:
+            pass
+
+        def subscribe(self, topics: list[str]) -> None:
+            assert topics == ["skill.requests.slides"]
+
+    monkeypatch.setattr(module, "Producer", Producer)
+    monkeypatch.setattr(module, "Consumer", Consumer)
+    settings = Settings(
+        "unused",
+        "unused",
+        "synthetic",
+        "https://identity.invalid",
+        "worker",
+        "synthetic",
+        "http://gateway.invalid",
+    )
+    kafka = module.Kafka(settings)
+    if mode == "success":
+        kafka.publish("skill.results", {"correlation_id": str(uuid4())})
+    else:
+        with pytest.raises(RuntimeError, match="queue_unavailable"):
+            kafka.publish("skill.results", {"correlation_id": str(uuid4())})
+    assert not kafka.producer.pending
+    assert kafka.producer.purged == (mode == "hang")

@@ -153,8 +153,10 @@ for a bad shape. Each Gateway call keeps its own time limit; there is no shared
 attempt deadline. The Kafka poll interval is 7,400,000 ms (binding spec section
 14 row 7), covering four attempts of two 910-second calls plus retry waits and
 margin. Health means the consumer thread is alive without a fatal error, even
-while a model is taking time. It also rewrites only
-`/files/checks/slides-worker-health` to prove the volume is writable.
+while a model is taking time. Non-fatal Kafka errors keep polling. An unexpected
+consumer-thread stop logs `consumer_stopped` and ends the process with exit 1
+so Kubernetes restarts it. Normal shutdown finishes without a forced exit. It also rewrites only
+`/files/outputs/slides/.health` to prove the volume is writable.
 
 The worker makes a title slide and 3–12 content slides in a 16:9 presentation,
 using colours from the repository design tokens copied at image build time.
@@ -169,3 +171,7 @@ Settings: `SW_KAFKA_BOOTSTRAP`, `SW_KAFKA_USERNAME`, `SW_KAFKA_PASSWORD`,
 The pod runs as user 10001 with a read-only root and the existing file volume
 mounted read-write. The worker creates its own `outputs/slides/` folder with
 mode 0755; it does not claim fsGroup ownership of the volume.
+
+Both producers use a 10,000 ms message delivery timeout. Delivery callbacks are
+checked after that deadline; any message still queued is purged before reporting
+failure. A single surrounding JSON code fence is removed before deck validation.
