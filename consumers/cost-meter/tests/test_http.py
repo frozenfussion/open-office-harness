@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import json
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -135,3 +135,104 @@ def test_cost_amounts_are_json_numbers_rounded_to_six_places(
     for value in (wire["total_usd"], wire["by_model"][0]["cost_usd"]):
         assert isinstance(value, (float, int)) and not isinstance(value, bool)
         assert value == expected
+
+
+@pytest.mark.parametrize(
+    "start,end",
+    [
+        ("2026-11-10T16:00:00Z", "2026-11-11T16:00:00Z"),
+        ("2026-11-10T16:00:00+00:00", "2026-12-11T16:00:00+00:00"),
+    ],
+)
+def test_summary_range_passes_exact_utc_bounds_and_uses_from_date(
+    start: str, end: str
+) -> None:
+    client, key, config = setup()
+    calls = []
+
+    class Ranged(Database):
+        async def costs(
+            self, day: Any, *, bounds: tuple[datetime, datetime] | None = None
+        ) -> dict:
+            calls.append((day, bounds))
+            return {
+                "day": day.isoformat(),
+                "total_usd": Decimal("0.000451"),
+                "calls": 2,
+                "tokens": 5,
+                "by_model": [
+                    {
+                        "model": "Fake entry",
+                        "calls": 2,
+                        "tokens": 5,
+                        "cost_usd": Decimal("0.000451"),
+                    }
+                ],
+            }
+
+    client.app.state.db = Ranged()
+    headers = {"Authorization": "Bearer " + token(key, config)}
+    response = client.get(
+        "/v1/costs", params={"from": start, "to": end}, headers=headers
+    )
+    assert response.status_code == 200
+    wire = json.loads(response.content)
+    assert wire["day"] == "2026-11-10"
+    assert calls == [
+        (
+            date(2026, 11, 10),
+            (datetime.fromisoformat(start), datetime.fromisoformat(end)),
+        )
+    ]
+    assert set(wire) == {"day", "total_usd", "calls", "tokens", "by_model"}
+    assert isinstance(wire["total_usd"], (int, float)) and wire["total_usd"] == 0.000451
+    assert isinstance(wire["by_model"][0]["cost_usd"], (int, float))
+    # Explicit bounds remain authoritative if the legacy day is also supplied.
+    response = client.get(
+        "/v1/costs",
+        params={"from": start, "to": end, "day": "2026-11-11"},
+        headers=headers,
+    )
+    assert response.status_code == 200 and response.json()["day"] == "2026-11-10"
+    assert client.get("/v1/costs", params={"from": start, "to": end}).status_code == 401
+    assert (
+        client.get(
+            "/v1/costs",
+            params={"from": start, "to": end},
+            headers={
+                "Authorization": "Bearer " + token(key, config, azp="ooh-harness-api")
+            },
+        ).status_code
+        == 403
+    )
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        {},
+        {"from": "2026-11-10T16:00:00Z"},
+        {"to": "2026-11-11T16:00:00Z"},
+        {"day": "2026-11-11", "from": "2026-11-10T16:00:00Z"},
+        {"from": "2026-11-10T16:00:00", "to": "2026-11-11T16:00:00Z"},
+        {"from": "2026-11-10T16:00:00Z", "to": "2026-11-11T16:00:00"},
+        {"from": "2026-11-10T16:00:00+08:00", "to": "2026-11-11T16:00:00Z"},
+        {"from": "2026-11-10T16:00:00Z", "to": "2026-11-11T16:00:00-01:00"},
+        {"from": "2026-11-10", "to": "2026-11-11T16:00:00Z"},
+        {"from": "bad", "to": "2026-11-11T16:00:00Z"},
+        {"from": "1794326400", "to": "2026-11-11T16:00:00Z"},
+        {"from": "2026-11-10T16:00:00Z", "to": ""},
+        {"from": "2026-11-10T16:00:00Z", "to": "2026-11-10T16:00:00Z"},
+        {"from": "2026-11-11T16:00:00Z", "to": "2026-11-10T16:00:00Z"},
+        {"from": "2026-11-10T16:00:00Z", "to": "2026-12-11T16:00:00.000001Z"},
+    ],
+)
+def test_invalid_summary_ranges_are_rejected(query: dict[str, str]) -> None:
+    client, key, config = setup()
+    response = client.get(
+        "/v1/costs",
+        params=query,
+        headers={"Authorization": "Bearer " + token(key, config)},
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "invalid_input"

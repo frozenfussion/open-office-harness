@@ -102,6 +102,16 @@
 
 Consumes `audit.events` into the append-only `trail` table in `auditwriter`. The owner runs migrations; the app role can SELECT/INSERT only. Database triggers reject UPDATE, DELETE and TRUNCATE for both roles. HTTP callers must be the Control Centre service account with audience `ooh-audit-writer`. `/v1/trail` accepts correlation ID, user ID, actor, action, before ID and limit (1–200, default 50); rows are newest first by event time and ID. `/v1/counts?day=YYYY-MM-DD` returns UTC counts by action and distinct real-user IDs, excluding `system` and the prefixes `title-`, `admin-test-`, `stage-check-`, `service-account-`.
 
+### Summary route date selection
+
+`GET /v1/counts?day=YYYY-MM-DD` still selects that whole UTC day. Alternatively, send `from` and `to` together as ISO 8601 UTC timestamps (`Z` or a zero UTC offset). The range includes `from` and excludes `to`; it must be positive and no longer than 31 days. Neither parameter may be supplied alone, even with `day`. A complete range takes precedence over `day` if both forms are sent. Invalid or missing date selection returns HTTP 400 `invalid_input`. The same caller and audience checks apply to both forms.
+
+The caller calculates display-zone boundaries and sends UTC instants. For the display day 11 November 2026 in Asia/Kuala_Lumpur, the internal request is `/v1/counts?from=2026-11-10T16:00:00Z&to=2026-11-11T16:00:00Z`. Response fields keep their existing types and shape; `day` is the UTC date of `from`, so this example returns `2026-11-10`. Zero offsets containing `+` must be URL-encoded in a query string. Example response:
+
+```json
+{"day":"2026-11-10","by_action":{"model.call":2},"distinct_users":1}
+```
+
 Every package has its own code, lock file and Dockerfile. Schemas are bundled under `consumer/schemas`; tests compare every bundled schema with its contract. Kafka uses SASL_PLAINTEXT / SCRAM-SHA-512, group `audit-writer`, manual commit after handling and earliest reset. Invalid envelope or payload goes directly to `dlq.<topic>`; other failures get three retries after 1, 5 and 15 seconds. A failed DLQ delivery stops the consumer without committing the input. A non-fatal Kafka poll error logs its numeric code and polling continues. A permanently stopped consumer logs `consumer_stopped` and exits the process with code 1 so Kubernetes restarts it. Logs contain only fixed status messages and numeric codes. No real Kafka or provider is used in unit tests.
 
 Outgoing event IDs are UUID v5 over the incoming ID plus outgoing type with the fixed contract namespace. A live process skips event IDs it already handled. The unique database key also drops duplicates after a restart. A dead letter keeps readable correlation/user IDs, otherwise a new UUID and `system`. The safety watcher's chat dead letters contain IDs only, including malformed payloads; never text or excerpts. Safety excerpts exist only in flagged approval messages, as Aziz explicitly approved.

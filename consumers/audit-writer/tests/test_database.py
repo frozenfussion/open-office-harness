@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import os
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -145,3 +145,34 @@ async def test_insert_idempotency_filters_and_utc_aggregates(
         )
         assert page1[0]["id"] not in {r["id"] for r in page2}
         assert len(page2) == 8
+
+
+@pytest.mark.anyio
+async def test_summary_range_is_half_open_and_crosses_utc_midnight(
+    connections: Connections, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await migrate(connections.owner)
+    connect = psycopg.AsyncConnection.connect
+    async with (
+        await connect(connections.app, row_factory=psycopg.rows.dict_row) as db,
+        db.transaction(force_rollback=True),
+    ):
+
+        async def borrowed(*args: Any, **kwargs: Any) -> Borrowed:
+            return Borrowed(db)
+
+        monkeypatch.setattr(psycopg.AsyncConnection, "connect", borrowed)
+        store = Database(connections.app)
+        start = datetime(2099, 5, 10, 16, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        for index, instant in enumerate(
+            [start - timedelta(microseconds=1), start, start + timedelta(hours=12), end]
+        ):
+            value = event()
+            value["occurred_at"] = instant.isoformat().replace("+00:00", "Z")
+            value["user_id"] = f"fake-window-person-{index}"
+            await store.handle("audit.events", value)
+        result = await store.counts(start.date(), bounds=(start, end))
+        assert result["day"] == "2099-05-10"
+        assert result["by_action"] == {"model.call": 2}
+        assert result["distinct_users"] == 2

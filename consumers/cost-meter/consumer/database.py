@@ -69,20 +69,23 @@ class Database:
         except psycopg.Error:
             raise RuntimeError("database_failed") from None
 
-    async def costs(self, day: date) -> dict[str, Any]:
+    async def costs(
+        self, day: date, *, bounds: tuple[datetime, datetime] | None = None
+    ) -> dict[str, Any]:
+        selected_bounds = bounds if bounds is not None else window(day)
         async with await psycopg.AsyncConnection.connect(
             self.connection, row_factory=dict_row
         ) as db:
             total = await (
                 await db.execute(
                     "SELECT coalesce(sum(cost_usd),0) AS total_usd,count(*) AS calls,coalesce(sum(tokens),0) AS tokens FROM model_costs WHERE occurred_at >= %s AND occurred_at < %s",
-                    window(day),
+                    selected_bounds,
                 )
             ).fetchone()
             rows = await (
                 await db.execute(
                     "SELECT model,count(*) AS calls,sum(tokens) AS tokens,sum(cost_usd) AS cost_usd FROM model_costs WHERE occurred_at >= %s AND occurred_at < %s GROUP BY model ORDER BY model",
-                    window(day),
+                    selected_bounds,
                 )
             ).fetchall()
             return {"day": day.isoformat(), **total, "by_model": rows}
