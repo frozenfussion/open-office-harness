@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: audit-writer
+  namespace: ${PLATFORM_NAMESPACE}
+  labels:
+    strimzi.io/cluster: ooh-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+    - resource:
+        type: topic
+        name: audit.events
+        patternType: literal
+      operations:
+      - Write
+      - Read
+      - Describe
+    - resource:
+        type: topic
+        name: dlq.audit.events
+        patternType: literal
+      operations:
+      - Write
+      - Describe
+    - resource:
+        type: group
+        name: audit-writer
+        patternType: literal
+      operations:
+      - Read

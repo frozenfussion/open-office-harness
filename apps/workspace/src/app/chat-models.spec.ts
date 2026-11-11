@@ -126,3 +126,33 @@ describe('Chat models', () => {
     expect(view.nativeElement.querySelector('[aria-label="Model to request"]')).toBeNull();
   });
 });
+
+describe('Skill requests',()=>{
+  afterEach(()=>{TestBed.resetTestingModule();vi.restoreAllMocks();});
+  async function fixture(request=vi.fn().mockResolvedValue({id:'request',status:'pending'})) {
+    TestBed.configureTestingModule({imports:[ChatModels],providers:[{provide:Api,useValue:{requestSkill:request}}]});
+    const view=TestBed.createComponent(ChatModels);
+    view.componentRef.setInput('me',{access:'approved',user_id:'test',name:'Test',chat_tiers:[1],chat_tier_titles:{},chat_tier_thinking_switch:{},requestable_tiers:[],skills:[{name:'test',title:'Your test skill'}],requestable_skills:[
+      {name:'slides',title:'Slides',description:'Creates a deck',requested:null},
+      {name:'pending',title:'Pending skill',description:'Waiting',requested:'pending'},
+      {name:'rejected',title:'Rejected skill',description:'Declined',requested:'rejected'},
+    ]});
+    view.componentRef.setInput('tier',1);view.detectChanges();
+    const app=view.componentInstance;app.skillsPanel.set(true);app.skillPanel.set(true);view.detectChanges();
+    return {view,app,request};
+  }
+  it('shows allowed skills, descriptions and pending/rejected states, and marks a sent request',async()=>{
+    const {view,app,request}=await fixture();app.requestSkill.set('slides');view.detectChanges();
+    expect(view.nativeElement.textContent).toContain('Your test skill');expect(view.nativeElement.textContent).toContain('Creates a deck');
+    expect(view.nativeElement.textContent).toContain('Pending skill · Requested');expect(view.nativeElement.textContent).toContain('Rejected skill · Not approved');
+    app.skillReason='  A reason  ';await app.sendSkillRequest();view.detectChanges();
+    expect(request).toHaveBeenCalledWith('slides','A reason');expect(app.selectedSkill()?.requested).toBe('pending');
+    await app.sendSkillRequest();expect(request).toHaveBeenCalledOnce();
+  });
+  it('shows conflict messages and refuses oversized reasons',async()=>{
+    const request=vi.fn().mockRejectedValue(new ApiError(409,'Ask again after seven days.','too_soon'));
+    const {app,view}=await fixture(request);app.requestSkill.set('rejected');app.skillReason='x'.repeat(301);
+    await app.sendSkillRequest();expect(request).not.toHaveBeenCalled();app.skillReason='';await app.sendSkillRequest();view.detectChanges();
+    expect(view.nativeElement.querySelector('[role="alert"]').textContent).toBe('Ask again after seven days.');
+  });
+});

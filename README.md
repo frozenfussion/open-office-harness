@@ -1,5 +1,206 @@
 # QUICK GUIDE
 
+## Stage 3 — Skills, jobs and admin screens
+
+Claude runs the non-sudo scripts below in the harness terminal, Shell tile,
+plain shell, while Aziz watches. No terminal password. First complete the
+Stage 0–2 setup below, including database, encryption and service credentials.
+Use the merged `stage-3` worktree. Replace `MERGED_IMAGE_TAG` with the merge
+commit's first 12 characters. Run all nine image workflows for that commit;
+wait for green builds. The same tag must exist for every image, including in
+phase 2. These steps also apply after merging the routing Part.
+
+1. **Prepare the platform and service credentials.** Type this in your harness
+   terminal, Shell tile, plain shell. This adds the Kafka users/topics, mounts
+   the branded sign-in theme, updates the realm, and prepares service Secrets
+   and the consumers' private test databases. Good result: every script says
+   `DONE`; the temporary check client stays disabled.
+
+   ```bash
+   cd ~/projects/worktrees/stage-3
+   install/30-platform-apply.sh
+   install/35-realm-sync.sh
+   install/66-harness-api-setup.sh
+   install/64-model-gateway-setup.sh
+   install/72-slides-worker-setup.sh
+   install/74-consumers-setup.sh
+   ```
+
+2. **Make the four new image packages public.** Aziz uses the GitHub package
+   settings after their first green build: Change visibility → Public for
+   [Slides worker](https://github.com/users/frozenfussion/packages/container/ooh-slides-worker/settings),
+   [Audit writer](https://github.com/users/frozenfussion/packages/container/ooh-audit-writer/settings),
+   [Cost meter](https://github.com/users/frozenfussion/packages/container/ooh-cost-meter/settings), and
+   [Safety watcher](https://github.com/users/frozenfussion/packages/container/ooh-safety-watcher/settings).
+   Good result: the images pull without signing in. Keep the five existing
+   packages public too.
+
+3. **Deploy the merged images.** Type this in your harness terminal, Shell tile,
+   plain shell. This runs migrations, starts the services, registers the Slides
+   manifest and updates both apps. Good result: Ready and `DONE` each time.
+   Deployment itself makes no paid model calls.
+
+   ```bash
+   cd ~/projects/worktrees/stage-3
+   install/61-control-centre-deploy.sh MERGED_IMAGE_TAG
+   install/65-model-gateway-deploy.sh MERGED_IMAGE_TAG
+   install/67-harness-api-deploy.sh MERGED_IMAGE_TAG
+   install/73-slides-worker-deploy.sh MERGED_IMAGE_TAG
+   install/75-consumers-deploy.sh MERGED_IMAGE_TAG
+   install/68-workspace-deploy.sh MERGED_IMAGE_TAG
+   install/69-admin-console-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+4. **Grant Slides and add a classifier.** Aziz opens
+   [People & rights](https://admin.faysalaziz.com) and ticks Slides for himself,
+   then saves. In Models & tiers, add purpose **classification**. Choose
+   **Jev System One** with your Jev service endpoint and its model identifier,
+   or a chat connection type with that service's endpoint and model identifier.
+   Enter any required key privately in the Console. Classification has no tier.
+   Set prices and limits for the saved entry. Test connection makes a short
+   **paid** call; good result: Works with time and a score. All endpoints,
+   model identifiers and keys are entered there, never into repository files.
+
+5. **Run the live checks.** Type this in your harness terminal, Shell tile,
+   plain shell. This checks the platform, Control Centre, chat and Stage 3.
+   Checks 70 and 77 make short **paid** calls. Check 77 makes a Slides job,
+   repeats it, sends a synthetic safety example, tests classification, and
+   makes up to four calls per chat connection type (including the retry when
+   thinking prevents a forced tool). Good result: all PASS, then `DONE`.
+   INFO safety scores need not create a flag; the check clears its own flag.
+   A download ownership check says `SKIP no other user's job yet` only when the
+   Harness database has no other-user job; complete the browser test below.
+   Check 62 uses the temporary admin client and needs no browser sign-in.
+
+   ```bash
+   cd ~/projects/worktrees/stage-3
+   install/40-check-platform.sh
+   install/62-check-control-centre.sh
+   install/70-check-stage-2.sh
+   install/77-check-stage-3.sh MERGED_IMAGE_TAG
+   ```
+
+6. **Check the browser flows.** In Workspace ask for slides, watch Queued turn
+   to Ready, then Download and open the PowerPoint file. Jobs and the chat card
+   show its topic and Request ID; Copy copies the full ID for the Audit filter.
+   With another account without Slides, use Chat model → Skills → Request a
+   skill… and Send request. Approve it in the Admin Console's Approvals screen;
+   refresh Workspace to load the new grant. That account must get 404 if it
+   opens the first account's job download address. Check Overview figures,
+   service health, People & rights changes, and Audit by the full Request ID.
+
+7. **Tune safety.** Edit `deploy/apps/safety-watcher/configmap.yaml`: change
+   `SF_QUESTIONS` (JSON) or `SF_THRESHOLD` (0–1). Keep thresholds and questions
+   in the ConfigMap. Type this in your harness terminal, Shell tile, plain
+   shell. This applies the new settings; good result: Ready and `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-3
+   install/75-consumers-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+8. **Status and images.** Type this in your harness terminal, Shell tile,
+   plain shell. This shows which image each service is running and whether it
+   is ready. Good result: all Deployments have their requested ready replicas.
+
+   ```bash
+   cd ~/projects/worktrees/stage-3
+   kubectl -n ooh-apps get deployments -o wide
+   kubectl -n ooh-apps get pods
+   ```
+
+9. **Read logs.** Type this in your harness terminal, Shell tile, plain shell.
+   This reads the last 100 log lines for each new service. Logs contain IDs and
+   status, never prompts, keys or file contents.
+
+   ```bash
+   cd ~/projects/worktrees/stage-3
+   kubectl -n ooh-apps logs deployment/slides-worker --tail=100
+   kubectl -n ooh-apps logs deployment/audit-writer --tail=100
+   kubectl -n ooh-apps logs deployment/cost-meter --tail=100
+   kubectl -n ooh-apps logs deployment/safety-watcher --tail=100
+   ```
+
+10. **Restart.** Type this in your harness terminal, Shell tile, plain shell.
+    Claude runs it while Aziz watches. This restarts each new service and waits
+    until it is ready. Good result: successfully rolled out. Kafka retains
+    queued work while a worker is down; the chat keeps answering.
+
+    ```bash
+    cd ~/projects/worktrees/stage-3
+    kubectl -n ooh-apps rollout restart deployment/slides-worker deployment/audit-writer deployment/cost-meter deployment/safety-watcher
+    kubectl -n ooh-apps rollout status deployment/slides-worker --timeout=300s
+    kubectl -n ooh-apps rollout status deployment/audit-writer --timeout=300s
+    kubectl -n ooh-apps rollout status deployment/cost-meter --timeout=300s
+    kubectl -n ooh-apps rollout status deployment/safety-watcher --timeout=300s
+    ```
+
+11. **Stop or start one new service.** Type this in your harness terminal,
+    Shell tile, plain shell. Claude runs it while Aziz watches. To stop the
+    Slides worker, use the first command; to start it, use the second and wait
+    for Ready. The same commands work with `audit-writer`, `cost-meter` or
+    `safety-watcher` in place of `slides-worker`. Stopping does not delete data.
+
+    ```bash
+    cd ~/projects/worktrees/stage-3
+    kubectl -n ooh-apps scale deployment/slides-worker --replicas=0
+    kubectl -n ooh-apps scale deployment/slides-worker --replicas=1
+    kubectl -n ooh-apps rollout status deployment/slides-worker --timeout=300s
+    ```
+
+12. **After a reboot.** Wait up to five minutes for Kubernetes to bring the
+    services back. Run step 5 again, then the browser checks in step 6. Never
+    rerun first-admin setup to recover an existing account. New administrators
+    keep the password they enter; it is not temporary.
+
+13. **Run the Workspace checks locally.** Type this in your harness terminal,
+    plain shell, in this Part's worktree. This installs the locked packages,
+    builds and runs the tests without changing the cluster. Good result: build
+    succeeds, all tests pass. Use the merged worktree for the combined checks.
+
+    ```bash
+    cd ~/projects/worktrees/stage-3-part-c/apps/workspace
+    npm ci
+    npx ng build
+    npx ng test --watch=false
+    ```
+
+Files stay on the retained `ooh-files` volume (20Gi). The Slides worker writes
+`outputs/slides/<request-id>/<safe-title>.pptx`; the Harness mounts it read-only
+and serves authenticated `GET /api/jobs/<job-id>/file` after checking ownership.
+No signed links. Uploads remain unavailable. Nothing deletes generated files.
+
+### Stage 3 STOP and FAIL help
+
+| Message or failed check | What to do |
+|---|---|
+| `STOP: another check is running` | Wait for it, or remove a stale lock only when its PID is gone (the script does this itself). Do not stop a running check to borrow its credentials. |
+| `FAIL ooh-stage-check enabled with no check running` | Run `install/77-check-stage-3.sh <tag>` once (it takes over the stale lock and disables the client on exit), then run 40 again. |
+| Check client missing, unavailable, invalid ID or cannot enable/disable; check token unavailable, request failed or lacks audience | Inspect Keycloak readiness; run 35 again when no check is running, then retry. Never print the secret or token. A disable failure leaves the lock held for exit cleanup to retry. |
+| `FAIL ooh-stage-check still enabled` / `STOP: check client did not disable` | Restore Keycloak connectivity, run 77 once to disable and rotate credentials, then run 40. |
+| `STOP: KafkaUser <name> not ready; re-run 30` | Run 30 and inspect the KafkaUser status, then repeat that service's setup. |
+| Secret changed / differs from Keycloak or Kafka | Inspect privately; never overwrite a live credential blindly. Setup scripts preserve existing matching values. |
+| Missing tool, invalid value, usage or missing local settings | Finish server setup or correct the named setting. Use a 12-character merge image tag and the command shown above. |
+| Pod or Deployment not ready; wrong image tag; image pull failure | Inspect status and logs, run the workflow for the merge commit, make its package public, deploy with the same tag. |
+| Realm branding, device sign-in or login stylesheet | Run 30 then 35. Inspect `ooh-keycloak-theme` and the Keycloak theme mount. No custom Keycloak image is needed. |
+| Kafka ACLs or thirteen topics | Compare `contracts/identity.md`, then run 30. Do not grant wildcard topic/group rights. |
+| Slides request/result, repeat ID, file or modification-time check | Inspect worker and Gateway health, model configuration, budget and `ooh-files` permissions. Worker writes as UID 10001; it creates its own output folder. |
+| Malformed message not in dead letters | Inspect worker DLQ publication and the Control Centre consumer; retry after both are Ready. |
+| Trail missing, Overview cost not a number | Inspect audit writer/cost meter and their database migrations; run 35 for the Control Centre's custom audiences. |
+| `no classification model: add one in Models & tiers` | Add an active classification entry and Test connection, then rerun 77. |
+| Classifier or safety scores unavailable | Inspect classifier configuration, Gateway budget/rate limit and safety watcher logs; adjust settings only through ConfigMaps/registry. |
+| Model did not call the tool with thinking on (auto), tool round or new question failed | Inspect that registry entry's tool support and budget, and the Gateway adapter's reasoning history. The check retries once when forcing was not applied. |
+| Unknown/malformed/other-user download is accepted | Stop acceptance and fix the Harness ownership/path check. Never grant access to pass the test. |
+| Cannot read another-user job ID as harness_app | Inspect its Secret reference, app-role database access and the jobs migration; no password should be copied to a terminal. |
+| Port busy / port-forward not ready | Wait for the previous check to finish, inspect service readiness and retry; do not start another check on its port. |
+| Service health not OK | Inspect that service's pod and logs; wait for the next 30-second health refresh. |
+| Test safety flag could not be cleared | Clear only this check's flag in Approvals, then retry. |
+| Any remaining `STOP: ...` / `cannot continue after ...` | Fix the preceding named FAIL or readiness problem, then rerun the same script. It is safe to repeat; keep existing data and secrets. |
+
+The Stage 2 instructions below describe its original deployment. On Stage 3,
+use the sequence above: 62 uses the temporary check client, device sign-in is
+disabled, and a newly entered first-admin password needs no forced change.
+
 ## Stage 2 — Talk to AI
 
 Claude runs the non-sudo deploy and live-check commands in the Shell tile while
@@ -14,7 +215,7 @@ Control Centre, Harness and both app image tags. Type this in your harness
 terminal, Shell tile, plain shell. Claude runs these commands while Aziz watches;
 no terminal password. This installs the access rule before opening registration,
 then updates both screens and checks the result. The Control Centre check asks
-for an administrator's browser sign-in. Good result: each script ends with
+for no browser sign-in; it uses the temporary check client. Good result: each script ends with
 `DONE`, and checks print `PASS`. The paid-call note in the live-check step applies.
 If Test connection is not installed yet, prepare 71 and deploy the new Gateway
 with 65 before this sequence.
@@ -426,11 +627,9 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
 6. **Check the Control Centre.** Type this in your harness terminal, Shell
    tile, plain shell. This checks sign-in, rights, registries, approvals,
    outgoing Kafka events and database audit protection. No password in the
-   terminal. Open the `Open:` link and sign in as an administrator in your
-   browser; the user code is already included. If needed, use the plain fallback
-   link and enter the displayed user code. Tokens are
-   held only in shell variables and refreshed before each admin call.
-   Device sign-in uses PKCE S256; its random verifier stays in a shell variable.
+   terminal. The shared helper enables the temporary admin client, rotates its
+   secret, obtains fresh tokens in memory and disables it on exit. No browser
+   sign-in is required. A second simultaneous check is refused.
    Good result: every check prints `PASS`, then `DONE`.
 
    ```bash
@@ -510,7 +709,7 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
 
 8. **After a reboot.** Kubernetes starts the app by itself if it was running
    before the reboot. Allow five minutes. These commands check the platform,
-   then the Control Centre, including browser sign-in again. No password.
+   then the Control Centre; its check uses the temporary admin client again. No password.
    Good result: both scripts finish with `DONE` and no `FAIL` lines.
 
    **Until Stage 1 is accepted:** Type this in your harness terminal, Shell
@@ -569,10 +768,6 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
     | Keycloak CLI login or client secret unavailable | Inspect Keycloak readiness and bootstrap access privately; the named existing client must exist. |
     | Service token for a client: Keycloak refused the client credentials | Inspect that client's Keycloak credentials and service-account settings privately; fix them and repeat 62. No API check ran for that failed token request. |
     | Service token endpoint unreachable or no valid access token returned | Check Keycloak availability and its token endpoint; fix the token failure before repeating 62. |
-    | Device sign-in unavailable | Run `install/35-realm-sync.sh`, then repeat 62. This updates existing clients only. |
-    | Device sign-in FAIL with Keycloak error and error_description | Follow the named Keycloak error; inspect device sign-in and PKCE S256 settings on the existing admin-console client. Codes and tokens are omitted from the diagnostic. |
-    | Device sign-in refused, expired, invalid timing or missing refresh token | Retry and sign in promptly as an administrator; inspect Keycloak client settings if it repeats. |
-    | Account is not an administrator | Repeat the check and sign in with the ooh-admin account. |
     | KafkaTopic partition count could not be read or is invalid | Inspect the named KafkaTopic and its spec.partitions, then retry. |
     | Start Kafka check at newest offsets FAIL | Check Kafka access, ensure no other ooh-stage-check consumer is running and retry. |
     | Approval list is not an array, paging did not advance or invalid response id | Inspect the API contract and response handling before retrying. |

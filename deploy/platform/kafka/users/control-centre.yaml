@@ -70,6 +70,13 @@ spec:
       - Read
       - Describe
     - resource:
+        type: topic
+        name: dlq.chat.messages
+        patternType: literal
+      operations:
+      - Read
+      - Describe
+    - resource:
         type: group
         name: control-centre
         patternType: literal

@@ -4,6 +4,7 @@
     <select #modelSelect class="ooh-select" aria-label="Chat model" [ngModel]="tier()" (ngModelChange)="choose($event, modelSelect)" [disabled]="busy()">
       @if (!me().chat_tiers.length) { <option [ngValue]="null" disabled>Choose a chat model</option> }
       @for (allowed of me().chat_tiers; track allowed) { <option [ngValue]="allowed">{{ label(allowed) }}</option> }
+      <option [ngValue]="'skills'">Skills</option>
       <option [ngValue]="'request'">Request another model…</option>
     </select>
   </label>
@@ -30,5 +31,33 @@
     } @else { <p class="ooh-help">There are no other models to request.</p> }
     @if (notice()) { <p class="request-error" role="alert">{{ notice() }}</p> }
     <button class="ooh-btn ooh-btn--ghost" type="button" [disabled]="requesting()" (click)="panel.set(false)">Close</button>
+  </section>
+}
+
+@if (skillsPanel()) {
+  <section class="request-panel" aria-label="Skills"><h2>Your skills</h2>
+    @for (skill of me().skills; track skill.name) { <p>{{ skill.title }}</p> } @empty { <p>No skills granted yet.</p> }
+    <button class="ooh-btn ooh-btn--secondary" (click)="skillPanel.set(true); notice.set('')">Request a skill…</button>
+    <button class="ooh-btn ooh-btn--ghost" (click)="skillsPanel.set(false); skillPanel.set(false)">Close</button>
+    @if (skillPanel()) {
+      <section aria-label="Request a skill"><h3>Request a skill</h3>
+        @if (skillChoices().length) {
+          <label class="ooh-field"><span class="ooh-label">Skill to request</span>
+            <select class="ooh-select" aria-label="Skill to request" [ngModel]="requestSkill()" (ngModelChange)="requestSkill.set($event); notice.set('')" [disabled]="requesting()">
+              <option [ngValue]="null" disabled>Choose a skill</option>
+              @for (skill of skillChoices(); track skill.name) {
+                <option [ngValue]="skill.name">{{ skill.title }}{{ skill.requested === 'pending' ? ' · Requested' : skill.requested === 'rejected' ? ' · Not approved' : '' }}</option>
+              }
+            </select>
+          </label>
+          @if (selectedSkill(); as skill) { <p>{{ skill.description }}</p> }
+          <label class="ooh-field"><span class="ooh-label">Reason (optional)</span>
+            <textarea class="ooh-textarea" aria-label="Skill reason (optional)" [(ngModel)]="skillReason" maxlength="300" [disabled]="requesting()" rows="3"></textarea>
+          </label>
+          <button class="ooh-btn ooh-btn--primary" [disabled]="!selectedSkill() || selectedSkill()?.requested === 'pending' || requesting() || skillReason.length > 300" (click)="sendSkillRequest()">{{ selectedSkill()?.requested === 'pending' ? 'Requested' : requesting() ? 'Sending…' : 'Send request' }}</button>
+        } @else { <p>There are no other skills to request.</p> }
+        @if (notice()) { <p role="alert" class="request-error">{{ notice() }}</p> }
+      </section>
+    }
   </section>
 }
