@@ -345,6 +345,7 @@ Uploads, the Report and Animated deck workers, DLQ replay and the Failed message
 |---|---|---|
 | 1 | Spec review by Claude Code before the builders started (38 findings, `reviews/stage-3-spec-review` in the course folder): every finding is resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 11 Nov 19:18 |
 | 2 | Spec re-review (37 fixed, 1 left to Aziz, 14 new findings, `reviews/stage-3-spec-rereview`): resolved in section 15 "Re-review additions" (items 39–52) | Spec author, 11 Nov 19:22 |
+| 3 | Final check (`reviews/stage-3-spec-final`): 39–52 fixed; two small points resolved as items 53 and 54 | Spec author, 11 Nov 19:24 |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees; numbers = review findings)
 
@@ -413,3 +414,5 @@ Uploads, the Report and Animated deck workers, DLQ replay and the Failed message
 51. README rows: `FAIL ooh-stage-check enabled with no check running` → "run `install/77-check-stage-3.sh <tag>` once (it takes over the stale lock and disables the client on exit), then run 40 again"; `STOP: another check is running` → wait for it, or remove a stale lock only when its pid is gone (the script does this itself).
 52. The worker's "Kafka consumer alive" = the consumer thread is running without a fatal error (not time since the last poll); Part A test.
 
+53. `stage_check_token <audience>`: the argument is only a guard. The helper gets the normal client-credentials token (never sends an `audience` parameter) and checks that its `aud` contains `<audience>`; otherwise `STOP: stage-check token lacks audience <audience>`.
+54. The Control Centre's own `People.Observe` sets `is_service_account` from the verified token by the same rule as 48; Part D test.
