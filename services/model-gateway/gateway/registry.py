@@ -115,3 +115,21 @@ class Registry:
                 )
             )
             raise
+
+    async def report_health(
+        self, entry: Entry, status: str, reason: str | None
+    ) -> None:
+        try:
+            token = await self.identity.service_token()
+            response = await self.client.post(
+                f"{self.config.registry_url}/api/models/{entry.id}/health",
+                headers={"Authorization": "Bearer " + token},
+                json={"status": status, "reason": reason},
+            )
+            response.raise_for_status()
+        except httpx.HTTPError, ValueError, KeyError, TypeError:
+            logger.warning(
+                json.dumps(
+                    {"message": "health_report_failed", "model_entry_id": str(entry.id)}
+                )
+            )

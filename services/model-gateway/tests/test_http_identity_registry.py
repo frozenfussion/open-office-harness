@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import json
 import time
-from collections.abc import Iterator
 from uuid import UUID
 
 import httpx
@@ -14,7 +13,6 @@ from fastapi.testclient import TestClient
 
 from gateway.app import create_app
 from gateway.config import Config
-from gateway.engine import Engine
 from gateway.identity import Identity
 from gateway.models import Call, Entry, GatewayError
 from gateway.registry import Registry
@@ -27,15 +25,6 @@ CONFIG = Config(
     "fake-client-secret",
     "https://registry.invalid",
 )
-
-
-@pytest.fixture
-def signed() -> tuple:
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key())) | {
-        "kid": "fake-kid"
-    }
-    return key, jwk
 
 
 def token(key: object, **changes: object) -> str:
@@ -127,31 +116,17 @@ async def test_registry_failure_is_closed() -> None:
             assert error.value.code == "registry_unavailable"
 
 
-@pytest.fixture
-def http(entry: Entry, signed: tuple) -> Iterator[tuple]:
-    app = create_app(CONFIG)
-    key, jwk = signed
-    with TestClient(app) as client:
-        app.state.db = FakeDatabase()
-        app.state.identity.keys = {"fake-kid": jwt.PyJWK.from_dict(jwk).key}
-        app.state.identity.keys_until = time.monotonic() + 300
-        app.state.engine = Engine(
-            app.state.engine.client, FakeRegistry([entry]), app.state.db
-        )
-        yield client, key
-
-
 def test_health_and_classify(http: tuple) -> None:
     client, key = http
     assert client.get("/health").json() == {"status": "ok"}
     headers = {"Authorization": "Bearer " + token(key)}
     assert client.post(
         "/v1/classify",
-        json={"text": "fake", "questions": {"x": "fake"}},
+        json={"text": "fake", "questions": {"x": "fake"}, "user_id": "fake-user"},
         headers=headers,
     ).json() == {
-        "code": "not_built_yet",
-        "message": "Classification arrives in Stage 3",
+        "code": "no_model",
+        "message": "No model is configured for this purpose and tier",
     }
     assert (
         client.post(
@@ -161,7 +136,8 @@ def test_health_and_classify(http: tuple) -> None:
     )
     assert (
         client.post(
-            "/v1/classify", json={"text": "fake", "questions": {"x": "fake"}}
+            "/v1/classify",
+            json={"text": "fake", "questions": {"x": "fake"}, "user_id": "fake-user"},
         ).status_code
         == 401
     )
@@ -180,7 +156,10 @@ def test_health_and_classify(http: tuple) -> None:
                 "stream": False,
             },
         ),
-        ("/v1/classify", {"text": "fake", "questions": {"x": "fake"}}),
+        (
+            "/v1/classify",
+            {"text": "fake", "questions": {"x": "fake"}, "user_id": "fake-user"},
+        ),
     ],
 )
 def test_wrong_caller_and_audience(http: tuple, path: str, body: dict) -> None:
@@ -435,6 +414,7 @@ def test_http_path_never_logs_provider_key_or_service_token(
                 200, json=[entry.model_dump(mode="json", by_alias=True)]
             )
         )
+        mock.post(f"{CONFIG.registry_url}/api/models/{entry.id}/health").respond(200)
         key_route = mock.get(f"{CONFIG.registry_url}/api/models/{entry.id}/key").mock(
             return_value=httpx.Response(
                 500 if failure == "key_500" else 200,
@@ -566,7 +546,7 @@ def test_control_centre_cannot_classify_or_other_caller_test(
     client, key = http
     response = client.post(
         "/v1/classify",
-        json={"text": "fake", "questions": {"fake": "fake"}},
+        json={"text": "fake", "questions": {"fake": "fake"}, "user_id": "fake-user"},
         headers={"Authorization": "Bearer " + token(key, azp="ooh-control-centre")},
     )
     assert response.status_code == 403
@@ -1083,7 +1063,7 @@ def test_http_visible_thinking_separate_from_answer_and_logs(
             json=connection_body(entry) | {"stream": stream},
             headers={"Authorization": "Bearer " + token(key)},
         )
-    assert result.status_code == 200 and "private-" not in result.text
+    assert result.status_code == 200 and "private-" not in visible_response(result)
     if stream:
         events = [
             json.loads(line[6:])
@@ -1163,7 +1143,7 @@ def test_no_visible_thinking_is_null(
             headers={"Authorization": "Bearer " + token(key)},
         )
     assert response.status_code == 200 and response.json()["thinking"] is None
-    assert "private-" not in response.text
+    assert "private-" not in visible_response(response)
 
 
 @pytest.mark.parametrize(
@@ -1411,3 +1391,17 @@ def test_multiple_thinking_parts_keep_paragraph_breaks(
     else:
         assert response.json()["thinking"] == "First part.\n\nNext part."
         assert response.json()["content"] == "Answer"
+
+
+def visible_response(response: httpx.Response) -> str:
+    if response.headers.get("content-type", "").startswith("text/event-stream"):
+        events = [
+            json.loads(line[6:])
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+    else:
+        events = [response.json()]
+    return json.dumps(
+        [{k: v for k, v in event.items() if k != "reasoning_state"} for event in events]
+    )

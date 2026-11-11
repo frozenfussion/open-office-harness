@@ -22,7 +22,7 @@ render() {
   done < "$source" > "$target"
 }
 [[ $# == 1 ]] || stop "usage: install/65-model-gateway-deploy.sh <12-character-image-tag>"
-for tool in kubectl curl jq git sed mktemp; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
+for tool in kubectl curl jq git sed mktemp sha256sum; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 tag="$1"
 [[ "$tag" =~ ^[a-f0-9]{12}$ ]] || stop "image tag must be the first 12 characters of the image commit hash"
 image="ghcr.io/frozenfussion/ooh-model-gateway:$tag"
@@ -48,7 +48,7 @@ status="$(printf 'header = "Authorization: Bearer %s"\n' "$registry_token" |
   stop "registry is unreachable; check ghcr.io availability and retry"
 unset registry_response registry_reply registry_token
 check_registry_status "$status"
-for secret in model-gateway-db model-gateway-oidc; do
+for secret in model-gateway-db model-gateway-oidc model-gateway-kafka; do
   kubectl -n "$APPS_NAMESPACE" get secret "$secret" >/dev/null 2>&1 || stop "required application secret missing; run install/64-model-gateway-setup.sh"
 done
 tmp="$(mktemp -d)"
@@ -58,6 +58,9 @@ for file in deploy/apps/model-gateway/*.yaml; do
   render "$file" "$tmp/apps/$(basename "$file")"
   sed -i "s/\${IMAGE_TAG}/$tag/g" "$tmp/apps/$(basename "$file")"
 done
+config_hash="$(sha256sum "$tmp/apps/configmap.yaml")"
+config_hash="${config_hash%% *}"
+sed -i "s/\${CONFIG_HASH}/$config_hash/g" "$tmp/apps/deployment.yaml"
 kubectl apply -f "$tmp/apps/configmap.yaml" -f "$tmp/apps/service.yaml" -f "$tmp/apps/deployment.yaml"
 printf 'Waiting for migrations and the new Model Gateway pod revision (%s)\n' "$tag"
 kubectl -n "$APPS_NAMESPACE" rollout status deployment/model-gateway --timeout=600s ||

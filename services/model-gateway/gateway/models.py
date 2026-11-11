@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
@@ -11,15 +11,40 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ToolCall(Strict):
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    arguments: dict[str, Any]
+
+
 class Message(Strict):
-    role: Literal["system", "user", "assistant"]
-    content: str
+    role: Literal["system", "user", "assistant", "tool"]
+    content: str | None = None
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    reasoning_state: dict[str, Any] | None = None
+    tool_call_id: str | None = None
+
+    @model_validator(mode="after")
+    def valid_role(self) -> Message:
+        if self.role == "tool" and (not self.tool_call_id or self.content is None):
+            raise ValueError("tool result requires id and content")
+        if self.role != "tool" and self.tool_call_id is not None:
+            raise ValueError("only tool results have tool_call_id")
+        if self.role != "assistant" and (self.tool_calls or self.reasoning_state):
+            raise ValueError("only assistant messages have provider state")
+        if self.content is None and not self.tool_calls:
+            raise ValueError("content required")
+        return self
 
 
 class Tool(Strict):
     name: str = Field(min_length=1)
     description: str
     input_schema: dict[str, Any]
+
+
+class ToolChoice(Strict):
+    name: str = Field(min_length=1)
 
 
 class Call(Strict):
@@ -31,6 +56,7 @@ class Call(Strict):
     stream: bool
     thinking: StrictBool = True
     model_entry_id: UUID | None = None
+    tool_choice: ToolChoice | Literal["none"] | None = None
 
     @model_validator(mode="after")
     def chat_tier(self) -> Call:
@@ -38,18 +64,21 @@ class Call(Strict):
             raise ValueError("chat requires tier")
         if self.purpose != "chat" and self.tier is not None:
             raise ValueError("tier is only for chat")
+        if isinstance(self.tool_choice, ToolChoice) and self.tool_choice.name not in {
+            t.name for t in self.tools
+        }:
+            raise ValueError("chosen tool not offered")
         return self
 
 
 class Classify(Strict):
-    text: str = Field(min_length=1)
-    questions: dict[str, str] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def nonempty_questions(self) -> Classify:
-        if any(not key or not value for key, value in self.questions.items()):
-            raise ValueError("questions must not be empty")
-        return self
+    text: str = Field(min_length=1, max_length=20000)
+    questions: dict[
+        Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")],
+        Annotated[str, Field(min_length=1)],
+    ] = Field(min_length=1, max_length=10)
+    user_id: str = Field(min_length=1)
+    model_entry_id: UUID | None = None
 
 
 class Entry(BaseModel):

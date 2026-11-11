@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: auditwriter
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: auditwriter
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: auditwriter-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: auditwriter-app
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: auditwriter_app
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: auditwriter-app-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: auditwriter-test
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: auditwriter_test
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: auditwriter-test-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: auditwriter-test-app
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: auditwriter_test_app
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: auditwriter-test-app-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: auditwriter
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: auditwriter
+  owner: auditwriter
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: auditwriter-test
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: auditwriter_test
+  owner: auditwriter_test
+  databaseReclaimPolicy: retain

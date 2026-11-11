@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+[project]
+name = "ooh-safety-watcher"
+version = "0.3.0"
+requires-python = "==3.14.*"
+dependencies = ["fastapi==0.162.2", "uvicorn==0.54.0", "pydantic==2.14.3", "httpx==0.28.1", "pyjwt[crypto]==2.15.1", "cryptography==50.0.2", "confluent-kafka==2.16.1", "jsonschema==4.26.0"]
+[dependency-groups]
+dev = ["pytest==9.2.0", "respx==0.23.1", "ruff==0.17.4"]
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+[tool.ruff]
+target-version = "py314"

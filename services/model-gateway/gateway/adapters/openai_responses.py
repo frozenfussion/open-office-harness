@@ -7,15 +7,63 @@ import httpx
 
 from gateway.models import Call, Entry
 
-from .common import ProviderError, check_response, request_body, sse, tool_event
+from .common import (
+    ProviderError,
+    check_response,
+    forced_choice,
+    matching_state,
+    request_body,
+    sse,
+    state_event,
+    tool_event,
+)
+
+
+def messages(call: Call, entry: Entry) -> list[dict[str, Any]]:
+    result = []
+    for message in call.messages:
+        if message.role == "system":
+            continue
+        if message.role == "tool":
+            result.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": message.tool_call_id,
+                    "output": message.content,
+                }
+            )
+        elif message.role == "assistant":
+            state = matching_state(message, entry)
+            if "output" in state:
+                result.extend(state["output"])
+            else:
+                if message.content:
+                    result.append({"role": "assistant", "content": message.content})
+                result.extend(
+                    {
+                        "type": "function_call",
+                        "call_id": t.id,
+                        "name": t.name,
+                        "arguments": json.dumps(t.arguments),
+                    }
+                    for t in message.tool_calls
+                )
+        else:
+            result.append({"role": message.role, "content": message.content})
+    return result
 
 
 async def run(
-    client: httpx.AsyncClient, entry: Entry, key: str, call: Call
+    client: httpx.AsyncClient,
+    entry: Entry,
+    key: str,
+    call: Call,
+    *,
+    auto_tool_choice: bool = False,
 ) -> AsyncIterator[dict[str, Any]]:
     body = {
         "model": entry.model_id,
-        "input": [m.model_dump() for m in call.messages if m.role != "system"],
+        "input": messages(call, entry),
         "stream": call.stream,
         "store": False,
     }
@@ -34,6 +82,14 @@ async def run(
             for t in call.tools
         ]
     body = request_body(body, entry, call)
+    body["store"] = False
+    body["include"] = list(
+        dict.fromkeys([*(body.get("include") or []), "reasoning.encrypted_content"])
+    )
+    yield {
+        "type": "tool_choice_applied",
+        "applied": forced_choice(body, call, entry.api_type, auto=auto_tool_choice),
+    }
     reasoning = body.get("reasoning")
     summary_requested = (
         isinstance(reasoning, dict)
@@ -73,6 +129,7 @@ async def run(
                             "arguments": item["arguments"],
                         }
                     )
+            yield state_event(entry, output=result["output"])
             yield {
                 "type": "usage",
                 **{
@@ -82,6 +139,7 @@ async def run(
             }
             return
         tools: dict[str, dict[str, str]] = {}
+        output: dict[int, dict[str, Any]] = {}
         thinking_seen = False
         new_part = False
         async for event in sse(response):
@@ -113,7 +171,15 @@ async def run(
                 tools[event["item_id"]]["arguments"] += event["delta"]
             elif kind == "response.function_call_arguments.done":
                 tools[event["item_id"]]["arguments"] = event["arguments"]
+            elif kind == "response.output_item.done":
+                output[event["output_index"]] = event["item"]
             elif kind == "response.completed":
+                yield state_event(
+                    entry,
+                    output=event["response"].get(
+                        "output", [output[i] for i in sorted(output)]
+                    ),
+                )
                 for tool in tools.values():
                     yield tool_event(tool)
                 usage = event["response"].get("usage") or {}

@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cost-meter-config
+  namespace: ${APPS_NAMESPACE}
+data:
+  CM_OIDC_ISSUER: https://auth.${DOMAIN}/realms/ooh
+  CM_KAFKA_BOOTSTRAP: ooh-kafka-kafka-bootstrap.${PLATFORM_NAMESPACE}.svc:9092
+  CM_KAFKA_USERNAME: cost-meter

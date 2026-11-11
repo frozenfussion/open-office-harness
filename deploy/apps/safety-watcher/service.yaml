@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v1
+kind: Service
+metadata:
+  name: safety-watcher
+  namespace: ${APPS_NAMESPACE}
+  labels:
+    app: safety-watcher
+spec:
+  selector:
+    app: safety-watcher
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http

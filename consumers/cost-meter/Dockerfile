@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
+FROM python:3.14.10-slim-trixie AS build
+COPY --from=uv /uv /usr/local/bin/uv
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project --no-python-downloads
+
+FROM python:3.14.10-slim-trixie
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY --from=build /app/.venv /app/.venv
+COPY consumer ./consumer
+COPY migrations ./migrations
+USER 10001:10001
+EXPOSE 8080
+ENTRYPOINT ["/app/.venv/bin/python", "-m", "consumer"]
