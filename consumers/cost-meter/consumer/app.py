@@ -5,6 +5,7 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Any
 
 import httpx
@@ -19,6 +20,10 @@ from consumer.database import Database
 from consumer.events import Bus, Processor, Runner
 from consumer.identity import Identity
 from consumer.identity_error import IdentityError
+
+
+def cost_number(value: Decimal | float) -> float:
+    return float(Decimal(str(value)).quantize(Decimal("0.000001")))
 
 
 def day_input(value: Any) -> Any:
@@ -93,6 +98,10 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     @app.get("/v1/costs", dependencies=[Depends(caller)])
     async def costs(request: Request, day: Day) -> Any:
-        return await request.app.state.db.costs(day)
+        result = await request.app.state.db.costs(day)
+        result["total_usd"] = cost_number(result["total_usd"])
+        for row in result["by_model"]:
+            row["cost_usd"] = cost_number(row["cost_usd"])
+        return result
 
     return app

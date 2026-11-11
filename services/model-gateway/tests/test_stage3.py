@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import copy
 import json
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -632,3 +633,64 @@ def test_classify_bad_input(http: tuple, change: dict) -> None:
         headers={"Authorization": "Bearer " + token(key)},
     )
     assert result.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "path,stream", [("/v1/call", False), ("/v1/call", True), ("/v1/classify", False)]
+)
+def test_cost_is_json_number_on_the_wire_rounded_to_six_places(
+    http: tuple, entry: Entry, path: str, stream: bool
+) -> None:
+    client, key = http
+    selected = entry.model_copy(
+        update={
+            "input_price_per_million": Decimal("2.1234567"),
+            "output_price_per_million": Decimal("4.2345678"),
+        }
+    )
+    if path == "/v1/classify":
+        selected = selected.model_copy(
+            update={"purpose": "classification", "tier": None}
+        )
+        body = {
+            "text": "Example",
+            "questions": {"risk": "Is it risky?"},
+            "user_id": "fake-user",
+        }
+    else:
+        body = {
+            "purpose": "chat",
+            "tier": 1,
+            "user_id": "fake-user",
+            "messages": [{"role": "user", "content": "Example"}],
+            "stream": stream,
+        }
+    client.app.state.engine.registry = FakeRegistry([selected])
+    with respx.mock as mock:
+        mock.post(entry.endpoint_url + PATHS[entry.api_type]).mock(
+            return_value=provider(
+                entry.api_type,
+                response(
+                    entry.api_type,
+                    text='{"risk":0.2}' if path == "/v1/classify" else "Final answer",
+                ),
+                stream,
+            )
+        )
+        result = client.post(
+            path, json=body, headers={"Authorization": "Bearer " + token(key)}
+        )
+    assert result.status_code == 200
+    wire = (
+        next(
+            json.loads(line[6:])
+            for line in result.text.splitlines()
+            if line.startswith("data: ") and json.loads(line[6:])["type"] == "completed"
+        )
+        if stream
+        else json.loads(result.content)
+    )
+    assert isinstance(wire["cost_usd"], (float, int)) and not isinstance(
+        wire["cost_usd"], bool
+    )
+    assert wire["cost_usd"] == 0.000030
