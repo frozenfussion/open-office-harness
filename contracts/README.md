@@ -43,12 +43,12 @@ by these checks. Platform operations are covered by the root README.
 | Path | Agreement |
 |---|---|
 | identity.md | OIDC clients, claims, service accounts, Kafka access |
-| storage.md | Private object keys and signed downloads |
+| storage.md | Files volume, key layout, downloads through the Harness |
 | http/control-centre.openapi.yaml | Rights, allowed skills, purpose/tier registry |
 | http/model-gateway.openapi.yaml | Purpose calls and classification |
 | http/harness-api.openapi.yaml | Conversations, SSE, uploads and links |
 | events/envelope.schema.json | Common event fields and payload selection |
-| events/payloads/*.schema.json | Six event payload types |
+| events/payloads/*.schema.json | Seven event payload types |
 | events/topics.yaml | Partitions, retention, producers and consumers |
 | skills/manifest.schema.json | Worker/instruction manifest format |
 | skills/slides/manifest.json | Registered Slides skill |
@@ -113,6 +113,6 @@ referenced with JSON pointers. Responses without content (such as 204) need no
 body example. The checker uses explicit errors even when Python optimization
 is enabled.
 
-Registry endpoint_url and signed-download url retain format: uri and also require
+Registry endpoint_url retains format: uri and also require
 an HTTP(S) URL pattern with a nonempty authority and no whitespace. This pattern
 is checked without optional URI-validation packages or new dependencies.

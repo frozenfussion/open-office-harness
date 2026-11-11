@@ -11,26 +11,29 @@ from check_contracts import ROOT, check_contracts, load, validate_example
 
 
 def test_all_contracts() -> None:
-    assert check_contracts()["topics"] == 11
-    for document, route, field in [
-        ("control-centre", "/api/models", "endpoint_url"),
-        ("harness-api", "/api/files/{key}", "url"),
-    ]:
-        path = ROOT / f"http/{document}.openapi.yaml"
-        schema = load(path)["paths"][route]["get"]["responses"]["200"]["content"][
-            "application/json"
-        ]["schema"]
-        properties = (
-            schema["items"]["properties"]
-            if document == "control-centre"
-            else schema["properties"]
-        )
-        for invalid in ["not-a-uri", "https://", "https://bad host/file", "/relative"]:
-            with pytest.raises(ValidationError):
-                validate_example(properties[field], invalid, path)
-        validate_example(
-            properties[field], "https://example.invalid/path?key=value", path
-        )
+    assert check_contracts()["topics"] == 13
+    path = ROOT / "http/control-centre.openapi.yaml"
+    schema = load(path)["paths"]["/api/models"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    endpoint = schema["items"]["properties"]["endpoint_url"]
+    for invalid in ["not-a-uri", "https://", "https://bad host/file", "/relative"]:
+        with pytest.raises(ValidationError):
+            validate_example(endpoint, invalid, path)
+    validate_example(endpoint, "https://example.invalid/path?key=value", path)
+
+
+def test_chat_message_envelope_checks_its_payload() -> None:
+    path = ROOT / "events/envelope.schema.json"
+    example = load(ROOT / "examples/events/envelope.example.json")
+    example["type"] = "chat.message"
+    example["payload"] = load(
+        ROOT / "examples/events/payloads/chat.message.example.json"
+    )
+    validate_example(load(path), example, path)
+    example["payload"] = {"text": "no ids"}
+    with pytest.raises(ValidationError):
+        validate_example(load(path), example, path)
 
 
 def test_invalid_example_is_rejected() -> None:

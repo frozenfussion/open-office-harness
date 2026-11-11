@@ -19,9 +19,7 @@ topics:
   - slides-worker
   readers:
   - harness-api
-  - audit-writer
   - safety-watcher
-  - cost-meter
   partitions: 3
   retention_ms: 604800000
 - name: approvals.requested
@@ -50,6 +48,7 @@ topics:
   - every-service
   readers:
   - audit-writer
+  - cost-meter
   partitions: 3
   retention_ms: 2592000000
 - name: dlq.skill.requests.slides
@@ -66,9 +65,7 @@ topics:
   payload_schema: events/payloads/dlq.entry.schema.json
   writers:
   - harness-api
-  - audit-writer
   - safety-watcher
-  - cost-meter
   readers:
   - control-centre
   partitions: 1
@@ -96,6 +93,25 @@ topics:
   payload_schema: events/payloads/dlq.entry.schema.json
   writers:
   - audit-writer
+  - cost-meter
+  readers:
+  - control-centre
+  partitions: 1
+  retention_ms: 2592000000
+- name: chat.messages
+  event_type: chat.message
+  payload_schema: events/payloads/chat.message.schema.json
+  writers:
+  - harness-api
+  readers:
+  - safety-watcher
+  partitions: 3
+  retention_ms: 604800000
+- name: dlq.chat.messages
+  event_type: dlq.entry
+  payload_schema: events/payloads/dlq.entry.schema.json
+  writers:
+  - safety-watcher
   readers:
   - control-centre
   partitions: 1
