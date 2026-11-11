@@ -12,6 +12,10 @@ class Config:
     client_secret: str
     registry_url: str
 
+    kafka_bootstrap: str = ""
+    kafka_username: str = ""
+    kafka_password: str = ""
+
     @classmethod
     def environment(cls) -> Config:
         return cls(
@@ -25,5 +29,8 @@ class Config:
                     "GW_CLIENT_SECRET",
                     "GW_CONTROL_CENTRE_URL",
                 )
-            )
+            ),
+            kafka_bootstrap=os.environ["GW_KAFKA_BOOTSTRAP"],
+            kafka_username=os.environ["GW_KAFKA_USERNAME"],
+            kafka_password=os.environ["GW_KAFKA_PASSWORD"],
         )

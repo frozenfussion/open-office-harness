@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: safety-watcher
+  namespace: ${APPS_NAMESPACE}
+  labels:
+    app: safety-watcher
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: safety-watcher
+  template:
+    metadata:
+      annotations:
+        ooh/config-hash: ${CONFIG_HASH}
+      labels:
+        app: safety-watcher
+        ooh/app: real
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: safety-watcher
+        image: ghcr.io/frozenfussion/ooh-safety-watcher:${IMAGE_TAG}
+        ports:
+        - name: http
+          containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: safety-watcher-config
+        env:
+        - name: SF_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: safety-watcher-oidc
+              key: client-secret
+        - name: SF_KAFKA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: safety-watcher-kafka
+              key: password
+        resources:
+          requests:
+            cpu: 50m
+            memory: 96Mi
+          limits:
+            cpu: '1'
+            memory: 512Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 20
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir:
+          medium: Memory
+          sizeLimit: 64Mi

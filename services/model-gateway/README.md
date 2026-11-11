@@ -1,22 +1,22 @@
 # QUICK GUIDE
 
-1. Type this in your harness terminal, in the plain shell. This creates the Gateway databases and private settings. No password is needed. Claude runs setup and deployment in the shell tile while Aziz watches.
+1. Type this in your harness terminal, in the plain shell. This creates the Gateway databases, Kafka credential copy and private settings. First finish the platform and realm updates in the root guide. No password is needed. Claude runs setup and deployment in the shell tile while Aziz watches.
 
    ```bash
-   cd ~/projects/worktrees/stage-2-part-a
+   cd ~/projects/worktrees/stage-3-part-b
    install/64-model-gateway-setup.sh
    ```
 
-   Good result: `DONE`. Test settings stay outside the repository in `~/.config/ooh/model-gateway-test.env`, mode 600. After the Parts merge, use `cd ~/projects/worktrees/stage-2` instead; after acceptance, use `cd ~/projects/open-office-harness`.
+   Good result: `DONE`. Test settings stay outside the repository in `~/.config/ooh/model-gateway-test.env`, mode 600. After the Parts merge, use `cd ~/projects/worktrees/stage-3` instead; after acceptance, use `cd ~/projects/open-office-harness`.
 
 2. Do this in the GitHub package settings in your PC browser, after the first green Model Gateway image workflow. Open the package settings link below and choose **Change visibility → Public**. This lets the cluster pull the image without signing in. Good result: the package says Public.
 
    [Model Gateway package settings](https://github.com/users/frozenfussion/packages/container/ooh-model-gateway/settings)
 
-3. Type this in your harness terminal, in the plain shell. This deploys the image for this checkout and waits for its migration and new pod. No password is needed. First deploy the Control Centre changes as the root guide describes.
+3. Type this in your harness terminal, in the plain shell. This deploys the image for this checkout and waits for its migration and new pod. No password is needed. First deploy the Control Centre changes as the root Stage 3 guide describes.
 
    ```bash
-   cd ~/projects/worktrees/stage-2-part-a
+   cd ~/projects/worktrees/stage-3-part-b
    install/65-model-gateway-deploy.sh "$(git rev-parse --short=12 HEAD)"
    ```
 
@@ -75,7 +75,8 @@
 8. Type this in your harness terminal, in the plain shell. This runs the builder checks with fake providers and the isolated test database. No password is needed. Run setup first; never print or paste the private settings.
 
    ```bash
-   cd ~/projects/worktrees/stage-2-part-a/services/model-gateway
+   cd ~/projects/worktrees/stage-3-part-b/services/model-gateway
+   set +x
    set -a
    source ~/.config/ooh/model-gateway-test.env
    set +a
@@ -89,117 +90,71 @@
 9. Type this in your harness terminal, in the plain shell. This checks the contracts and scripts without changing the cluster. No password is needed.
 
    ```bash
-   cd ~/projects/worktrees/stage-2-part-a
+   cd ~/projects/worktrees/stage-3-part-b
    uv run --project contracts/check pytest contracts/check/tests
    bash -n install/64-model-gateway-setup.sh install/65-model-gateway-deploy.sh
    shellcheck install/64-model-gateway-setup.sh install/65-model-gateway-deploy.sh
    ```
 
-   Good result: 17 contract tests pass and the shell checks print no errors. The explicit test folder keeps the contracts environment from collecting unrelated service tests.
+   Good result: all contract tests pass and the shell checks print no errors. The explicit test folder keeps the contracts environment from collecting unrelated service tests.
 
-## What the Gateway does
+## Gateway behavior
 
-The Harness service account (`azp: ooh-harness-api`) with a valid realm signature, issuer, audience, expiry and subject can call `/v1/call` and `/v1/classify`. The Control Centre service account may call `/v1/call` only for the fixed test described below; it cannot classify. `/health` is public and checks the database. Classification validates its input and returns `not_built_yet` until Stage 3. Interactive API documentation routes are disabled.
+The internal Gateway serves `/v1/call` and `/v1/classify`. All routes except `/health` verify Keycloak signature, issuer, audience, expiry and subject. Interactive docs are disabled. The Harness may use either route; the Slides worker may make non-pinned, non-streamed calls; the safety watcher may classify. The Control Centre may only make the fixed pinned connection tests. For classification its `user_id` must equal `admin-test-<verified sub>`, its text must be `This is a connection test.` and its questions must be `{"test":"Is this a connection test?"}`. Other callers receive 403.
 
-The Control Centre supplies all model addresses, IDs, keys, prices and settings. Its registry response must include `model_entry_id`, `created_at`, title, purpose, tier, role, priority, connection type and the configured limits. The spec author agreed to expose `created_at` on 10 November 2026 so the Gateway can order equal-priority entries itself. Part D owns that response.
+The Control Centre supplies every provider address, model ID, key, price and request setting. Registry replies are cached for 30 seconds, keys for 60 seconds, and service tokens until 30 seconds before expiry. Failed refreshes never use expired cache values. Redirects are refused. Active entries are tried main before backup, then priority and creation time. Pinned calls never fail over. Failure after any visible output ends the stream. Entry rate limits and daily UTC budgets use the existing append-only usage table, including classification. Zero budget means unlimited; cost uses decimal arithmetic rounded to six places.
 
-The Gateway caches registry replies for 30 seconds, decrypted keys for 60 seconds and service tokens until 30 seconds before expiry. Expired cache entries are never used when a refresh fails. A missing key for an entry without a key allows a keyless on-prem connection. Redirects are refused, so provider credentials stay at the configured address.
+`POST /v1/classify` accepts text (1–20000 characters), 1–10 named questions, `user_id` and optional `model_entry_id`. Question keys match `^[a-z][a-z0-9_]{0,39}$`. It returns `scores`, entry ID/title, input/output usage and `cost_usd`. A `jev_systemone` entry uses its typed decision endpoint; each chat adapter requests exactly one JSON object of probabilities. Extra score keys are ignored. A missing, boolean, nonnumeric or out-of-range score fails the entry and tries the next one. Classification uses purpose `classification` without a tier.
 
-Active supported entries are tried main first, then backup, then priority ascending, then creation time. A pinned `model_entry_id` must match the active purpose and tier and never fails over. Unknown signing key IDs trigger at most one realm-key refresh every 30 seconds, including concurrent requests and failed refreshes. Registry failures log only their reason class and HTTP status; server logs retain logger, message class and exception type without raw exception text.
+Every authorized call publishes one `audit.event` to `audit.events`, keyed by the UUID in `X-Correlation-Id` (a new UUID when absent). Payloads contain actor, action, purpose/tier target, outcome, entry ID/title when known, usage/cost, and classification scores. They contain no prompts, answer text, provider reasoning or keys. Kafka delivery failure logs a fixed JSON message and does not fail the model call. Health transitions report `ok` or `down` to the Control Centre's private port; pre-output errors use `timeout`, `connection` or `http_<status>`. Repeated unchanged health is not reported. A failed report is logged without its body and is tried again on the next state change.
 
-Rate checks count only `ok` and `failed` rows for the same entry and user over the last 60 seconds. Budget checks sum the entry's costs since midnight UTC; zero budget means no limit. Skips are recorded with zero cost. Costs use decimal arithmetic, rounded to the database's six decimal places. A call still streaming has no usage row yet.
+## Tool messages and private reasoning
 
-Before the first text or tool event, a failed connection can move to the next entry. After output, failure emits `failed` and ends the answer. Disconnection closes the provider stream and records a failed attempt. Usage is append-only for owner and application roles. The application can only SELECT and INSERT; migrations run as the owner in an init container, with an advisory lock and numbered migration ledger.
+A history message may be an assistant with `tool_calls: [{id,name,arguments}]` and `reasoning_state`, or a tool result with `tool_call_id` and string content. `tool_choice: {"name":"..."}` selects an offered tool, and `"none"` disables tools. For manual thinking modes that reject named forcing, the adapter uses auto and returns `tool_choice_applied: false`. Otherwise it is true. Follow-up calls inside a tool turn stay pinned to the first answer's entry ID.
 
-Each SSE `data:` line contains one JSON object (`delta`, `tool_call`, `completed`, `failed`); no `event:` line is used. Both stream headers prevent buffering or caching. Non-streamed calls collect text, tools, selected entry metadata, usage and cost into one JSON response.
+Every completed answer returns an opaque `reasoning_state` object containing `model_entry_id`, also when no tool was used. The spec author's binding 11 November clarification permits the Harness to store this state privately in `messages.reasoning_state` and replay it across turns. It must never appear in a browser route, log or Kafka message. The Gateway itself does not persist it. Each adapter applies a history message's state only for the matching entry ID; a foreign state is dropped without error. Provider state is sent only to that entry's configured provider.
 
-Extra request settings replace top-level fields after the adapter builds the request; `null` removes a field. They must be a JSON object. Newer Anthropic versions may refuse `temperature`, `top_p` or `top_k` supplied here. The two compatible connection formats impose no length limit unless configured; the Messages format defaults to 4096 output tokens.
+Chat Completions replays `reasoning_content` when the provider returned a string, plus standard function tool calls and tool result messages. A provider that returned no reasoning produces state containing the entry ID only; the adapter does not invent reasoning. Messages replays the complete content-block order, including thinking signatures and redacted blocks, then user `tool_result` blocks. Responses sets `store: false`, requests `include: ["reasoning.encrypted_content"]`, and replays all returned output items before `function_call_output`. Streaming preserves completed blocks/items as well.
 
-## Visible thinking (Rows24-26, Gateway row 24)
+Visible thinking is separate from private state: `thinking` SSE events contain visible text only; non-streamed responses have a separate `thinking` string or null. Empty text is dropped, and separate thinking blocks have paragraph breaks. Responses visible summaries require effective `reasoning.summary` settings. Raw state stays inside `reasoning_state`, never in answer or visible-thinking fields. Unknown provider events are ignored. The Harness owns storage and browser filtering.
 
-When a provider returns visible thinking text, the Gateway emits `{"type":"thinking","text":"..."}` SSE events before or between answer deltas, followed by the usual completed event. Non-streamed answers include a separate `thinking` string, or null when no non-empty thinking arrived. Empty thinking strings are dropped. Separate summary parts and thinking blocks have a blank line between them in both streaming and non-streamed answers; fragments within one part stay joined. Signatures, encrypted reasoning and redacted blocks are never forwarded; thinking and answer text are never logged. Usage and cost still use the provider's token counts.
+Ordinary `request_settings` replace top-level provider fields and remove fields set to null. When the caller sets `thinking: false`, a configured `request_settings_thinking_off` object merges last. `thinking_applied` is true for on/default or a configured off-settings object; otherwise false. Model-specific controls remain registry data. Manual thinking may need both `thinking.budget_tokens` and a larger `max_tokens` in those settings. The Control Centre's chat test must omit `thinking` and all other extra fields.
 
-The chat-completions adapter reads `message.reasoning_content` or streamed `delta.reasoning_content`, falling back to `reasoning` when it is a non-empty string. Object forms and `reasoning_details` are ignored. This field was confirmed on 10 November 2026 against the [official provider guide](https://api-docs.deepseek.com/guides/thinking_mode/). The Messages adapter reads thinking blocks and `thinking_delta` text; configure `{"thinking":{"type":"enabled","display":"summarized"}}` in that entry's ordinary extra settings as the [official streaming reference](https://platform.claude.com/docs/en/build-with-claude/streaming) describes. The Gateway does not inject that setting. The Responses adapter forwards visible summaries when the final request settings ask for `reasoning.summary`: it maps `response.reasoning_summary_text.delta` and non-streamed reasoning items' `summary[].text` into thinking. It never forwards `encrypted_content`, raw reasoning events or duplicate done events. See the [official OpenAI streaming reference](https://developers.openai.com/api/reference/resources/responses/streaming-events).
+## Official reference check — 11 November 2026
 
-Once any thinking has been streamed, a later failure ends the stream with failed rather than switching to a backup. Stored thinking is never sent back to a model; storing/displaying it belongs to the Harness and Workspace Parts. Unknown event types are ignored. Gateway usage rows contain counts and costs, never thinking; the Gateway sends no thinking to logs, audit or Kafka. No Gateway database migration, new dependency or deployment was performed for this update.
-
-### Settings that enable visible thinking (Row 27)
-
-Configure the following in the entry's ordinary extra request settings, with a placeholder model ID such as `example-model`. These are data; the Gateway does not inject them:
-
-| Connection type | Example ordinary request settings |
+| Connection | Official fields checked and result |
 |---|---|
-| `openai_chat_completions` | On supporting services, `{"thinking":{"type":"enabled"}}` or `{"reasoning_effort":"high"}`. |
-| `openai_responses` | `{"reasoning":{"summary":"auto"}}`. |
-| `anthropic_messages` | `{"thinking":{"type":"enabled","display":"summarized","budget_tokens":1024},"max_tokens":2048}`. |
+| Chat Completions | [Create completion](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create): `messages`, assistant `tool_calls` with `type:function` and JSON-string arguments, tool `tool_call_id`, named function `tool_choice`, `auto`, `none`, `stream_options.include_usage`, token usage. |
+| Compatible thinking | [Thinking guide](https://api-docs.deepseek.com/guides/thinking_mode/) and [API reference](https://api-docs.deepseek.com/api/create-chat-completion/): `reasoning_content`, `thinking.type`, streamed deltas, tool calls and usage. The guide requires reasoning from all earlier turns with tools; this prompted the binding retention clarification. Named forcing is refused in thinking mode, so explicit `thinking.type:enabled` uses auto. The reference calls reasoning nullable; neither official page specifies a required empty-string fallback for history from another entry. Such history therefore omits unmatched reasoning rather than fabricating it; no real-provider fallback claim is made. A returned empty string is preserved. |
+| Messages | [Messages reference](https://platform.claude.com/docs/en/api/messages) and [thinking workflows](https://platform.claude.com/docs/en/build-with-claude/thinking): ordered thinking/signature and redacted blocks, `tool_use`, user `tool_result`, `tool_use_id`, `tool_choice` auto/tool/none, `thinking_delta`, `signature_delta`, usage and `anthropic-version`. Manual thinking refuses named forcing; adaptive thinking supports it. The adapter only downgrades explicit manual `thinking.type:enabled`. |
+| Responses | [Create response](https://developers.openai.com/api/reference/resources/responses/methods/create) and [reasoning guide](https://developers.openai.com/api/docs/guides/reasoning): `store:false`, `include:reasoning.encrypted_content`, output reasoning/message/function_call items, `call_id`, `function_call_output`, named function and none choices, completed output items and token usage. No forcing restriction for reasoning was found. |
+| Typed classification | [System One reference](https://docs.typesafe.ai/api/system-one): `/v1/systemone`, optional configured bearer key, `model`, `state`, `questions[key].type:noul`, `instructions`, `answers[key].noul`, `usage.input_tokens/output_tokens`. The hosted reference requires authentication; keyless private endpoints remain allowed by the registry contract. |
 
-For manual thinking, `max_tokens` must be above `budget_tokens` in the same settings. A thinking block with no text is dropped. Deploy the Gateway first, then the Harness, then the Workspace; the merge operator performs deployment. Parts B/C own thinking storage caps, title-call behavior, history and display.
+All direct and transitive locked library versions were checked against official PyPI version records on 11 November 2026; the complete results are in the Part B report. The new Gateway dependency is `confluent-kafka==2.16.1`, for confirmed audit delivery. No provider SDK is added. Tests use fake providers and Kafka; live checks make paid calls only when Claude runs the merged stage check while Aziz watches.
 
-## Thinking switch (Row19)
+## Images and operating errors
 
-`/v1/call` accepts optional boolean `thinking`, default true. The registry may supply `request_settings_thinking_off` as a JSON object; null or an absent field means there is no off switch. When thinking is false and this object is present, the adapter merges it over the body **after** ordinary `request_settings`. Top-level fields replace previous values, and null removes a field. An empty object is still a configured switch. When thinking is true or omitted, only the ordinary settings apply; the Gateway adds no provider-specific thinking field itself.
+The image keeps Python 3.14.10 and uv 0.13.7, running as 10001 with a read-only root and writable memory `/tmp`. Requests are 100m CPU / 128Mi; limits 1 CPU / 512Mi. The deployment has its existing migrate init container and one API replica. Setup preserves existing credentials, atomically writes mode-600 test settings outside the repository, waits up to 120 seconds for KafkaUser readiness and its Secret, and refuses a changed Kafka password.
 
-The completed SSE event and the non-streamed answer include `thinking_applied`, meaning the caller's choice was honoured: true for thinking on/default, true for thinking off when the answering entry has off settings, false for thinking off when it has none. The flag comes from the entry that actually answered after any failover. The Workspace can show "thinking off not supported by this model" for the last case.
-
-Configure off settings by connection type in the Admin Console; use placeholder model IDs such as `example-model`, never a real model name in this repository:
-
-| Connection type | Off-settings object |
+| Message | Action |
 |---|---|
-| `openai_chat_completions` | For a service that supports it: `{"thinking":{"type":"disabled"}}` or `{"reasoning_effort":"low"}`. |
-| `openai_responses` | `{"reasoning":{"effort":"low"}}`. |
-| `anthropic_messages` | Leave empty when the model has no off switch. |
+| `usage: install/...` / invalid image tag | Follow the Quick Guide; deployment needs one 12-character hexadecimal image tag. |
+| Invalid deployment value / missing tool | Ask the maintainer to correct deployment settings or finish server setup. |
+| Platform namespace missing / PostgreSQL not Ready / database resources not ready | Complete platform/database setup; inspect status, then rerun setup. |
+| Existing credentials unexpected / database password format unexpected / invalid ClusterIP | Have the maintainer inspect the named resource privately; never print credentials. |
+| Cannot read client secret / client secret missing or changed | Inspect Keycloak readiness and the configured client privately before replacing the application copy. |
+| `STOP: KafkaUser model-gateway not ready; re-run 30` | Finish the platform apply and rerun setup after the KafkaUser is Ready. |
+| Kafka password changed | Have the maintainer reconcile the existing application Secret privately. |
+| Database setup failed | Inspect PostgreSQL readiness and rerun setup. |
+| Image not built / not public | Wait for a green workflow and make the named GitHub package Public. |
+| Registry unreachable / check failed / invalid token | Check registry availability and retry. |
+| Required application secret missing | Run setup. |
+| New revision not Ready / migrations not verified / deployment failed | Inspect pod status and migration logs, then rerun deployment. |
+| HTTP 400 | Use the documented input; chat requires a positive tier; correlation headers must be UUIDs. |
+| HTTP 401 / 403 | Use a valid service token with the Gateway audience and permitted caller. |
+| HTTP 404 `no_model` | Configure a supported active entry for the requested purpose/tier. |
+| HTTP 429 `rate_limited` | Wait for the minute window or adjust the configured limit. |
+| HTTP 503 `budget_exceeded` | Wait until the next UTC day or ask an admin to adjust the budget. |
+| HTTP 503 `registry_unavailable` / `unavailable` | Inspect the Control Centre, database and provider connectivity, then retry. |
 
-The Control Centre's fixed test call must omit `thinking`, including an explicit true value, and all other extra fields. Its default thinking choice remains on. This Gateway update needs no migration, dependency or settings change outside the registry entry. Automated checks use fake providers; no paid call is needed to test this behavior.
-
-## Test connection (section 16)
-
-In the Admin Console's Models & tiers screen, save a key and press **Test** beside that entry. Each click makes one short paid call, counts against that entry's rate limit and daily budget, and writes usage like a chat call. This builder's automated tests use fake providers only.
-
-The Control Centre may send only a pinned, non-streamed call with the single user message `Reply with the single word OK.`, no tools, and a user ID starting `admin-test-`. Any other Control Centre call is refused with 403. The Harness rules are unchanged, including pinned checks.
-
-On a failed test the Gateway adds `provider_status` and a scrubbed `provider_message` to its 503 response. Only the authorized Control Centre test receives these fields; Harness responses keep their ordinary error shape. Registry or budget errors have null provider details. Timeouts say `time limit reached`; connection failures say `could not connect`.
-
-Each adapter reads at most 4 KiB of a non-success response, takes `error.message` when present or the text otherwise, removes the saved key, any matching key fragment of eight or more characters, and token-shaped `sk-` values, then limits the result to 300 characters. Provider messages and replies are never logged. Every failed provider attempt logs only `provider_failed`, entry ID, HTTP status (or null), and reason (`http`, `timeout`, `connect`, `bad_answer`). No new setup or database migration is needed for this Gateway change. The merged-stage guide owns the deployment order and the Control Centre/browser steps.
-
-## Official reference check — 10 November 2026
-
-Field names and event handling were checked against the official [chat completion reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create), [Responses streaming reference](https://developers.openai.com/api/reference/resources/responses/streaming-events), [Messages streaming reference](https://platform.claude.com/docs/en/build-with-claude/streaming) and [compatible Messages reference](https://api-docs.deepseek.com/guides/anthropic_api/). No behavior change from the stage spec was needed. The last reference calls `anthropic-version` ignored; it is still accepted, so the adapter keeps `2023-06-01` as required. Responses tools explicitly send `strict: false`.
-
-## Images and filesystem
-
-Python is pinned to 3.14.10. The build stage uses uv 0.13.7 pinned by registry digest; the run stage contains only Python, the production environment, application and SQL migrations. It runs as 10001, with bytecode writes disabled and stdout unbuffered. Both Kubernetes containers use a read-only root, dropped capabilities, no privilege escalation, and writable `/tmp` only. Local tests also run in a bubblewrap filesystem namespace with `/` read-only and `/tmp` writable. This checks application filesystem use; GitHub Actions builds the actual image and the live deploy checks it separately.
-
-## STOP and HTTP errors
-
-Scripts make no destructive database changes and can be rerun. Existing role passwords are preserved. Setup copies the sign-in secret without a trailing newline and refuses a changed existing copy.
-
-| Message | What to do |
-|---|---|
-| `usage: install/...` | Use the exact command in the Quick Guide; deployment needs one 12-character tag. |
-| `invalid deployment value ...` | Correct that value in `deploy/values/do.env` with the maintainer. |
-| `missing tool ...` | Finish server setup; do not install packages from Codex. |
-| `platform namespace missing` | Complete platform setup first. |
-| `PostgreSQL is not Ready` | Inspect the database cluster and platform before retrying. |
-| `existing ... secret has unexpected credentials` / `database passwords have an unexpected format` | Have the maintainer inspect the named Secret privately; do not print it. |
-| `database resources are not ready` | Inspect the Database and DatabaseRole status, then rerun setup. |
-| `PostgreSQL service has no valid ClusterIP` | Inspect Service `ooh-pg-rw`, then rerun setup. |
-| `test database passwords have an unexpected format` | Have the maintainer inspect the test role Secrets privately. |
-| `could not read Gateway client secret` / `Gateway client secret missing` | Inspect Keycloak readiness, bootstrap access and the existing Gateway client; then rerun setup. |
-| `Gateway client secret changed` | Ask the maintainer before replacing the application copy. |
-| `database setup failed` | Inspect PostgreSQL readiness and rerun setup; settings files are replaced atomically. |
-| `image tag must be ...` | Use the first 12 hexadecimal characters of the image commit. |
-| `image not built yet` | Run the Model Gateway image workflow for this commit. |
-| `image not found or not public` | Check the workflow is green, then make the package Public. |
-| `registry is unreachable` / `registry check failed` / `registry returned an invalid token` | Check registry availability and retry. |
-| `required application secret missing` | Run the setup script. |
-| `new Model Gateway revision is not Ready` / `current revision or migrations could not be verified` / `Model Gateway deployment failed` | Inspect migration logs, pod readiness and image visibility; rerun deployment. |
-| HTTP 400 `invalid_input` | Supply the documented body; chat needs a positive tier. |
-| HTTP 401 / 403 | Supply a valid token for the Gateway from the Harness service account. |
-| HTTP 404 `no_model` | Add a supported active model for this purpose and tier; check any pinned entry. |
-| HTTP 429 `rate_limited` | Wait a minute; no entry was called and at least one reached this user's rate limit. |
-| HTTP 503 `budget_exceeded` | Every entry reached its daily budget; wait for tomorrow UTC or ask an admin. |
-| HTTP 503 `registry_unavailable` | Inspect the internal Control Centre route and service credentials. |
-| HTTP 503 `unavailable` | Inspect database readiness or model connectivity and retry. |
-| HTTP 503 `not_built_yet` | Classification arrives in Stage 3. |
-
-No cluster operation is run by the builder. Deployment, live provider calls, actual memory use and reboot checks belong to the merged stage run. Each run of `install/70-check-stage-2.sh` makes short paid calls to configured entries, including a stream per connection type in use.
+For pinned Control Centre tests only, 503 may include provider status and a scrubbed diagnostic (at most 300 characters, read from at most 4 KiB). These diagnostics are never logged. After a reboot, Kubernetes restarts the service; allow five minutes and follow the status and merged stage-check steps. Builders do not deploy, start servers or change cluster resources.

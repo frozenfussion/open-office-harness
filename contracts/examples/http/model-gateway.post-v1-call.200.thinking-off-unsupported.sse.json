@@ -8,5 +8,10 @@
     "output_tokens": 3
   },
   "cost_usd": 2.8e-05,
-  "thinking_applied": false
+  "thinking_applied": false,
+  "reasoning_state": {
+    "model_entry_id": "00000000-0000-4000-8000-000000000002",
+    "reasoning_content": ""
+  },
+  "tool_choice_applied": true
 }

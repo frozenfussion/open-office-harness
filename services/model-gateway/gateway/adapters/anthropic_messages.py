@@ -7,7 +7,62 @@ import httpx
 
 from gateway.models import Call, Entry
 
-from .common import ProviderError, check_response, request_body, sse, tool_event
+from .common import (
+    ProviderError,
+    check_response,
+    forced_choice,
+    matching_state,
+    request_body,
+    sse,
+    state_event,
+    tool_event,
+)
+
+
+def messages(call: Call, entry: Entry) -> list[dict[str, Any]]:
+    result = []
+    for message in call.messages:
+        if message.role == "system":
+            continue
+        if message.role == "tool":
+            item = {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": message.tool_call_id,
+                        "content": message.content,
+                    }
+                ],
+            }
+            if (
+                result
+                and result[-1]["role"] == "user"
+                and isinstance(result[-1]["content"], list)
+            ):
+                result[-1]["content"].extend(item["content"])
+                continue
+        elif message.role == "assistant":
+            blocks = matching_state(message, entry).get("content")
+            if blocks is None:
+                blocks = (
+                    [{"type": "text", "text": message.content}]
+                    if message.content
+                    else []
+                ) + [
+                    {
+                        "type": "tool_use",
+                        "id": t.id,
+                        "name": t.name,
+                        "input": t.arguments,
+                    }
+                    for t in message.tool_calls
+                ]
+            item = {"role": "assistant", "content": blocks}
+        else:
+            item = {"role": message.role, "content": message.content}
+        result.append(item)
+    return result
 
 
 async def run(
@@ -15,7 +70,7 @@ async def run(
 ) -> AsyncIterator[dict[str, Any]]:
     body = {
         "model": entry.model_id,
-        "messages": [m.model_dump() for m in call.messages if m.role != "system"],
+        "messages": messages(call, entry),
         "max_tokens": 4096,
         "stream": call.stream,
     }
@@ -24,11 +79,16 @@ async def run(
         body["system"] = system
     if call.tools:
         body["tools"] = [t.model_dump() for t in call.tools]
+    body = request_body(body, entry, call)
+    yield {
+        "type": "tool_choice_applied",
+        "applied": forced_choice(body, call, entry.api_type),
+    }
     async with client.stream(
         "POST",
         entry.endpoint_url.rstrip("/") + "/v1/messages",
         headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
-        json=request_body(body, entry, call),
+        json=body,
         timeout=entry.timeout_seconds,
     ) as response:
         await check_response(response, key)
@@ -51,6 +111,7 @@ async def run(
                             "arguments": block["input"],
                         }
                     )
+            yield state_event(entry, content=result["content"])
             yield {
                 "type": "usage",
                 **{
@@ -60,6 +121,7 @@ async def run(
             }
             return
         tools: dict[int, dict[str, Any]] = {}
+        blocks: dict[int, dict[str, Any]] = {}
         redacted_indexes: set[int] = set()
         thinking_seen = False
         new_block = False
@@ -73,7 +135,8 @@ async def run(
                     event.get("message", {}).get("usage", {}).get("input_tokens", 0)
                 )
             elif kind == "content_block_start":
-                block = event["content_block"]
+                block = dict(event["content_block"])
+                blocks[event["index"]] = block
                 if block["type"] == "redacted_thinking":
                     redacted_indexes.add(event["index"])
                 elif block["type"] == "thinking":
@@ -93,6 +156,15 @@ async def run(
                     }
             elif kind == "content_block_delta":
                 delta = event["delta"]
+                block = blocks.get(event.get("index"))
+                if block is not None:
+                    for dtype, field in [
+                        ("thinking_delta", "thinking"),
+                        ("signature_delta", "signature"),
+                        ("text_delta", "text"),
+                    ]:
+                        if delta["type"] == dtype:
+                            block[field] = block.get(field, "") + delta[field]
                 if (
                     delta["type"] == "thinking_delta"
                     and event.get("index") not in redacted_indexes
@@ -112,9 +184,15 @@ async def run(
                     "output_tokens", usage["output_tokens"]
                 )
             elif kind == "message_stop":
-                for tool in tools.values():
+                for index, tool in tools.items():
                     tool["arguments"] = tool["arguments"] or tool["initial"]
+                    blocks[index]["input"] = (
+                        json.loads(tool["arguments"])
+                        if isinstance(tool["arguments"], str)
+                        else tool["arguments"]
+                    )
                     yield tool_event(tool)
+                yield state_event(entry, content=[blocks[i] for i in sorted(blocks)])
                 yield {"type": "usage", **usage}
                 return
         raise ProviderError()

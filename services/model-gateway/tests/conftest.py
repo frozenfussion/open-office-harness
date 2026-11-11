@@ -1,8 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+import json
+import time
+from collections.abc import Iterator
 from typing import Any
 
+import jwt
 import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi.testclient import TestClient
 
+from gateway.app import create_app
+from gateway.engine import Engine
 from gateway.models import Call, Entry
 
 
@@ -81,3 +89,33 @@ class FakeRegistry:
 
     async def key(self, entry: Entry) -> str:
         return "fake-provider-key"
+
+    async def report_health(
+        self, entry: Entry, status: str, reason: str | None
+    ) -> None:
+        pass
+
+
+@pytest.fixture
+def signed() -> tuple:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key())) | {
+        "kid": "fake-kid"
+    }
+    return key, jwk
+
+
+@pytest.fixture
+def http(entry: Entry, signed: tuple) -> Iterator[tuple]:
+    from test_http_identity_registry import CONFIG
+
+    app = create_app(CONFIG)
+    key, jwk = signed
+    with TestClient(app) as client:
+        app.state.db = FakeDatabase()
+        app.state.identity.keys = {"fake-kid": jwt.PyJWK.from_dict(jwk).key}
+        app.state.identity.keys_until = time.monotonic() + 300
+        app.state.engine = Engine(
+            app.state.engine.client, FakeRegistry([entry]), app.state.db
+        )
+        yield client, key

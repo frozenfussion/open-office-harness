@@ -9,3 +9,5 @@ data:
   GW_OIDC_AUDIENCE: ooh-model-gateway
   GW_CLIENT_ID: ooh-model-gateway
   GW_CONTROL_CENTRE_URL: http://control-centre.${APPS_NAMESPACE}.svc:8081
+  GW_KAFKA_BOOTSTRAP: ooh-kafka-kafka-bootstrap.${PLATFORM_NAMESPACE}.svc:9092
+  GW_KAFKA_USERNAME: model-gateway

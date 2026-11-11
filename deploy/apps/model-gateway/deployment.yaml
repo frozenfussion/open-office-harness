@@ -15,6 +15,8 @@ spec:
       app: model-gateway
   template:
     metadata:
+      annotations:
+        ooh/config-hash: ${CONFIG_HASH}
       labels:
         app: model-gateway
         ooh/app: real
@@ -67,6 +69,11 @@ spec:
             secretKeyRef:
               name: model-gateway-db
               key: connection
+        - name: GW_KAFKA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: model-gateway-kafka
+              key: password
         - name: GW_CLIENT_SECRET
           valueFrom:
             secretKeyRef:

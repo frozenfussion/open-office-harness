@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audit-writer-config
+  namespace: ${APPS_NAMESPACE}
+data:
+  AW_OIDC_ISSUER: https://auth.${DOMAIN}/realms/ooh
+  AW_KAFKA_BOOTSTRAP: ooh-kafka-kafka-bootstrap.${PLATFORM_NAMESPACE}.svc:9092
+  AW_KAFKA_USERNAME: audit-writer

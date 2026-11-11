@@ -1,4 +1,4 @@
 {
-  "code": "not_built_yet",
-  "message": "Classification arrives in Stage 3"
+  "code": "unavailable",
+  "message": "The classifier did not answer."
 }

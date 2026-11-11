@@ -1,12 +1,26 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import json
+from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import pytest
 import respx
 
-from gateway.adapters import resolve
+from gateway.adapters import resolve as raw_resolve
 from gateway.models import Call, Entry
+
+
+def resolve(entry: Entry) -> Any:
+    """Existing display tests exclude the two internal adapter metadata events."""
+
+    async def visible(*args: Any) -> AsyncIterator[dict[str, Any]]:
+        async for event in raw_resolve(entry)(*args):
+            if event["type"] not in {"reasoning_state", "tool_choice_applied"}:
+                yield event
+
+    return visible
+
 
 TYPES = ["openai_chat_completions", "openai_responses", "anthropic_messages"]
 
@@ -344,7 +358,6 @@ def test_provider_message_redaction(text: str, key: str, expected: str) -> None:
 
 @pytest.mark.anyio
 async def test_provider_error_body_read_is_bounded(entry: Entry, call: Call) -> None:
-    from collections.abc import AsyncIterator
 
     from gateway.adapters.common import ProviderError
 

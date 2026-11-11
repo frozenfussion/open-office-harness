@@ -4,6 +4,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
+from uuid import UUID
 
 import httpx
 import psycopg
@@ -14,6 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from gateway.config import Config
 from gateway.database import Database
 from gateway.engine import Engine
+from gateway.events import Events
 from gateway.identity import Identity
 from gateway.models import Call, Classify, GatewayError
 from gateway.registry import Registry
@@ -26,7 +28,11 @@ async def caller(
 
 
 def authorize_call(body: Call, claims: dict[str, Any]) -> bool:
-    if claims.get("azp") == "ooh-harness-api":
+    if claims.get("azp") == "ooh-harness-api" or (
+        claims.get("azp") == "ooh-slides-worker"
+        and not body.stream
+        and body.model_entry_id is None
+    ):
         return False
     if (
         claims.get("azp") == "ooh-control-centre"
@@ -34,7 +40,7 @@ def authorize_call(body: Call, claims: dict[str, Any]) -> bool:
         <= {"purpose", "tier", "user_id", "messages", "stream", "model_entry_id"}
         and body.model_entry_id is not None
         and not body.stream
-        and [message.model_dump() for message in body.messages]
+        and [message.model_dump(exclude_defaults=True) for message in body.messages]
         == [{"role": "user", "content": "Reply with the single word OK."}]
         and not body.tools
         and body.user_id.startswith("admin-test-")
@@ -56,7 +62,16 @@ def create_app(config: Config | None = None) -> FastAPI:
             app.state.db = Database(settings.db)
             app.state.identity = Identity(settings, client)
             app.state.engine = Engine(
-                client, Registry(settings, client, app.state.identity), app.state.db
+                client,
+                Registry(settings, client, app.state.identity),
+                app.state.db,
+                Events(
+                    settings.kafka_bootstrap,
+                    settings.kafka_username,
+                    settings.kafka_password,
+                )
+                if settings.kafka_bootstrap
+                else None,
             )
             yield
 
@@ -91,11 +106,16 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     @app.post("/v1/call")
     async def call(
-        body: Call, request: Request, claims: Annotated[dict[str, Any], Depends(caller)]
+        body: Call,
+        request: Request,
+        claims: Annotated[dict[str, Any], Depends(caller)],
+        x_correlation_id: Annotated[UUID | None, Header()] = None,
     ) -> Any:
         request.state.test_connection = authorize_call(body, claims)
         events = request.app.state.engine.events(
-            body, provider_details=request.state.test_connection
+            body,
+            provider_details=request.state.test_connection,
+            correlation_id=x_correlation_id,
         )
         try:
             first = await anext(events)
@@ -158,15 +178,24 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     @app.post("/v1/classify")
     async def classify(
-        body: Classify, claims: Annotated[dict[str, Any], Depends(caller)]
-    ) -> JSONResponse:
-        if claims.get("azp") != "ooh-harness-api":
-            raise GatewayError(
-                403, "forbidden", "Only the Harness service account may classify"
-            )
-        return JSONResponse(
-            {"code": "not_built_yet", "message": "Classification arrives in Stage 3"},
-            status_code=503,
+        body: Classify,
+        request: Request,
+        claims: Annotated[dict[str, Any], Depends(caller)],
+        x_correlation_id: Annotated[UUID | None, Header()] = None,
+    ) -> dict[str, Any]:
+        azp = claims.get("azp")
+        pinned_test = (
+            azp == "ooh-control-centre"
+            and body.model_entry_id is not None
+            and body.user_id == "admin-test-" + claims["sub"]
+            and body.text == "This is a connection test."
+            and body.questions == {"test": "Is this a connection test?"}
+        )
+        if azp not in {"ooh-harness-api", "ooh-safety-watcher"} and not pinned_test:
+            raise GatewayError(403, "forbidden", "This caller may not classify")
+        request.state.test_connection = pinned_test
+        return await request.app.state.engine.classify(
+            body, x_correlation_id, provider_details=pinned_test
         )
 
     return app
