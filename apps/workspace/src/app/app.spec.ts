@@ -6,10 +6,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Jobs } from './jobs';
 import { signal } from '@angular/core';
 import { App, greeting, metaLine } from './app';
-import { Api, ApiError } from './api';
+import { Message, Api, ApiError } from './api';
 import { ChatEvent, JobEvent, readStream, SseParser } from './sse';
 import { CONFIG, readConfig } from './config';
 import { appConfig } from './app.config';
+
+describe('Auto routing metadata', () => {
+  it('shows routing and a declined skill note for streamed and reloaded answers', () => {
+    const note = 'The model chose not to use Slides.';
+    const message: Message = {role: 'assistant', content: 'Answer', created_at: '', tier: 1, model_title: 'Example',
+      routing: {tier: 1, scores: {needs_tier2: 0.1}, skill: 'slides', note}};
+    expect(metaLine(message)).toContain('auto → tier 1');
+    expect(metaLine(message)).toContain(note);
+    expect(metaLine(JSON.parse(JSON.stringify(message)))).toBe(metaLine(message));
+  });
+});
 
 describe('Workspace', () => {
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); TestBed.resetTestingModule(); window.history.replaceState(null, '', '/'); localStorage.clear(); });
@@ -105,7 +116,7 @@ describe('Workspace', () => {
   it('offers only allowed tiers', async () => {
     const view = await fixture();
     const options = [...view.nativeElement.querySelectorAll('select option')] as HTMLOptionElement[];
-    expect(options.map(option => option.textContent?.trim())).toEqual(['Tier 1', 'Tier 3', 'Skills', 'Request another model…']);
+    expect(options.map(option => option.textContent?.trim())).toEqual(['Auto', 'Tier 1', 'Tier 3', 'Skills', 'Request another model…']);
   });
   it('labels allowed chat models with their titles and falls back to the tier', async () => {
     const view = await fixture();
@@ -116,9 +127,26 @@ describe('Workspace', () => {
     const select = view.nativeElement.querySelector('select[aria-label="Chat model"]');
     expect(select).not.toBeNull();
     const options = [...select.querySelectorAll('option')] as HTMLOptionElement[];
-    expect(options.map(option => option.textContent?.trim())).toEqual(['Test main entry - Tier 1', 'Tier 3', 'Skills', 'Request another model…']);
+    expect(options.map(option => option.textContent?.trim())).toEqual(['Auto', 'Test main entry - Tier 1', 'Tier 3', 'Skills', 'Request another model…']);
     expect(view.nativeElement.querySelector('.ooh-label').textContent).toBe('Chat model');
     expect(select.textContent).not.toContain('Hidden entry');
+  });
+  it('sends Auto and shows routing from the completed stream', async () => {
+    const note = 'This question may need tier 2. An admin can give you tier 2.';
+    const send = vi.fn(async (_id, _text, tier, _signal, receive) => {
+      expect(tier).toBe('auto');
+      receive({type: 'delta', text: 'Answer'});
+      receive({type: 'completed', message_id: 'message', tier: 1, model_title: 'Example',
+        usage: {input_tokens: 2, output_tokens: 4}, note, thinking_applied: true,
+        routing: {tier: 1, scores: {needs_tier2: 0.9}, note}});
+    });
+    const view = await fixture(send);
+    view.componentInstance.tier = 'auto';
+    view.componentInstance.draft = 'Question';
+    await view.componentInstance.send(); view.detectChanges();
+    expect(view.nativeElement.querySelector('.messages').textContent).toContain('auto → tier 1');
+    expect(view.nativeElement.querySelector('.messages').textContent).toContain(note);
+    expect(view.componentInstance.messages().at(-1)?.routing?.scores).toEqual({needs_tier2: 0.9});
   });
   it('shows a 403 message in an amber notice', async () => {
     const view = await fixture();

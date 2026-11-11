@@ -29,6 +29,12 @@ describe('Workspace API model controls', () => {
     await api().send('test-conversation', 'Test question', 1, new AbortController().signal, vi.fn());
     expect(JSON.parse(fetchRequest.mock.calls[0][1]?.body as string).thinking).toBe(true);
   });
+  it('posts Auto unchanged with bearer authentication', async () => {
+    const fetchRequest = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', {headers: {'Content-Type': 'text/event-stream'}}));
+    await api().send('conversation', 'Question', 'auto', new AbortController().signal, () => {});
+    expect(JSON.parse(fetchRequest.mock.calls[0][1]?.body as string)).toEqual({content: 'Question', tier: 'auto', thinking: true});
+    expect(fetchRequest.mock.calls[0][1]?.headers).toEqual({Authorization: 'Bearer test-token', 'Content-Type': 'application/json'});
+  });
   it('posts model requests as authenticated JSON without a user ID', async () => {
     const fetchRequest = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"id":"test-request","status":"pending"}', {status: 201}));
     expect(await api().requestTier(2, 'Test reason')).toEqual({id: 'test-request', status: 'pending'});

@@ -528,3 +528,32 @@ async def test_audit_failure_keeps_queued_job_completable(
         getattr(record, "code", "") == "audit_publish_failed"
         for record in caplog.records
     )
+
+
+@pytest.mark.anyio
+async def test_routing_persisted_without_entering_model_history(
+    store: Store, db_user: str
+) -> None:
+    identifier = await store.create(db_user)
+    await store.append(identifier, db_user, "user", "Question", "completed", 1)
+    routing = {"tier": 1, "scores": {"needs_tier2": 0.9}, "note": "Access note"}
+    state = {"model_entry_id": str(uuid4()), "opaque": "PRIVATE_REASONING"}
+    await store.append(
+        identifier,
+        db_user,
+        "assistant",
+        "Answer",
+        "completed",
+        1,
+        {
+            "routing": routing,
+            "reasoning_state": state,
+            "model_entry_id": state["model_entry_id"],
+        },
+    )
+    answer = (await store.conversation(identifier, db_user))["messages"][-1]
+    assert answer["routing"] == routing
+    assert "reasoning_state" not in answer
+    history = await store.history(identifier)
+    assert history[-1]["reasoning_state"] == state
+    assert "routing" not in history[-1]

@@ -3,6 +3,7 @@
   <label class="ooh-field"><span class="ooh-label">Chat model</span>
     <select #modelSelect class="ooh-select" aria-label="Chat model" [ngModel]="tier()" (ngModelChange)="choose($event, modelSelect)" [disabled]="busy()">
       @if (!me().chat_tiers.length) { <option [ngValue]="null" disabled>Choose a chat model</option> }
+      @if (me().chat_tiers.length) { <option [ngValue]="'auto'">Auto</option> }
       @for (allowed of me().chat_tiers; track allowed) { <option [ngValue]="allowed">{{ label(allowed) }}</option> }
       <option [ngValue]="'skills'">Skills</option>
       <option [ngValue]="'request'">Request another model…</option>

@@ -134,6 +134,9 @@ paths:
   /api/conversations/{id}/messages:
     post:
       operationId: post_api_conversations_id_messages
+      description: Only tier auto invokes classification for tier and allowed-skill suggestions. Rights
+        always decide; explicit and omitted tiers bypass routing. Routing, chat and title calls use the
+        stored user message id as X-Correlation-Id. Auto metadata is returned and stored on the answer.
       security:
       - bearerAuth: []
       responses:
@@ -168,6 +171,8 @@ paths:
                       type:
                       - string
                       - 'null'
+                    routing:
+                      $ref: '#/components/schemas/Routing'
                     thinking_applied:
                       type: boolean
                   required:
@@ -305,6 +310,7 @@ paths:
                 tier:
                   anyOf:
                   - *id003
+                  - const: auto
                   - type: 'null'
                 thinking:
                   type: boolean
@@ -924,6 +930,28 @@ components:
       - title
       - updated_at
       additionalProperties: false
+    Routing:
+      type: object
+      description: Present for Auto routing. Scores are suggestions; rights decide. When a forced skill
+        was not applied and no tool was called, note says "The model chose not to use <skill title>."
+      properties:
+        tier:
+          type: integer
+          minimum: 1
+        scores:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 1
+        skill:
+          type: string
+        note:
+          type: string
+      required:
+      - tier
+      - scores
+      additionalProperties: false
     Message:
       type: object
       properties:
@@ -954,6 +982,10 @@ components:
           - integer
           - 'null'
           minimum: 0
+        routing:
+          anyOf:
+          - $ref: '#/components/schemas/Routing'
+          - type: 'null'
         note: *id007
         outcome:
           enum:

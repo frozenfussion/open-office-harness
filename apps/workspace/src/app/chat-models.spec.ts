@@ -23,6 +23,21 @@ describe('Chat models', () => {
     view.detectChanges(); await view.whenStable(); view.detectChanges();
     return {view, controls: view.componentInstance, request};
   }
+  it('offers Auto and retains it when opening Skills or model requests', async () => {
+    const {view, controls} = await fixture();
+    const emit = vi.spyOn(controls.tierChange, 'emit');
+    const select = view.nativeElement.querySelector('select') as HTMLSelectElement;
+    expect(select.options[0].textContent).toBe('Auto');
+    select.selectedIndex = 0; select.dispatchEvent(new Event('change'));
+    expect(emit).toHaveBeenCalledWith('auto');
+    view.componentRef.setInput('tier', 'auto'); view.detectChanges();
+    expect(controls.thinking()).toBe(true);
+    expect(view.nativeElement.querySelector('[role="switch"]')).toBeNull();
+    controls.choose('skills', select);
+    expect(select.selectedIndex).toBe(0);
+    controls.choose('request', select);
+    expect(select.selectedIndex).toBe(0);
+  });
   it('shows thinking only for a supported selected tier and remembers each tier across reloads', async () => {
     const {view, controls} = await fixture();
     const toggle = view.nativeElement.querySelector('[role="switch"]') as HTMLButtonElement;
@@ -61,7 +76,7 @@ describe('Chat models', () => {
     expect(controls.panel()).toBe(true);
     expect(controls.tier()).toBe(1);
     expect(emit).not.toHaveBeenCalled();
-    expect(select.selectedIndex).toBe(0);
+    expect(select.selectedIndex).toBe(1);
     expect(view.nativeElement.querySelector('[aria-label="Request another model"]')).not.toBeNull();
     const choices = view.nativeElement.querySelector('[aria-label="Model to request"]');
     expect(choices.textContent).toContain('<b>Another model</b> - Tier 2');

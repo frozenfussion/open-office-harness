@@ -6,7 +6,7 @@ import sys
 import time
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import anyio
@@ -33,6 +33,7 @@ from .diagnostics import failure as record_failure
 from .errors import ApiError, gateway_error
 from .events import JobEvents, Kafka, Publisher, envelope
 from .jobs import Jobs, download_path
+from .routing import route
 from .store import MAX_THINKING_CHARS, Store
 from .upstream import GatewayStream, Upstream
 
@@ -46,7 +47,7 @@ class Empty(BaseModel):
 
 class Message(Empty):
     content: str = Field(min_length=1)
-    tier: Annotated[StrictInt, Field(gt=0)] | None = None
+    tier: Annotated[StrictInt, Field(gt=0)] | Literal["auto"] | None = None
     thinking: StrictBool = True
 
     @field_validator("content")
@@ -360,6 +361,8 @@ def create_app(
         tools: list[dict[str, Any]],
         thinking: bool,
         correlation: UUID,
+        routing: dict[str, Any] | None = None,
+        forced_title: str | None = None,
     ) -> AsyncGenerator[str]:
         content = ""
         thinking_text = ""
@@ -391,6 +394,16 @@ def create_app(
                             {key: event[key] for key in ("id", "name", "arguments")}
                         )
                     case "completed":
+                        if (
+                            routing is not None
+                            and forced_title is not None
+                            and rounds == 0
+                            and not calls
+                            and event.get("tool_choice_applied") is False
+                        ):
+                            declined = f"The model chose not to use {forced_title}."
+                            note = f"{note} {declined}" if note else declined
+                            routing["note"] = note
                         if pinned is not None and event["model_entry_id"] != pinned:
                             raise ValueError("Tool turn changed model entry")
                         if calls:
@@ -446,7 +459,10 @@ def create_app(
                                 )
                                 event = await anext(stream.events)
                                 continue
-                        metadata = event
+                        metadata = {
+                            **event,
+                            **({"routing": routing} if routing else {}),
+                        }
                         outcome = "completed"
                         message_id = await database.append(
                             identifier,
@@ -481,6 +497,7 @@ def create_app(
                                 "usage": event["usage"],
                                 "note": note,
                                 "thinking_applied": event["thinking_applied"],
+                                **({"routing": routing} if routing else {}),
                             }
                         )
                         title = await make_title(
@@ -538,7 +555,10 @@ def create_app(
                                 content,
                                 "failed",
                                 tier,
-                                metadata,
+                                {
+                                    **metadata,
+                                    **({"routing": routing} if routing else {}),
+                                },
                                 note,
                                 thinking=thinking_text or None,
                             )
@@ -557,11 +577,11 @@ def create_app(
         await database.conversation(id, user_id)
         rights, skills = await upstream.permissions(user_id)
         tiers = rights.chat_tiers
-        if body.tier is None and not tiers:
+        if body.tier in (None, "auto") and not tiers:
             raise ApiError(
                 403, "no_tier", "You have no chat tier yet. An admin can grant one."
             )
-        tier = body.tier if body.tier is not None else tiers[0]
+        tier = body.tier if isinstance(body.tier, int) else tiers[0]
         await upstream.check(user_id, tier)
         tools = upstream.tools(skills)
         history = await database.history(id)
@@ -569,13 +589,33 @@ def create_app(
         correlation = await database.append(
             id, user_id, "user", body.content, "completed", tier
         )
-        schedule_chat("user", body.content, id, correlation, correlation, user_id, tier)
         note = None
+        routing = None
+        forced_title = None
+        tool_choice = None
+        if body.tier == "auto":
+            routing = await route(
+                upstream, user_id, body.content, tiers[0], skills, correlation
+            )
+            tier = routing["tier"]
+            note = routing.get("note")
+            if routing.get("skill"):
+                tool_choice = {"name": routing["skill"]}
+                forced_title = next(
+                    skill.title for skill in skills if skill.name == routing["skill"]
+                )
+        schedule_chat("user", body.content, id, correlation, correlation, user_id, tier)
         stream = None
         try:
             try:
                 stream = await upstream.open(
-                    user_id, tier, history, tools, body.thinking, correlation
+                    user_id,
+                    tier,
+                    history,
+                    tools,
+                    body.thinking,
+                    correlation,
+                    tool_choice=tool_choice,
                 )
             except ApiError as error:
                 lower = [value for value in tiers if value < tier]
@@ -589,8 +629,16 @@ def create_app(
                     f"tier {original} is over its daily budget; "
                     f"answered with tier {tier}"
                 )
+                if routing is not None:
+                    routing.update(tier=tier, note=note)
                 stream = await upstream.open(
-                    user_id, tier, history, tools, body.thinking, correlation
+                    user_id,
+                    tier,
+                    history,
+                    tools,
+                    body.thinking,
+                    correlation,
+                    tool_choice=tool_choice,
                 )
             first = await anext(stream.events)
             if first["type"] == "failed":
@@ -606,11 +654,45 @@ def create_app(
             if stream is not None:
                 await stream.close()
             await database.append(
-                id, user_id, "assistant", "", "failed", tier, note=note
+                id,
+                user_id,
+                "assistant",
+                "",
+                "failed",
+                tier,
+                metadata={"routing": routing} if routing else None,
+                note=note,
             )
             if isinstance(error, ApiError):
                 raise
             raise gateway_error("unavailable", tier) from None
+        finally:
+            if routing is not None and bus is not None:
+                try:
+                    async with asyncio.timeout(CHAT_PUBLISH_TIMEOUT_SECONDS):
+                        await bus.publish(
+                            "audit.events",
+                            envelope(
+                                "audit.event",
+                                str(correlation),
+                                user_id,
+                                {
+                                    "actor": user_id,
+                                    "action": "route",
+                                    "target": "chat",
+                                    "outcome": f"skill_{routing['skill']}"
+                                    if routing.get("skill")
+                                    else f"tier_{tier}",
+                                    "scores": routing["scores"],
+                                },
+                            ),
+                        )
+                except Exception:
+                    record_failure(
+                        "kafka_error",
+                        "audit_publish_failed",
+                        correlation_id=str(correlation),
+                    )
         return ChatResponse(
             browser_stream(
                 stream,
@@ -623,6 +705,8 @@ def create_app(
                 tools,
                 body.thinking,
                 correlation,
+                routing,
+                forced_title,
             ),
             stream,
         )

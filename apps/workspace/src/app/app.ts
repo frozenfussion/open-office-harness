@@ -3,7 +3,7 @@ import { afterRenderEffect, Component, computed, ElementRef, inject, OnDestroy, 
 import { FormsModule } from '@angular/forms';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { Subscription } from 'rxjs';
-import { Api, ApiError, Conversation, Job, Me, Message } from './api';
+import { ChatTier, Api, ApiError, Conversation, Job, Me, Message } from './api';
 import { Rain } from './rain';
 import { MessageContent } from './message-content';
 import { ChatModels } from './chat-models';
@@ -16,8 +16,8 @@ export function greeting(date = new Date()): string {
 }
 export function metaLine(message: Message): string {
   if (!message.model_title || message.tier == null) return '';
-  return `tier ${message.tier} · ${message.model_title} · ${message.input_tokens ?? 0} in / ${message.output_tokens ?? 0} out tokens` +
-    (message.note ? ` · ${message.note}` : '') +
+  return `${message.routing ? 'auto → ' : ''}tier ${message.tier} · ${message.model_title} · ${message.input_tokens ?? 0} in / ${message.output_tokens ?? 0} out tokens` +
+    ((message.routing?.note || message.note) ? ` · ${message.routing?.note || message.note}` : '') +
     (message.thinkingRequested === false && message.thinking_applied === false ? ' · thinking off not supported by this model' : '');
 }
 @Component({ selector: 'app-root', imports: [FormsModule, Rain, MessageContent, ChatModels, JobCard], templateUrl: './app.html', styleUrl: './app.css' })
@@ -45,7 +45,7 @@ export class App implements OnInit, OnDestroy {
   readonly notice = signal('');
   readonly forbidden = signal(false);
   readonly copied = signal(false);
-  tier: number | null = null;
+  tier: ChatTier | null = null;
   draft = '';
   metaLine = metaLine;
   readonly greeting = computed(() => {
@@ -208,7 +208,7 @@ export class App implements OnInit, OnDestroy {
         else if (event.type === 'delta') assistant!.content += event.text;
         else if (event.type === 'completed') {
           Object.assign(assistant!, {created_at: new Date().toISOString(), id: event.message_id, tier: event.tier, model_title: event.model_title,
-            input_tokens: event.usage.input_tokens, output_tokens: event.usage.output_tokens, note: event.note, thinking_applied: event.thinking_applied, outcome: 'completed'});
+            input_tokens: event.usage.input_tokens, output_tokens: event.usage.output_tokens, note: event.note, routing: event.routing, thinking_applied: event.thinking_applied, outcome: 'completed'});
           ended = true;
           completed = true;
           this.streaming.set(false);

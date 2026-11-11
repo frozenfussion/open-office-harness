@@ -4,6 +4,8 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { firstValueFrom } from 'rxjs';
 import { CONFIG } from './config';
 import { ChatEvent, JobEvent, readStream } from './sse';
+export type ChatTier = number | 'auto';
+export interface Routing { tier: number; scores: Record<string, number>; skill?: string; note?: string }
 export type Access = 'approved' | 'pending' | 'rejected' | 'closed';
 export interface RequestableTier { tier: number; title: string; requested: 'pending' | 'rejected' | null }
 export interface RequestableSkill { name: string; title: string; description: string; requested: 'pending' | 'rejected' | null }
@@ -12,7 +14,7 @@ export interface Job { job_id: string; skill: string; title: string; label: stri
 export interface Me { requestable_skills?: RequestableSkill[]; access: Access; user_id: string; name: string; chat_tiers: number[]; chat_tier_titles: Record<string, string>; chat_tier_thinking_switch: Record<string, boolean>; requestable_tiers: RequestableTier[]; skills: {name: string; title: string}[] }
 export interface Conversation { id: string; title: string; updated_at: string }
 export interface Message {
-  jobs?: Job[]; id?: string; role: 'user' | 'assistant'; content: string; created_at: string;
+  routing?: Routing | null; jobs?: Job[]; id?: string; role: 'user' | 'assistant'; content: string; created_at: string;
   tier?: number | null; model_title?: string | null;
   input_tokens?: number | null; output_tokens?: number | null; note?: string | null;
   outcome?: string; thinking?: string | null; thinkingRequested?: boolean; thinking_applied?: boolean;
@@ -72,7 +74,7 @@ export class Api {
     document.body.append(anchor);
     try { anchor.click(); } finally { anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
   }
-  async send(id: string, content: string, tier: number, signal: AbortSignal, receive: (event: ChatEvent) => void, thinking = true): Promise<void> {
+  async send(id: string, content: string, tier: ChatTier, signal: AbortSignal, receive: (event: ChatEvent) => void, thinking = true): Promise<void> {
     const response = await this.request('/conversations/' + encodeURIComponent(id) + '/messages', {
       method: 'POST', body: JSON.stringify({content, tier, thinking}), signal,
     });

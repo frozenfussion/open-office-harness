@@ -23,10 +23,22 @@ class Settings:
     kafka_username: str = "harness-api"
     kafka_password: str = field(default="", repr=False)
     files_root: str = "/files"
+    route_tier_question: str = ""
+    route_tier_threshold: float = 0.7
+    route_up_tier: int = 2
+    route_skill_threshold: float = 0.8
 
     @classmethod
     def from_env(cls) -> Settings:
         return cls(
+            route_tier_question=os.environ.get("HA_ROUTE_TIER_QUESTION", ""),
+            route_tier_threshold=float(
+                os.environ.get("HA_ROUTE_TIER_THRESHOLD", "0.7")
+            ),
+            route_up_tier=int(os.environ.get("HA_ROUTE_UP_TIER", "2")),
+            route_skill_threshold=float(
+                os.environ.get("HA_ROUTE_SKILL_THRESHOLD", "0.8")
+            ),
             kafka_bootstrap=os.environ.get("HA_KAFKA_BOOTSTRAP", ""),
             kafka_username=os.environ.get("HA_KAFKA_USERNAME", "harness-api"),
             kafka_password=os.environ.get("HA_KAFKA_PASSWORD", ""),

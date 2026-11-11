@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Api, ApiError, Me } from './api';
+import { Api, ApiError, ChatTier, Me } from './api';
 
 @Component({
   selector: 'app-chat-models', imports: [FormsModule], templateUrl: './chat-models.html', styleUrl: './chat-models.css',
@@ -9,9 +9,9 @@ import { Api, ApiError, Me } from './api';
 export class ChatModels {
   private readonly api = inject(Api);
   readonly me = input.required<Me>();
-  readonly tier = input<number | null>(null);
+  readonly tier = input<ChatTier | null>(null);
   readonly busy = input(false);
-  readonly tierChange = output<number>();
+  readonly tierChange = output<ChatTier>();
   readonly panel = signal(false);
   readonly skillsPanel = signal(false);
   readonly skillPanel = signal(false);
@@ -24,7 +24,7 @@ export class ChatModels {
   readonly notice = signal('');
   private readonly pending = signal<number[]>([]);
   private readonly preferences = signal<Record<string, boolean>>({});
-  readonly switchAvailable = computed(() => this.tier() !== null && this.me().chat_tier_thinking_switch?.[String(this.tier())] === true);
+  readonly switchAvailable = computed(() => typeof this.tier() === 'number' && this.me().chat_tier_thinking_switch?.[String(this.tier())] === true);
   readonly thinking = computed(() => {
     if (!this.switchAvailable()) return true;
     const tier = String(this.tier());
@@ -41,13 +41,13 @@ export class ChatModels {
     const title = this.me().chat_tier_titles?.[String(tier)];
     return title ? `${title} - Tier ${tier}` : `Tier ${tier}`;
   }
-  choose(value: number | 'request' | 'skills', select: HTMLSelectElement): void {
+  choose(value: ChatTier | 'request' | 'skills', select: HTMLSelectElement): void {
     if (this.busy()) return;
     if (value === 'request' || value === 'skills') {
       if (value === 'skills') this.skillsPanel.set(true); else
       this.panel.set(true); this.notice.set('');
-      select.selectedIndex = this.tier() === null ? 0 : this.me().chat_tiers.indexOf(this.tier()!);
-    } else if (this.me().chat_tiers.includes(value)) this.tierChange.emit(value);
+      select.selectedIndex = this.tier() === null ? 0 : this.tier() === 'auto' ? 0 : this.me().chat_tiers.indexOf(this.tier() as number) + 1;
+    } else if (value === 'auto' || this.me().chat_tiers.includes(value)) this.tierChange.emit(value);
   }
   toggleThinking(): void {
     if (this.busy() || !this.switchAvailable()) return;

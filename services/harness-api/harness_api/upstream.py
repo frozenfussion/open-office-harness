@@ -408,7 +408,7 @@ class Upstream:
         thinking: bool = True,
         correlation_id: UUID | None = None,
         model_entry_id: str | None = None,
-        tool_choice: str | None = None,
+        tool_choice: str | dict[str, str] | None = None,
     ) -> GatewayStream:
         response = None
         try:

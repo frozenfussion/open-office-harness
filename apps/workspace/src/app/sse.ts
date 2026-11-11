@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 export interface Usage { input_tokens: number; output_tokens: number }
-import type { Job } from './api';
+import type { Job, Routing } from './api';
 export interface JobEvent { type: 'job.queued' | 'job.awaiting_approval' | 'job.completed' | 'job.failed'; correlation_id: string; skill: string; output: Job['output']; error: Job['error'] }
 export type ChatEvent =
   | ({type: 'job'} & Job)
   | { type: 'thinking'; text: string }
   | { type: 'delta'; text: string }
-  | { type: 'completed'; message_id: string; tier: number; model_title: string; usage: Usage; note: string | null; thinking_applied: boolean }
+  | { type: 'completed'; routing?: Routing; message_id: string; tier: number; model_title: string; usage: Usage; note: string | null; thinking_applied: boolean }
   | { type: 'title'; conversation_id: string; title: string }
   | { type: 'failed'; error: { code: string; message: string } };
 

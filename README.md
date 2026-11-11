@@ -65,7 +65,11 @@ phase 2. These steps also apply after merging the routing Part.
    plain shell. This checks the platform, Control Centre, chat and Stage 3.
    Checks 70 and 77 make short **paid** calls. Check 77 makes a Slides job,
    repeats it, sends a synthetic safety example, tests classification, and
-   makes up to four calls per chat connection type (including the retry when
+   makes four Auto chat turns plus classification and title calls, temporarily grants
+   tier 1 and tier 2 to the check account, then removes grants created by this run.
+   It needs active tier 1 and tier 2 chat entries and no broader check-account or
+   Everyone tier grant for the tier-1-only test. It also makes up to four calls
+   per chat connection type (including the retry when
    thinking prevents a forced tool). Good result: all PASS, then `DONE`.
    INFO safety scores need not create a flag; the check clears its own flag.
    A download ownership check says `SKIP no other user's job yet` only when the
@@ -88,6 +92,14 @@ phase 2. These steps also apply after merging the routing Part.
    refresh Workspace to load the new grant. That account must get 404 if it
    opens the first account's job download address. Check Overview figures,
    service health, People & rights changes, and Audit by the full Request ID.
+   Choose **Auto** in Chat model: a simple question should show `auto → tier 1`.
+   A hard question should use tier 2 when granted; otherwise the meta line says
+   an admin can give you tier 2. Ask for slides with the Slides right on a tier
+   whose main entry accepts forced tools: the job should start. If the model
+   declines a tool when forcing was unavailable, the meta line says
+   "The model chose not to use Slides." Routing scores appear in Audit under
+   action `route`; routing, chat and title calls share the user message id.
+   Explicit model choices bypass routing.
 
 7. **Tune safety.** Edit `deploy/apps/safety-watcher/configmap.yaml`: change
    `SF_QUESTIONS` (JSON) or `SF_THRESHOLD` (0–1). Keep thresholds and questions
@@ -98,6 +110,24 @@ phase 2. These steps also apply after merging the routing Part.
    cd ~/projects/worktrees/stage-3
    install/75-consumers-deploy.sh MERGED_IMAGE_TAG
    ```
+
+   To tune Auto routing, edit `deploy/apps/harness-api/configmap.yaml`:
+   `HA_ROUTE_TIER_QUESTION` asks whether advanced reasoning is needed;
+   `HA_ROUTE_TIER_THRESHOLD` is 0.7, `HA_ROUTE_UP_TIER` is 2, and
+   `HA_ROUTE_SKILL_THRESHOLD` is 0.8 by default. Scores at or above a threshold
+   qualify. Skill questions come from allowed skills' descriptions. Keep these
+   settings in the ConfigMap. Type this in your harness terminal, Shell tile,
+   plain shell. This loads the routing settings; good result: Ready and `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-3
+   install/67-harness-api-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+   When routing is unavailable, Auto uses the lowest allowed tier and says so.
+   Rights still decide every tier and skill. Auto keeps thinking on; choose an
+   explicit tier to use that tier's thinking switch. Scores and routing notes
+   are saved with the assistant answer and remain visible after reloading.
 
 8. **Status and images.** Type this in your harness terminal, Shell tile,
    plain shell. This shows which image each service is running and whether it
@@ -159,7 +189,7 @@ phase 2. These steps also apply after merging the routing Part.
     succeeds, all tests pass. Use the merged worktree for the combined checks.
 
     ```bash
-    cd ~/projects/worktrees/stage-3-part-c/apps/workspace
+    cd ~/projects/worktrees/stage-3-part-e/apps/workspace
     npm ci
     npx ng build
     npx ng test --watch=false
@@ -200,6 +230,22 @@ No signed links. Uploads remain unavailable. Nothing deletes generated files.
 The Stage 2 instructions below describe its original deployment. On Stage 3,
 use the sequence above: 62 uses the temporary check client, device sign-in is
 disabled, and a newly entered first-admin password needs no forced change.
+
+### Routing check messages
+
+- A routing simple/hard question FAIL means its scores, selected tier, saved
+  routing metadata or access note differed from the expected result. Inspect
+  `route` scores in Audit, classifier settings, and active chat tier models.
+- `STOP: routing check needs only tier 1` means the check account already has
+  another tier, possibly through Everyone. Review those grants in People &
+  rights before retrying; the script never removes pre-existing grants.
+- A temporary routing grant FAIL means Control Centre could not grant or remove
+  this run's check-account rights. Review those grants in People & rights.
+  Cleanup retries on every exit before disabling the temporary client.
+- Before the phase 2 deployment, run all nine image workflows **on demand for
+  the final merge commit**, wait for green builds, and run every deploy script
+  again with its 12-character tag using the order above. Building only the two
+  changed images does not satisfy the image check.
 
 ## Stage 2 — Talk to AI
 

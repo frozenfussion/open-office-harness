@@ -20,8 +20,9 @@ result() {
 }
 require() { result "$@"; [[ "$1" == 0 ]] || stop "cannot continue after $2; fix the FAIL line and retry"; }
 tmp="$(mktemp -d)"
-check_pod=''; check_namespace=''; forward_pids=()
+check_pod=''; check_namespace=''; forward_pids=(); routing_grants=()
 cleanup() {
+  if ((${#routing_grants[@]})); then remove_routing_grants || printf "FAIL temporary routing grants could not be removed; inspect check-user grants in People & rights\n" >&2; fi
   stage_check_end || true
   local pid
   for pid in "${forward_pids[@]}"; do kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done
@@ -70,6 +71,17 @@ request() {
     [[ -z "$data" ]] || { printf 'data = '; printf '%s' "$data" | jq -Rs .; }
   } | curl --config - --connect-timeout 10 --max-time 930 -sS -X "$method" "$url" -w '\n%{http_code}' 2>/dev/null)" || return 1
   status="${reply##*$'\n'}"; body="${reply%$'\n'*}"
+}
+remove_routing_grants() {
+  local id rc=0
+  local remaining=()
+  for id in "${routing_grants[@]}"; do
+    if ! request admin DELETE "$admin_base/api/admin/grants/$id" || [[ "$status" != 200 ]]; then
+      remaining+=("$id"); rc=1
+    fi
+  done
+  routing_grants=("${remaining[@]}")
+  return "$rc"
 }
 # Pods receive real credentials only through Secret environment references.
 run_pod() {
@@ -411,6 +423,64 @@ rc=0
 request admin GET "$admin_base/api/admin/health" && [[ "$status" == 200 ]] && jq -e '
   ([.[].name] | sort) == (["harness-api","model-gateway","slides-worker","audit-writer","cost-meter","safety-watcher","kafka","keycloak"] | sort) and all(.[]; .status == "ok")' <<< "$body" >/dev/null || rc=1
 result "$rc" 'every service health OK' 'inspect the down service and retry after the next health refresh'
+# Routing uses only temporary grants for the check service account. Existing
+# grants (including Everyone) are never removed to make a check pass.
+route_grant() {
+  local tier="$1"
+  request admin POST "$admin_base/api/admin/grants" "$(jq -cn --arg user "$check_sub" --arg tier "$tier" '{right_key:("chat.tier."+$tier),subject_type:"user",subject_id:$user}')" || return 1
+  [[ "$status" == 200 || "$status" == 201 ]] || return 1
+  if [[ "$status" == 201 ]]; then routing_grants+=("$(jq -er '.id' <<< "$body")"); fi
+}
+route_question() {
+  local question="$1" expected="$2" needs_note="$3" conversation completed
+  request check POST "$harness_base/api/conversations" '{}' && [[ "$status" == 201 ]] || return 1
+  conversation="$(jq -er '.id' <<< "$body")" || return 1
+  request check POST "$harness_base/api/conversations/$conversation/messages" "$(jq -cn --arg text "$question" '{content:$text,tier:"auto"}')" && [[ "$status" == 200 ]] || return 1
+  completed="$(python3 -c '
+import json, sys
+try:
+    events = [json.loads(line[6:]) for line in sys.stdin if line.startswith("data: ")]
+    assert not any(event["type"] == "failed" for event in events)
+    completed = [event for event in events if event["type"] == "completed"]
+    assert len(completed) == 1
+    print(json.dumps(completed[0]))
+except Exception:
+    raise SystemExit(1) from None
+' <<< "$body")" || return 1
+  jq -e --argjson tier "$expected" --argjson note "$needs_note" '
+    .tier == $tier and .routing.tier == $tier and
+    (.routing.scores.needs_tier2 | type == "number") and
+    (if $note then .routing.note == "This question may need tier 2. An admin can give you tier 2."
+     else ((.routing.note // "") | startswith("Routing is unavailable") | not) end)' <<< "$completed" >/dev/null || return 1
+  request check GET "$harness_base/api/conversations/$conversation" && [[ "$status" == 200 ]] || return 1
+  jq -e --argjson routing "$(jq -c '.routing' <<< "$completed")" '[.messages[] | select(.role == "assistant")][-1].routing == $routing' <<< "$body" >/dev/null
+}
+rc=0
+route_grant 1 || rc=1
+require "$rc" 'routing check user has a tier 1 grant' 'configure an active tier 1 model and inspect Control Centre grants'
+if ! request check GET "$harness_base/api/me" || [[ "$status" != 200 ]] || ! jq -e '.chat_tiers == [1]' <<< "$body" >/dev/null; then
+  stop 'routing check needs only tier 1; remove broader check-user or Everyone grants in People & rights before retrying'
+fi
+simple_question='What is two plus two? Answer briefly.'
+hard_question='Prove that every finite integral domain is a field. Give a rigorous proof using injectivity and surjectivity, and explain why finiteness is essential.'
+rc=0
+route_question "$simple_question" 1 false || rc=1
+result "$rc" 'Auto simple question uses tier 1 with only tier 1 granted' 'inspect routing settings, classifier scores and tier 1 model'
+rc=0
+route_question "$hard_question" 1 true || rc=1
+result "$rc" 'Auto hard question stays on tier 1 with the access note' 'inspect classifier threshold and fail-closed tier rights'
+rc=0
+route_grant 2 || rc=1
+require "$rc" 'routing check user temporarily granted tier 2' 'configure an active tier 2 model and inspect Control Centre grants'
+rc=0
+route_question "$simple_question" 1 false || rc=1
+result "$rc" 'Auto simple question stays on tier 1 with tier 2 granted' 'inspect classifier scores and routing threshold'
+rc=0
+route_question "$hard_question" 2 false || rc=1
+result "$rc" 'Auto hard question uses tier 2 when granted' 'inspect classifier scores, routing threshold and tier 2 model'
+rc=0
+remove_routing_grants || rc=1
+require "$rc" 'temporary routing grants removed' 'remove only the temporary check-user grants from this run in People & rights'
 stage_check_end || stop 'check client did not disable'
 ((failed == 0)) || stop 'Stage 3 checks failed; fix every FAIL line and retry'
 printf 'DONE\n'

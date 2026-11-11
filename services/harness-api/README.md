@@ -219,3 +219,22 @@ Configuration adds `HA_KAFKA_BOOTSTRAP`, `HA_KAFKA_USERNAME`,
 Migration `0003_jobs.sql` adds jobs, insert-only processed events and private
 reasoning state. Applied migrations are never edited. Deploy and check only
 from the merged Stage 3 worktree after Parts B–D are present.
+
+
+## Auto routing
+
+Only `tier: "auto"` invokes routing; omitted/null and explicit numeric tiers keep
+existing behavior. The ConfigMap supplies `HA_ROUTE_TIER_QUESTION`,
+`HA_ROUTE_TIER_THRESHOLD` (0.7), `HA_ROUTE_UP_TIER` (2), and
+`HA_ROUTE_SKILL_THRESHOLD` (0.8). The classifier sees `needs_tier2` and
+`wants_<skill>` questions for allowed skills, with hyphens replaced by underscores.
+The highest qualifying skill is forced on the first Gateway call only; job
+rights and schema checks still apply. A classifier failure uses the lowest
+allowed tier with a note. A refused or unavailable upgrade uses that tier with
+the access note. No tier rights means no model call.
+
+The user message id correlates classification, chat, title and route audit calls.
+Migration `0004_message_routing.sql` adds nullable routing JSON to messages.
+Completed Auto answers store and return `{tier,scores,skill?,note?}` without
+exposing private reasoning. A forced tool that was not applied and produced no
+tool call adds "The model chose not to use <skill title>." to the note.
