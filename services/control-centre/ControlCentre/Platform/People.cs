@@ -6,15 +6,16 @@ namespace ControlCentre.Platform;
 
 public static class People
 {
-  public static async Task Observe(HttpContext context, CentreDb db)
+  public static async Task Observe(HttpContext context, CentreDb db, DisplayCalendar? calendar = null, TimeProvider? clock = null)
   {
     var actor = Api.Actor(context);
     var email = context.User.FindFirst("email")?.Value;
     var name = context.User.FindFirst("name")?.Value;
     var service = context.User.HasClaim(x => x.Type == "client_id") || context.User.FindFirst("preferred_username")?.Value.StartsWith("service-account-", StringComparison.Ordinal) == true;
-    var now = DateTimeOffset.UtcNow;
+    var now = (clock ?? TimeProvider.System).GetUtcNow();
+    calendar ??= new DisplayCalendar();
     var current = await db.People.AsNoTracking().SingleOrDefaultAsync(x => x.UserId == actor);
-    if (current is not null && current.IsServiceAccount == service && current.Email == email && current.Name == name && current.LastSeenAt > now.AddHours(-1) && (!Api.Admin(context.User) || await AccessPolicy.Approved(db, actor))) return;
+    if (current is not null && current.IsServiceAccount == service && current.Email == email && current.Name == name && !calendar.RefreshSighting(current.LastSeenAt, now) && (!Api.Admin(context.User) || await AccessPolicy.Approved(db, actor))) return;
 
     await using var transaction = await db.Database.BeginTransactionAsync();
     AccessRequest? access = null;
@@ -35,8 +36,8 @@ public static class People
     person.IsServiceAccount = service;
     access ??= await db.AccessRequests.SingleOrDefaultAsync(x => x.UserId == actor);
     if (access is not null) access.IsServiceAccount = service;
-    // A sighting is a system timestamp, refreshed at most hourly without a business audit event.
-    if (person.LastSeenAt <= now.AddHours(-1)) person.LastSeenAt = now;
+    // Count the first visit after local midnight even inside the hourly sighting throttle.
+    if (created || calendar.RefreshSighting(person.LastSeenAt, now)) person.LastSeenAt = now;
     await db.SaveChangesAsync();
     await transaction.CommitAsync();
   }

@@ -29,8 +29,9 @@
 
 4. **Review work in the browser.** Open `https://admin.faysalaziz.com` on your PC
    and choose **Sign in with company account**. Enter your account password only
-   on Keycloak's page. **Overview** opens first; a dash means a helper could not
-   answer. **Approvals** combines all waiting decisions: select a row, read it,
+   on Keycloak's page. The sign-in greeting uses the browser's local time: morning before 12:00,
+   afternoon before 18:00, then evening. **Overview** opens first; a dash means
+   a helper could not answer. **Approvals** combines all waiting decisions: select a row, read it,
    then decide. A sign-up needs a chat tier. Safety **Clear** means no problem;
    **Confirm problem** confirms a problem. **People & rights** has people across
    tiers and skills: change checks, then **Save**. Everyone grants also apply to
@@ -129,12 +130,16 @@ npx ng test --watch=false
 ```
 
 After the merged stage is deployed, open the Admin Console and sign in with an
-administrator account. **Overview** opens first. It shows today's active and
-approved people, skill jobs, model calls and cost. A dash means the service that
+administrator account. **Overview** opens first. Its greeting uses the person's given name and the
+configured display-zone hour. It shows today's active and
+approved people, skill jobs, model calls and cost. Active people are counted from
+Control Centre sightings today in the configured zone, excluding service/check
+identities. A dash means the service that
 supplies a figure could not answer. Refresh reads the latest figures; system
 health is checked by the Control Centre every 30 seconds. Needs-attention links
 open Approvals or Models & tiers. Failed-message attention counts the past day;
-replaying messages and a Failed messages screen are outside this stage.
+its time is the newest failed message's received time. Replaying messages and a
+Failed messages screen are outside this stage.
 
 **Approvals** combines waiting sign-ups, model requests, skill requests, job
 approvals and safety flags. Select a row to read it. A sign-up needs a chat tier
@@ -153,7 +158,8 @@ change uses the existing audited grant routes.
 
 **Audit** accepts the full request UUID, a user ID and an action. Filter shows
 newest rows first; Load more reads the next page. Select a request ID to load its
-complete trail in time order. Scores, token counts and cost are shown when present.
+complete trail in time order. Known people display by name or email; hover to see the exact user ID.
+Scores, token counts and cost are shown when present.
 If the audit service is unavailable, the screen shows its error and can be retried.
 
 **Models & tiers** offers Chat and Classification. Classification hides the tier
@@ -165,3 +171,12 @@ show OK, Down with its reason/time, or Unknown.
 Use the existing Quick Guide for deployment, status, logs, stop, start, restart
 and recovery after reboot. The deploy scripts take the merged commit's 12-character
 image tag. These screens add no package and retain the existing exact lock file.
+
+
+Times on signed-in screens use the Control Centre's `CC_DISPLAY_TIME_ZONE`
+setting, initially `Asia/Kuala_Lumpur`, with readable dates such as
+`11 Nov 21:55:46`. Audit keeps milliseconds. The API still carries UTC timestamps.
+The console learns the zone from `X-Display-Time-Zone` on admin responses;
+changing zones does not require a separate browser configuration.
+Screen links keep their hash (`#overview`, `#approvals`, `#rights`, `#models`,
+`#audit`), so direct links and browser history open the corresponding screen.

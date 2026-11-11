@@ -55,7 +55,7 @@ If `dotnet` is missing or reports a different SDK, finish the home-folder SDK in
 
 One ASP.NET Core deployable with Rights, Registry, Approvals, Audit and Platform modules. Environment variable names and deployment values are fixed in the Stage 1 spec, section 8. The running program gets `CC_DB_CONNECTION`; only migration mode reads `CC_DB_MIGRATE_CONNECTION`. The owner connection is not needed by the running service. JWT verification checks the signature, issuer, audience, expiry and subject. Health is the only public route. Unknown body fields, duplicate fields, unknown query fields and repeated query fields are rejected. Lists added in Stage 1 accept `limit` 1–200, default 50. People and rights are sorted by `user_id` and `key`; pass the last value as `after` for the next page. Admin models sort by `(purpose, tier, role, id)`; optional `after` is the last model entry UUID and continues that same order. The four existing contract routes retain their original input shapes.
 
-Changes, audit rows and outgoing envelopes share one database transaction. Every HTTP request has one correlation UUID. People are created with a race-safe insert. Their email and name are written and audited only on create or change. The system timestamp `last_seen_at` is refreshed at most hourly, without an audit row. Approval decisions retain the requester's identity and correlation in `approval.decided`. The local audit detail holds before/after data; published audit events contain only actor, action, target and outcome.
+Changes, audit rows and outgoing envelopes share one database transaction. Every HTTP request has one correlation UUID. People are created with a race-safe insert. Their email and name are written and audited only on create or change. The system timestamp `last_seen_at` is refreshed hourly and on local-day changes, without an audit row. Approval decisions retain the requester's identity and correlation in `approval.decided`. The local audit detail holds before/after data; published audit events contain only actor, action, target and outcome.
 
 The initial migration creates the schema, constraints, seed right, database grants and protection triggers in SQL. `SnapshotScaffold` records EF's generated model baseline without changing tables. The new `AlignSchemaWithModel` migration brings object names and EF metadata into agreement, including keys, the grants foreign key, constraints and paging/outbox indexes. Earlier applied migrations are retained unchanged. All later schema changes must be new migrations. The audit table is append-only, every table refuses hard deletion and truncation, processed-event rows are immutable, and an outbox row can only have `sent_at` set once. The application role cannot update audit rows or remove their trigger. Tests proving triggers use transactions that roll back even if an assertion fails.
 
@@ -393,15 +393,47 @@ meter HTTP contracts, using the Control Centre's cached service token. Realm syn
 must add the two custom audiences to that client. A missing credential, timeout,
 refused request or unavailable helper leaves its figures null; the other helper
 still supplies its figures. Approved people come from local approved access rows;
-active people come from the audit writer's distinct-user count. Dead-letter
-attention counts only the last 24 hours. Trail filters are validated before
-proxying, and every administration route requires an administrator token.
+active people come from the Control Centre's own active people rows whose
+`last_seen_at` falls within today in `CC_DISPLAY_TIME_ZONE` (first value
+`Asia/Kuala_Lumpur`). Service markers and `stage-check-`, `service-account-`,
+`admin-test-` and `title-` identities are excluded. The first observation after
+local midnight refreshes the sighting even within the hourly throttle.
+Dead-letter attention counts only the last 24 hours and uses the newest matching
+row's `received_at`, never the Overview request time. Trail filters are validated before
+proxying. The proxy enriches trail rows with `person` from local known names,
+then email, retaining `user_id` for diagnostics. Every administration route
+requires an administrator token.
+
+`CC_DISPLAY_TIME_ZONE` is the authoritative IANA display-zone setting. Admin
+responses carry `X-Display-Time-Zone`; the console formats dates and the named
+Overview greeting in that zone. The signed-out greeting follows browser time.
+The chiseled runtime omits time-zone data, so the Docker build copies
+`/usr/share/zoneinfo` from the existing pinned SDK image. No package or image
+version is added or changed. This follows Microsoft's documented
+[container globalization requirements](https://learn.microsoft.com/en-us/dotnet/core/docker/container-images).
+
+After editing the display-zone ConfigMap and applying it through the existing
+deploy script, load the setting into a replacement pod. Type this in your harness
+terminal, in the plain shell; Claude runs it while Aziz watches. No password is
+needed; the folder does not matter. This restarts the Control Centre and waits
+for Ready. Good result: the rollout finishes successfully.
+
+```bash
+kubectl -n ooh-apps rollout restart deployment/control-centre
+kubectl -n ooh-apps rollout status deployment/control-centre --timeout=600s
+```
 
 The Harness passes `is_service_account` from its verified token. The Control
 Centre stores that marker on access and people rows. Its own token observation
 uses the presence of `client_id` or a `preferred_username` beginning with
 `service-account-`. People and waiting-decision lists exclude those identities
-and reserved check users. Display profiles fall back to the access request;
+and reserved check users in normal lists and counts. An administrator can still
+retrieve any active approval by `correlation_id` or by its approval ID, regardless
+of its requester. The badge continues to count only the normal pending list, and
+Overview continues to hide those requesters. Dead-letter diagnostics retain all
+requesters; the trail proxy forwards explicit correlation and user filters without
+requester filtering. Script 62 uses the explicit correlation lookup unchanged.
+Display profiles fall back to the access request;
 observe does not copy profiles into its audit rows.
 
 No dependency was added. The new Kafka calls use the existing Confluent.Kafka

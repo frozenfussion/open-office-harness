@@ -86,16 +86,26 @@ public static class OperationsRoutes
       }
       return Results.Ok(await query.OrderByDescending(x => x.ReceivedAt).ThenByDescending(x => x.Id).Take(limit).ToListAsync());
     }).RequireAuthorization();
-    app.MapGet("/api/admin/trail", async (HttpContext c, OperationsClient client) =>
+    app.MapGet("/api/admin/trail", async (HttpContext c, OperationsClient client, CentreDb db) =>
     {
       Api.Authorize(c); Api.Query(c, "correlation_id", "user_id", "actor", "action", "before_id", "limit"); Api.Limit(c);
       if (c.Request.Query.ContainsKey("correlation_id")) Api.Id(Api.Q(c, "correlation_id"));
       if (c.Request.Query.ContainsKey("before_id")) Api.Require(long.TryParse(Api.Q(c, "before_id"), out var n) && n > 0);
       foreach (var key in new[] { "user_id", "actor", "action" }) if (c.Request.Query.ContainsKey(key)) Api.Q(c, key);
       var result = await client.Get("CC_AUDIT_WRITER_URL", "/v1/trail" + c.Request.QueryString, c.RequestAborted);
-      return result is JsonArray ? Results.Ok(result) : Api.Error(503, "unavailable", "Audit trail unavailable");
+      if (result is not JsonArray rows) return Api.Error(503, "unavailable", "Audit trail unavailable");
+      var users = rows.OfType<JsonObject>().Select(x => x["user_id"]?.GetValue<string>()).OfType<string>().Distinct().ToArray();
+      var people = await db.People.AsNoTracking().Where(x => users.Contains(x.UserId) && x.DeletedAt == null).ToDictionaryAsync(x => x.UserId);
+      var access = await db.AccessRequests.AsNoTracking().Where(x => users.Contains(x.UserId) && x.DeletedAt == null).ToDictionaryAsync(x => x.UserId);
+      foreach (var row in rows.OfType<JsonObject>())
+      {
+        if (row["user_id"] is not JsonValue userValue || !userValue.TryGetValue<string>(out var user)) continue;
+        people.TryGetValue(user, out var person); access.TryGetValue(user, out var request);
+        row["person"] = new[] { person?.Name, request?.Name, person?.Email, request?.Email }.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? user;
+      }
+      return Results.Ok(rows);
     }).RequireAuthorization();
-    app.MapGet("/api/admin/overview", async (HttpContext c, CentreDb db, OperationsClient client, ServiceHealth health, TimeProvider clock) =>
+    app.MapGet("/api/admin/overview", async (HttpContext c, CentreDb db, OperationsClient client, ServiceHealth health, TimeProvider clock, DisplayCalendar calendar) =>
     {
       Api.Authorize(c); Api.Query(c); var now = clock.GetUtcNow(); var day = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
       var countsTask = client.Get("CC_AUDIT_WRITER_URL", "/v1/counts?day=" + day, c.RequestAborted);
@@ -115,11 +125,13 @@ public static class OperationsRoutes
         attention.Add(new { kind = "approval", title = row.Action == "safety.flag" ? "Safety flag" : "Job approval", detail = row.Action, at = row.CreatedAt, link = "#approvals" });
       foreach (var row in await db.Models.Where(x => x.DeletedAt == null && x.Health == "down").ToListAsync())
         attention.Add(new { kind = "model_down", title = "Model down", detail = row.Title, at = row.HealthChangedAt ?? row.CreatedAt, link = "#models" });
-      var since = now.AddHours(-24); var dead = await db.DeadLetters.CountAsync(x => x.ReceivedAt >= since);
-      if (dead > 0) attention.Add(new { kind = "dead_letter", title = "Failed messages", detail = dead + " in the last 24 hours", at = now, link = "#overview" });
+      var since = now.AddHours(-24); var recentDead = db.DeadLetters.Where(x => x.ReceivedAt >= since); var dead = await recentDead.CountAsync();
+      if (dead > 0) attention.Add(new { kind = "dead_letter", title = "Failed messages", detail = dead + " in the last 24 hours", at = await recentDead.MaxAsync(x => x.ReceivedAt), link = "#overview" });
+      var (start, end) = calendar.Day(now);
+      var activePeople = await db.People.CountAsync(x => x.DeletedAt == null && !x.IsServiceAccount && !x.UserId.StartsWith("stage-check-") && !x.UserId.StartsWith("service-account-") && !x.UserId.StartsWith("admin-test-") && !x.UserId.StartsWith("title-") && x.LastSeenAt >= start && x.LastSeenAt < end);
       return Results.Ok(new JsonObject
       {
-        ["people_active_today"] = counts?["distinct_users"]?.DeepClone(),
+        ["people_active_today"] = activePeople,
         ["people_approved"] = await visible.CountAsync(x => x.DeletedAt == null && x.Status == "approved"),
         ["skill_jobs_today"] = Count("skill.requested"),
         ["model_calls_today"] = Count("model.call") + Count("model.classify"),

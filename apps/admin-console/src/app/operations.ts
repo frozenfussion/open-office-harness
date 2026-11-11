@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Component, OnChanges, PendingTasks, inject, input, output, signal } from '@angular/core';
+import { Component, OnChanges, SimpleChanges, PendingTasks, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Grant } from './models';
+import { defaultTimeZone, displayTime, overviewGreeting } from './display-time';
 export type Request = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 export interface Health { name: string; status: string; checked_at: string | null; }
 export interface Overview {
@@ -19,12 +20,13 @@ export interface Column { key: string; title: string; }
 export interface TrailRow {
   id: number; occurred_at: string; producer: string; correlation_id: string; user_id: string;
   actor: string; action: string; target: string; outcome: string; scores?: Record<string, number>;
-  model?: string; tokens?: number; cost_usd?: number;
+  person?: string; model?: string; tokens?: number; cost_usd?: number;
 }
 @Component({ selector: 'admin-operations', imports: [FormsModule], templateUrl: './operations.html', styleUrl: './operations.css' })
 export class Operations implements OnChanges {
   private tasks = inject(PendingTasks);
   screen = input.required<string>(); request = input.required<Request>();
+  timeZone = input(defaultTimeZone); givenName = input('');
   navigate = output<string>(); pending = output<number>();
   overview = signal<Overview | null>(null); decisions = signal<DecisionRow[]>([]); selected = signal<DecisionRow | null>(null);
   persons = signal<Person[]>([]); columns = signal<Column[]>([]); grants = signal<Grant[]>([]);
@@ -32,7 +34,9 @@ export class Operations implements OnChanges {
   trail = signal<TrailRow[]>([]); error = signal(''); busy = signal(false);
   note = ''; tier: number | undefined; tiers = signal<number[]>([]);
   requestId = ''; person = ''; action = ''; inTrace = signal(false); more = signal(false);
-  ngOnChanges(): void { this.tasks.run(() => this.load()); }
+  ngOnChanges(changes: SimpleChanges): void { if (changes['screen'] || changes['request']) this.tasks.run(() => this.load()); }
+  formatTime(value: string | null | undefined, milliseconds = false): string { return displayTime(value, this.timeZone(), milliseconds); }
+  overviewGreeting(): string { return overviewGreeting(this.givenName(), this.timeZone()); }
   async load(): Promise<void> {
     this.error.set('');
     try {

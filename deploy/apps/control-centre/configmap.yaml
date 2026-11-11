@@ -5,6 +5,7 @@ metadata:
   name: control-centre
   namespace: ${APPS_NAMESPACE}
 data:
+  CC_DISPLAY_TIME_ZONE: Asia/Kuala_Lumpur
   CC_KAFKA_BOOTSTRAP: ooh-kafka-kafka-bootstrap.${PLATFORM_NAMESPACE}.svc:9092
   CC_KAFKA_USERNAME: control-centre
   CC_OIDC_ISSUER: https://auth.${DOMAIN}/realms/ooh

@@ -20,7 +20,10 @@ public static class ApprovalRoutes
     {
       Api.Authorize(c); Api.Query(c, "status", "correlation_id", "limit", "before");
       var limit = Api.Limit(c);
-      var query = db.Approvals.Where(x => x.DeletedAt == null && !x.RequesterUserId.StartsWith("stage-check-") && !x.RequesterUserId.StartsWith("service-account-") && !db.People.Any(p => p.UserId == x.RequesterUserId && p.IsServiceAccount) && !db.AccessRequests.Any(a => a.UserId == x.RequesterUserId && a.IsServiceAccount));
+      var query = db.Approvals.Where(x => x.DeletedAt == null);
+      // Explicit admin lookups include check and service requesters for diagnostics.
+      if (!c.Request.Query.ContainsKey("correlation_id"))
+        query = query.Where(x => !x.RequesterUserId.StartsWith("stage-check-") && !x.RequesterUserId.StartsWith("service-account-") && !db.People.Any(p => p.UserId == x.RequesterUserId && p.IsServiceAccount) && !db.AccessRequests.Any(a => a.UserId == x.RequesterUserId && a.IsServiceAccount));
       if (c.Request.Query.ContainsKey("status"))
       {
         var status = Api.Q(c, "status");

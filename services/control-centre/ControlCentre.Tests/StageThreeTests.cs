@@ -138,8 +138,8 @@ public sealed class StageThreeTests
   {
     await Migrate(); using var host = new Host(true); using var admin = host.Client();
     var result = await Object(admin.GetAsync("/api/admin/overview"));
-    foreach (var key in new[] { "people_active_today", "skill_jobs_today", "model_calls_today", "cost_today_usd" }) { Assert.True(result.ContainsKey(key)); Assert.Null(result[key]); }
-    Assert.NotNull(result["people_approved"]); Assert.Equal(8, result["health"]!.AsArray().Count);
+    foreach (var key in new[] { "skill_jobs_today", "model_calls_today", "cost_today_usd" }) { Assert.True(result.ContainsKey(key)); Assert.Null(result[key]); }
+    Assert.NotNull(result["people_active_today"]); Assert.NotNull(result["people_approved"]); Assert.Equal(8, result["health"]!.AsArray().Count);
     var health = await admin.GetFromJsonAsync<JsonArray>("/api/admin/health"); Assert.Equal(8, health!.Count);
     foreach (var row in health) Assert.Equal("unknown", row!["status"]!.GetValue<string>());
     await Code(admin.GetAsync("/api/admin/trail?correlation_id=bad"), HttpStatusCode.BadRequest, "invalid_input");
@@ -160,8 +160,8 @@ public sealed class StageThreeTests
         "/v1/costs" => costDown ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { total_usd = 0.25m }) },
         _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new[] { new { id = 1, action = "synthetic" } }) }
       });
-      var view = await Object(admin.GetAsync("/api/admin/overview")); Assert.Equal(3, view["people_active_today"]!.GetValue<int>()); Assert.Equal(2, view["skill_jobs_today"]!.GetValue<int>()); Assert.Equal(9, view["model_calls_today"]!.GetValue<int>()); Assert.Equal(0.25m, view["cost_today_usd"]!.GetValue<decimal>());
-      countsDown = true; view = await Object(admin.GetAsync("/api/admin/overview")); Assert.Null(view["model_calls_today"]); Assert.Null(view["people_active_today"]); Assert.Equal(0.25m, view["cost_today_usd"]!.GetValue<decimal>());
+      var view = await Object(admin.GetAsync("/api/admin/overview")); var activePeople = view["people_active_today"]!.GetValue<int>(); Assert.True(activePeople >= 0); Assert.Equal(2, view["skill_jobs_today"]!.GetValue<int>()); Assert.Equal(9, view["model_calls_today"]!.GetValue<int>()); Assert.Equal(0.25m, view["cost_today_usd"]!.GetValue<decimal>());
+      countsDown = true; view = await Object(admin.GetAsync("/api/admin/overview")); Assert.Null(view["model_calls_today"]); Assert.Equal(activePeople, view["people_active_today"]!.GetValue<int>()); Assert.Equal(0.25m, view["cost_today_usd"]!.GetValue<decimal>());
       countsDown = false; costDown = true; view = await Object(admin.GetAsync("/api/admin/overview")); Assert.Equal(9, view["model_calls_today"]!.GetValue<int>()); Assert.Null(view["cost_today_usd"]);
       var correlation = Guid.NewGuid(); var trail = await admin.GetFromJsonAsync<JsonArray>($"/api/admin/trail?correlation_id={correlation}&user_id=synthetic-user&actor=synthetic&action=model.call&before_id=2&limit=10"); Assert.Single(trail!); Assert.Equal("Bearer synthetic-service-token", host.Gateway.Authorization);
     }
@@ -177,6 +177,37 @@ public sealed class StageThreeTests
     var config = new ConfigurationBuilder().AddInMemoryCollection(settings).Build(); var state = new ServiceHealth(); Assert.All(state.Rows, x => Assert.Equal("unknown", x.Status));
     var poller = new HealthPoller(state, http, config, new FakeKafka(), TimeProvider.System); await poller.Refresh(TestContext.Current.CancellationToken); Assert.Equal(8, state.Rows.Length); Assert.All(state.Rows, x => Assert.Equal("ok", x.Status));
     down = true; await poller.Refresh(TestContext.Current.CancellationToken); Assert.All(state.Rows.Where(x => x.Name != "kafka"), x => Assert.Equal("down", x.Status));
+  }
+
+  [DatabaseFact]
+  public async Task AdminModelListReturnsUpdatedClassificationHealthWithoutTier()
+  {
+    await Migrate(); using var host = new Host(true); using var admin = host.Client(); using var gateway = host.Client("gateway", port: 8081);
+    await using var db = Database();
+    var entry = new ModelEntry { Purpose = "classification", Tier = null, Title = "Synthetic classifier", Role = "main", Location = "cloud", ApiType = "synthetic", ModelId = "synthetic-" + Guid.NewGuid(), EndpointUrl = "https://synthetic.invalid", RateLimitPerMinute = 1 };
+    db.Models.Add(entry); await db.SaveChangesAsync();
+    async Task<JsonNode> Listed()
+    {
+      var after = "";
+      while (true)
+      {
+        var page = (await admin.GetFromJsonAsync<JsonArray>("/api/admin/models?limit=200" + after))!;
+        var row = page.SingleOrDefault(x => x!["model_entry_id"]!.GetValue<Guid>() == entry.Id);
+        if (row is not null) return row;
+        Assert.Equal(200, page.Count);
+        after = "&after=" + page[^1]!["model_entry_id"]!.GetValue<string>();
+      }
+    }
+    try
+    {
+      Assert.Equal("unknown", (await Listed())["health"]!.GetValue<string>());
+      await Object(gateway.PostAsJsonAsync($"/api/models/{entry.Id}/health", new { status = "ok" }));
+      var view = await Listed(); Assert.Equal("ok", view["health"]!.GetValue<string>()); Assert.NotNull(view["health_changed_at"]);
+      Assert.False(view.AsObject().ContainsKey("tier"));
+      Assert.Equal("classification", view["purpose"]!.GetValue<string>());
+      Assert.Equal("ok", (await Object(admin.GetAsync($"/api/admin/models/{entry.Id}")))["health"]!.GetValue<string>());
+    }
+    finally { entry.DeletedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(); }
   }
 
 }
