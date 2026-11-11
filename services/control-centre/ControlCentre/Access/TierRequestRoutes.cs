@@ -36,16 +36,16 @@ public static class TierRequestRoutes
     app.MapGet("/api/admin/tier-requests/count", async (HttpContext c, CentreDb db) =>
     {
       Api.Authorize(c); Api.Query(c, "status"); Api.Require(Api.Q(c, "status") == "pending");
-      return Results.Ok(new { count = await db.TierRequests.CountAsync(x => x.DeletedAt == null && x.Status == "pending" && !x.UserId.StartsWith("stage-check-")) });
+      return Results.Ok(new { count = await db.TierRequests.CountAsync(x => x.DeletedAt == null && x.Status == "pending" && !x.UserId.StartsWith("stage-check-") && !x.UserId.StartsWith("service-account-") && !db.People.Any(p => p.UserId == x.UserId && p.IsServiceAccount) && !db.AccessRequests.Any(a => a.UserId == x.UserId && a.IsServiceAccount)) });
     }).RequireAuthorization();
     app.MapGet("/api/admin/tier-requests", async (HttpContext c, CentreDb db) =>
     {
       Api.Authorize(c); Api.Query(c, "status", "limit", "after");
       var status = c.Request.Query.ContainsKey("status") ? Api.Q(c, "status") : "pending"; Api.Require(status is "pending" or "approved" or "rejected");
-      var limit = Api.Limit(c); var query = db.TierRequests.Where(x => x.DeletedAt == null && x.Status == status && !x.UserId.StartsWith("stage-check-"));
+      var limit = Api.Limit(c); var query = db.TierRequests.Where(x => x.DeletedAt == null && x.Status == status && !x.UserId.StartsWith("stage-check-") && !x.UserId.StartsWith("service-account-") && !db.People.Any(p => p.UserId == x.UserId && p.IsServiceAccount) && !db.AccessRequests.Any(a => a.UserId == x.UserId && a.IsServiceAccount));
       if (c.Request.Query.ContainsKey("after"))
       {
-        var id = Api.Id(Api.Q(c, "after")); var cursor = await db.TierRequests.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && !x.UserId.StartsWith("stage-check-")); Api.Found(cursor is not null);
+        var id = Api.Id(Api.Q(c, "after")); var cursor = await db.TierRequests.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && !x.UserId.StartsWith("stage-check-") && !x.UserId.StartsWith("service-account-") && !db.People.Any(p => p.UserId == x.UserId && p.IsServiceAccount) && !db.AccessRequests.Any(a => a.UserId == x.UserId && a.IsServiceAccount)); Api.Found(cursor is not null);
         var at = cursor!.RequestedAt; query = query.Where(x => x.RequestedAt < at || x.RequestedAt == at && x.Id.CompareTo(id) < 0);
       }
       return Results.Ok(await View(db, await query.OrderByDescending(x => x.RequestedAt).ThenByDescending(x => x.Id).Take(limit).ToListAsync()));

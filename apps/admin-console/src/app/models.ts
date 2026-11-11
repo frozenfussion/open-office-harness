@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 export interface ModelEntry {
+  health?: 'unknown' | 'ok' | 'down'; health_reason?: string | null; health_changed_at?: string | null;
   model_entry_id: string; title: string; purpose: string; tier?: number;
   role: string; location: string; api_type: string; endpoint_url: string; model_id: string;
   has_key: boolean; priority: number; rate_limit_per_minute: number; daily_budget: number;
@@ -32,9 +33,10 @@ export function modelPayload(model: ModelEntry, key: string, removeKey: boolean,
 }
 export type ConnectionResult = {
   ok: true; model_title: string; reply: string; duration_ms: number;
-  usage: { input_tokens: number; output_tokens: number }; cost_usd: number;
+  usage: { input_tokens: number; output_tokens: number }; cost_usd: number; score?: number;
 } | { ok: false; reason: string; provider_status: number | null; provider_message: string | null };
 export function connectionSummary(result: ConnectionResult): string {
+  if (result.ok && result.score != null) return `Works · ${(result.duration_ms / 1000).toFixed(1)} s · score ${result.score}`;
   if (result.ok) return `Works · ${(result.duration_ms / 1000).toFixed(1)} s · reply: "${[...result.reply].slice(0, 80).join('')}" · ${result.usage.input_tokens}/${result.usage.output_tokens} tokens · $${result.cost_usd.toFixed(6)}`;
   return `Failed · ${result.reason}` + (result.provider_status === null ? '' : ` (provider answered ${result.provider_status})`)
     + (result.provider_message ? ` · ${result.provider_message}` : '');

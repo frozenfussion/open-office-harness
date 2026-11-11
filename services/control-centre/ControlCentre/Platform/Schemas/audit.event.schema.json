@@ -27,6 +27,14 @@
       "type": "integer",
       "minimum": 0
     },
+    "cost_usd": {
+      "type": "number",
+      "minimum": 0
+    },
+    "model_entry_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "scores": {
       "type": "object",
       "additionalProperties": {

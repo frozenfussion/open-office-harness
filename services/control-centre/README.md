@@ -47,7 +47,7 @@
    )
    ```
 
-6. **Deploy, start, stop, restart, inspect logs, or recover after reboot.** Follow the repository's top-level README Quick Guide, maintained by Part B. The deployed service starts under Kubernetes; the builders do not start a server or change the cluster. The image takes `migrate` in its init container and serves port 8080 publicly and port 8081 internally in its main container. The Docker build context is `services/control-centre`.
+6. **Deploy, start, stop, restart, inspect logs, or recover after reboot.** Follow the repository's top-level README Quick Guide, maintained by Part C. The deployed service starts under Kubernetes; the builders do not start a server or change the cluster. The image takes `migrate` in its init container and serves port 8080 publicly and port 8081 internally in its main container. The Docker build context is `services/control-centre`.
 
 If `dotnet` is missing or reports a different SDK, finish the home-folder SDK installation in the stage spec first; this package requires SDK `10.0.403`. If package restore fails, check network access and retry the build. If a database test fails to connect, finish Part B's database setup and rerun the tests. If a database test rejects the database name or role, rerun the setup script; do not substitute live settings. If migrations fail, retain their error message without connection strings for review; never edit a migration already applied. The service reads environment variables only and reports a missing variable by name, without its value.
 
@@ -108,7 +108,7 @@ settings privately and checks the model snapshot. Good result: no pending model
 changes. This command does not apply a migration or change the cluster.
 
 ```bash
-cd ~/projects/worktrees/stage-2-part-d/services/control-centre
+cd ~/projects/worktrees/stage-3-part-d/services/control-centre
 (
   set -euo pipefail
   trap 'dotnet build-server shutdown' EXIT
@@ -184,7 +184,7 @@ Secret once. Run realm sync first. Good result: `DONE`. A changed existing
 credential is a `STOP:`; ask the maintainer before replacing it.
 
 ```bash
-cd ~/projects/worktrees/stage-2
+cd ~/projects/worktrees/stage-3
 install/71-control-centre-oidc.sh
 ```
 
@@ -322,3 +322,93 @@ Reasons never enter audit detail, outgoing audit events or logs. Table DELETE an
 TRUNCATE are refused for both database roles; old migrations remain unchanged.
 The automated tests exercise these rules using the isolated test database and
 fake identity tokens; they make no provider calls.
+
+# Stage 3 administration
+
+The same deploy command applies the new service addresses and the forward
+`SkillsAndOperations` migration. Existing migrations are unchanged. Builders run
+only the local checks above. Deployment, browser checks and reboot checks belong
+to the merged stage run described in the repository Quick Guide.
+
+Type this in your harness terminal, in the plain shell. No password is needed.
+This builds the Control Centre and runs its tests without compiler daemons.
+Good result: zero warnings or errors, then every test passes.
+
+```bash
+cd ~/projects/worktrees/stage-3-part-d/services/control-centre
+DOTNET_CLI_USE_MSBUILD_SERVER=0 dotnet build --disable-build-servers -p:UseSharedCompilation=false -warnaserror
+DOTNET_CLI_USE_MSBUILD_SERVER=0 dotnet test --no-build
+```
+
+Type this in your harness terminal, in the plain shell. No password is needed.
+This checks formatting and the migration snapshot without applying migrations.
+The connection below is an unused, local tooling placeholder, with no password.
+Good result: no formatting changes and no pending model changes.
+
+```bash
+cd ~/projects/worktrees/stage-3-part-d/services/control-centre
+DOTNET_CLI_USE_MSBUILD_SERVER=0 MSBUILDDISABLENODEREUSE=1 UseSharedCompilation=false dotnet format --verify-no-changes --no-restore
+CC_DB_MIGRATE_CONNECTION='Host=127.0.0.1;Database=controlcentre_test' DOTNET_CLI_USE_MSBUILD_SERVER=0 dotnet ef migrations has-pending-model-changes --project ControlCentre --no-build
+```
+
+The new migration creates protected `skill_requests` and insert-only
+`dead_letters`, adds model health reason/time and service-account markers to
+people and access rows. The application cannot update dead letters; owner and
+application roles cannot remove or truncate either new table. Rollbacks refuse
+data removal. Test settings remain private and point only at `controlcentre_test`.
+
+Skill requests follow model-request admission: approved access, an active skill
+whose manifest right is missing, one pending request per user/skill, at most 20
+pending requests per user, and seven days after rejection. Decisions and grants
+share the access advisory lock and database transaction. Request reasons never
+enter audit rows or logs. Requestable skill rows always include `requested`, even
+when null. Skill rights come from the manifest. Access-request audits use `skill.access_requested`,
+`skill.access_approved` and `skill.access_rejected`, keeping job-count action
+`skill.requested` exclusive to job requests.
+
+One Kafka consumer in group `control-centre` subscribes to `approvals.requested`
+and all six contract dead-letter topics. Dead letters are deduplicated by their
+broker topic, partition and offset, including unreadable messages. Their original
+content is available only through administrator routes and is never logged. A
+storage failure leaves the broker offset uncommitted. There is no replay action.
+Approval creation and decision audits contain only IDs, action, risk, status,
+decider and note; the safety excerpt remains in the approval itself.
+
+Only the Gateway can report model health, using port 8081. The public port returns
+404. Health reasons accept only `timeout`, `connection`, or `http_<status>` codes.
+Admin model views include `health`, `health_reason` and `health_changed_at`.
+Classification connection tests use the fixed `/v1/classify` question in the
+stage spec, pinned to the selected model entry; a successful result includes
+`score`. Other test behavior and redaction are retained. Test buttons make a
+short paid call; automated tests use fake endpoints only.
+
+The in-memory health poller checks six service health routes, Kafka metadata and
+Keycloak discovery every 30 seconds with five-second request limits. Configuration
+uses `CC_HARNESS_API_URL`, `CC_GATEWAY_URL`, `CC_SLIDES_WORKER_URL`,
+`CC_AUDIT_WRITER_URL`, `CC_COST_METER_URL`, `CC_SAFETY_WATCHER_URL`, and the existing
+issuer/Kafka settings. No health table exists.
+
+Overview obtains UTC-day figures and trail rows through the audit writer and cost
+meter HTTP contracts, using the Control Centre's cached service token. Realm sync
+must add the two custom audiences to that client. A missing credential, timeout,
+refused request or unavailable helper leaves its figures null; the other helper
+still supplies its figures. Approved people come from local approved access rows;
+active people come from the audit writer's distinct-user count. Dead-letter
+attention counts only the last 24 hours. Trail filters are validated before
+proxying, and every administration route requires an administrator token.
+
+The Harness passes `is_service_account` from its verified token. The Control
+Centre stores that marker on access and people rows. Its own token observation
+uses the presence of `client_id` or a `preferred_username` beginning with
+`service-account-`. People and waiting-decision lists exclude those identities
+and reserved check users. Display profiles fall back to the access request;
+observe does not copy profiles into its audit rows.
+
+No dependency was added. The new Kafka calls use the existing Confluent.Kafka
+2.16.0 package. On 11 Nov 2026, `GetMetadata(TimeSpan)`, broker metadata and
+`ConsumeResult.Topic/Partition/Offset` were checked against Confluent's official
+[IAdminClient reference](https://docs.confluent.io/platform/current/clients/confluent-kafka-dotnet/_site/api/Confluent.Kafka.IAdminClient.html)
+and [ConsumeResult reference](https://docs.confluent.io/platform/current/clients/confluent-kafka-dotnet/_site/api/Confluent.Kafka.ConsumeResult-2.html).
+This Part sends no provider requests and introduces no provider field names;
+classification test fields follow the Gateway contract. Provider adapter field
+verification belongs to Part B.

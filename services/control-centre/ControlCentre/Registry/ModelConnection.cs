@@ -12,13 +12,14 @@ using ControlCentre.Platform;
 namespace ControlCentre.Registry;
 
 public sealed record ConnectionResult(bool Ok, long DurationMs, string? Reason = null, int? ProviderStatus = null,
-  string? ProviderMessage = null, string? ModelTitle = null, string? Reply = null, int InputTokens = 0, int OutputTokens = 0, decimal CostUsd = 0)
+  string? ProviderMessage = null, string? ModelTitle = null, string? Reply = null, int InputTokens = 0, int OutputTokens = 0, decimal CostUsd = 0, decimal? Score = null)
 {
   public JsonObject View() => Ok ? new JsonObject
   {
     ["ok"] = true,
     ["model_title"] = ModelTitle,
     ["reply"] = Reply,
+    ["score"] = Score,
     ["duration_ms"] = DurationMs,
     ["usage"] = new JsonObject { ["input_tokens"] = InputTokens, ["output_tokens"] = OutputTokens },
     ["cost_usd"] = CostUsd
@@ -42,7 +43,7 @@ public sealed class ModelConnection(HttpClient http, IConfiguration config, Time
       var key = keys.Decrypt(entry.Id, entry.ApiKeyEncrypted!);
       var accessToken = await Token(limit.Token);
       if (accessToken is null) return Failure("the Control Centre could not sign in to the Gateway");
-      using var request = new HttpRequestMessage(HttpMethod.Post, (config["CC_GATEWAY_URL"] ?? "").TrimEnd('/') + "/v1/call");
+      using var request = new HttpRequestMessage(HttpMethod.Post, (config["CC_GATEWAY_URL"] ?? "").TrimEnd('/') + (entry.Purpose == "classification" ? "/v1/classify" : "/v1/call"));
       request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
       var body = new JsonObject
       {
@@ -53,6 +54,13 @@ public sealed class ModelConnection(HttpClient http, IConfiguration config, Time
         ["stream"] = false
       };
       if (entry.Tier is not null) body["tier"] = entry.Tier;
+      if (entry.Purpose == "classification") body = new JsonObject
+      {
+        ["model_entry_id"] = entry.Id.ToString(),
+        ["user_id"] = "admin-test-" + actor,
+        ["text"] = "This is a connection test.",
+        ["questions"] = new JsonObject { ["test"] = "Is this a connection test?" }
+      };
       request.Content = JsonContent.Create(body);
       using var response = await http.SendAsync(request, limit.Token);
       if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
@@ -64,12 +72,18 @@ public sealed class ModelConnection(HttpClient http, IConfiguration config, Time
       if (answer is null) return Failure("unexpected answer");
       if (response.IsSuccessStatusCode)
       {
-        if (response.StatusCode != HttpStatusCode.OK || Text(answer, "content") is not { Length: > 0 } reply ||
+        if (response.StatusCode != HttpStatusCode.OK || (entry.Purpose != "classification" && Text(answer, "content") is not { Length: > 0 }) ||
           Text(answer, "model_entry_id") != entry.Id.ToString() || Text(answer, "model_title") is not { } title ||
           answer["usage"] is not JsonObject usage || !Number<int>(usage, "input_tokens", out var input) || input < 0 ||
           !Number<int>(usage, "output_tokens", out var output) || output < 0 || !Number<decimal>(answer, "cost_usd", out var cost) || cost < 0)
           return Failure("unexpected answer");
-        return new(true, watch.ElapsedMilliseconds, ModelTitle: Redact(title, key), Reply: Redact(reply, key), InputTokens: input, OutputTokens: output, CostUsd: cost);
+        decimal? score = null;
+        if (entry.Purpose == "classification")
+        {
+          if (answer["scores"] is not JsonObject scores || !Number<decimal>(scores, "test", out var n) || n is < 0 or > 1) return Failure("unexpected answer");
+          score = n;
+        }
+        return new(true, watch.ElapsedMilliseconds, ModelTitle: Redact(title, key), Reply: Redact(Text(answer, "content") ?? "", key), InputTokens: input, OutputTokens: output, CostUsd: cost, Score: score);
       }
       int? status = Number<int>(answer, "provider_status", out var providerStatus) && providerStatus is >= 100 and <= 599 ? providerStatus : null;
       var code = Text(answer, "code");
@@ -102,7 +116,7 @@ public sealed class ModelConnection(HttpClient http, IConfiguration config, Time
     catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException or ArgumentException or ApiException)
     { return Failure("unexpected answer"); }
   }
-  private async Task<string?> Token(CancellationToken ct)
+  public async Task<string?> Token(CancellationToken ct)
   {
     await tokenLock.WaitAsync(ct);
     try

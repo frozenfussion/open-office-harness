@@ -72,6 +72,10 @@ builder.Services.AddSingleton(_ => new HttpClient(new SocketsHttpHandler { Poole
 builder.Services.AddSingleton<ModelConnection>();
 builder.Services.AddSingleton<IKafka, KafkaClient>();
 builder.Services.AddSingleton<IRetryDelay, RetryDelay>();
+builder.Services.AddScoped<DeadLetterConsumer>();
+builder.Services.AddSingleton<OperationsClient>();
+builder.Services.AddSingleton<ServiceHealth>();
+builder.Services.AddHostedService<HealthPoller>();
 builder.Services.AddScoped<ApprovalConsumer>();
 builder.Services.AddScoped<OutboxPublisher>();
 builder.Services.AddHostedService<KafkaWorker>();
@@ -101,7 +105,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.Use(async (c, next) =>
 {
-  if (c.User.Identity?.IsAuthenticated == true && !Api.IsService(c.User))
+  if (c.User.Identity?.IsAuthenticated == true && c.User.FindFirst("azp")?.Value is not ("ooh-harness-api" or "ooh-model-gateway" or "ooh-control-centre"))
   {
     var db = c.RequestServices.GetRequiredService<CentreDb>();
     await People.Observe(c, db);
@@ -113,6 +117,8 @@ app.MapGet("/health", async (HttpContext c, CentreDb db) =>
   Api.Query(c);
   return await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok" }) : Api.Error(503, "unavailable", "Database unavailable");
 });
+SkillRequestRoutes.Map(app);
+OperationsRoutes.Map(app);
 TierRequestRoutes.Map(app);
 AccessRoutes.Map(app);
 RightsRoutes.Map(app);

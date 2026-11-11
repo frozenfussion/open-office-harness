@@ -24,9 +24,10 @@ public static class AccessRoutes
     {
       if (!Api.Service(c.User, "ooh-harness-api")) throw new ApiException(403, "forbidden", "Harness service account required");
       Api.Query(c);
-      var body = await Api.Body(c, ["user_id", "is_admin"], "name", "email", "organisation", "access_reason");
+      var body = await Api.Body(c, ["user_id", "is_admin"], "name", "email", "organisation", "access_reason", "is_service_account");
       var userId = Api.String(body, "user_id");
       var admin = Api.Value<bool>(body, "is_admin");
+      var service = body.ContainsKey("is_service_account") && Api.Value<bool>(body, "is_service_account");
       var name = Profile(body, "name", 200); var email = Profile(body, "email", 320);
       var organisation = Profile(body, "organisation", 100); var reason = Profile(body, "access_reason", 300);
       await using var transaction = await db.Database.BeginTransactionAsync();
@@ -36,7 +37,7 @@ public static class AccessRoutes
       {
         if (!admin && await db.AccessRequests.CountAsync(x => x.Status == "pending" && x.DeletedAt == null) >= 100)
           return Results.Ok(new { status = "closed" });
-        row = new AccessRequest { UserId = userId, Name = name, Email = email, Organisation = organisation, Reason = reason };
+        row = new AccessRequest { UserId = userId, IsServiceAccount = service, Name = name, Email = email, Organisation = organisation, Reason = reason };
         Api.Stamp(row, Api.Actor(c), true); db.AccessRequests.Add(row);
         if (admin)
         { row.Status = "approved"; row.DecidedBy = "system:admin-role"; row.DecidedAt = DateTimeOffset.UtcNow; }
@@ -52,13 +53,16 @@ public static class AccessRoutes
         }
         if (admin && row.Status != "approved") row = await AccessPolicy.Approve(db, userId, Api.Actor(c), "system:admin-role", Api.Correlation(c));
       }
+      row.IsServiceAccount = service;
+      var (person, _) = await People.Ensure(db, userId, Api.Actor(c), Api.Correlation(c));
+      person.IsServiceAccount = service;
       await db.SaveChangesAsync(); await transaction.CommitAsync();
       return Results.Ok(new { status = row.Status });
     }).RequireAuthorization();
     app.MapGet("/api/admin/access-requests/count", async (HttpContext c, CentreDb db) =>
     {
       Api.Authorize(c); Api.Query(c, "status"); Api.Require(Api.Q(c, "status") == "pending");
-      return Results.Ok(new { count = await db.AccessRequests.CountAsync(x => x.DeletedAt == null && x.Status == "pending" && !x.UserId.StartsWith("stage-check-")) });
+      return Results.Ok(new { count = await db.AccessRequests.CountAsync(x => x.DeletedAt == null && x.Status == "pending" && !x.UserId.StartsWith("stage-check-") && !x.UserId.StartsWith("service-account-") && !db.People.Any(p => p.UserId == x.UserId && p.IsServiceAccount) && !db.AccessRequests.Any(a => a.UserId == x.UserId && a.IsServiceAccount)) });
     }).RequireAuthorization();
     app.MapGet("/api/admin/access-requests", async (HttpContext c, CentreDb db) =>
     {
@@ -66,11 +70,11 @@ public static class AccessRoutes
       var status = c.Request.Query.ContainsKey("status") ? Api.Q(c, "status") : "pending";
       Api.Require(status is "pending" or "approved" or "rejected");
       var limit = Api.Limit(c);
-      var query = db.AccessRequests.Where(x => x.DeletedAt == null && x.Status == status && !x.UserId.StartsWith("stage-check-"));
+      var query = db.AccessRequests.Where(x => x.DeletedAt == null && x.Status == status && !x.UserId.StartsWith("stage-check-") && !x.UserId.StartsWith("service-account-") && !db.People.Any(p => p.UserId == x.UserId && p.IsServiceAccount) && !db.AccessRequests.Any(a => a.UserId == x.UserId && a.IsServiceAccount));
       if (c.Request.Query.ContainsKey("after"))
       {
         var id = Api.Id(Api.Q(c, "after"));
-        var cursor = await db.AccessRequests.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && !x.UserId.StartsWith("stage-check-"));
+        var cursor = await db.AccessRequests.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && !x.UserId.StartsWith("stage-check-") && !x.UserId.StartsWith("service-account-") && !db.People.Any(p => p.UserId == x.UserId && p.IsServiceAccount) && !db.AccessRequests.Any(a => a.UserId == x.UserId && a.IsServiceAccount));
         Api.Found(cursor is not null);
         var at = cursor!.RequestedAt;
         query = query.Where(x => x.RequestedAt < at || x.RequestedAt == at && x.Id.CompareTo(id) < 0);

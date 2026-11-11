@@ -24,6 +24,7 @@ public sealed class TestGatewayHttp : HttpMessageHandler
   public string? TokenUrl { get; private set; }
   public JsonObject? GatewayBody { get; private set; }
   public string? Authorization { get; private set; }
+  public string? GatewayUrl { get; private set; }
   public HttpStatusCode TokenStatus { get; set; } = HttpStatusCode.OK;
   public Func<CancellationToken, Task<HttpResponseMessage>>? Answer { get; set; }
   protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -33,9 +34,10 @@ public sealed class TestGatewayHttp : HttpMessageHandler
       TokenCalls++; TokenUrl = request.RequestUri.ToString(); TokenBody = await request.Content!.ReadAsStringAsync(ct);
       return new HttpResponseMessage(TokenStatus) { Content = JsonContent.Create(new { access_token = "synthetic-service-token", expires_in = 300 }) };
     }
-    GatewayCalls++; Authorization = request.Headers.Authorization?.ToString();
-    GatewayBody = await request.Content!.ReadFromJsonAsync<JsonObject>(ct);
+    GatewayUrl = request.RequestUri.AbsolutePath; GatewayCalls++; Authorization = request.Headers.Authorization?.ToString();
+    GatewayBody = request.Content is null ? null : await request.Content.ReadFromJsonAsync<JsonObject>(ct);
     if (Answer is not null) return await Answer(ct);
+    if (GatewayUrl == "/v1/classify") return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { scores = new { test = 0.9m }, model_entry_id = GatewayBody!["model_entry_id"]!.GetValue<string>(), model_title = "Synthetic model", usage = new { input_tokens = 2, output_tokens = 1 }, cost_usd = 0.000123m }) };
     return Success(GatewayBody!["model_entry_id"]!.GetValue<string>());
   }
   public static HttpResponseMessage Success(string id, string reply = "synthetic reply") => new(HttpStatusCode.OK)
@@ -86,6 +88,22 @@ public sealed class ModelConnectionTests
     Assert.False(body["stream"]!.GetValue<bool>()); Assert.False(body.ContainsKey("tools")); Assert.Equal(6, body.Count);
     Assert.Equal("[{\"role\":\"user\",\"content\":\"Reply with the single word OK.\"}]", body["messages"]!.ToJsonString());
     Assert.DoesNotContain(Fixture.ProviderKey, body.ToJsonString()); Assert.Empty(f.Logs.Entries);
+  }
+  [Fact]
+  public async Task ClassificationTestUsesOnlyPinnedFixedQuestionAndReturnsScore()
+  {
+    using var f = new Fixture(); f.Entry.Purpose = "classification"; f.Entry.Tier = null;
+    var result = await f.Test(); Assert.True(result.Ok); Assert.Equal(0.9m, result.Score); Assert.Equal("/v1/classify", f.Transport.GatewayUrl);
+    var body = f.Transport.GatewayBody!; Assert.Equal(4, body.Count);
+    Assert.Equal("admin-test-synthetic-admin", body["user_id"]!.GetValue<string>());
+    Assert.Equal(f.Entry.Id.ToString(), body["model_entry_id"]!.GetValue<string>());
+    Assert.Equal("This is a connection test.", body["text"]!.GetValue<string>());
+    Assert.Equal("Is this a connection test?", body["questions"]!["test"]!.GetValue<string>());
+    foreach (var score in new[] { -0.1m, 1.1m })
+    {
+      f.Transport.Answer = _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { scores = new { test = score }, model_entry_id = f.Entry.Id, model_title = "Synthetic", usage = new { input_tokens = 1, output_tokens = 1 }, cost_usd = 0 }) });
+      Assert.False((await f.Test()).Ok);
+    }
   }
   [Theory]
   [InlineData(404, "no_model", 401, "entry is not active or its connection type is not supported")]

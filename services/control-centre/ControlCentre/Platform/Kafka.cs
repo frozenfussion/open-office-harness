@@ -12,6 +12,7 @@ public interface IKafka
   Task Publish(string topic, string key, string value, CancellationToken ct);
   KafkaRecord? Read(CancellationToken ct);
   void Commit(KafkaRecord record);
+  bool Healthy();
 }
 public interface IRetryDelay { Task Wait(TimeSpan duration, CancellationToken ct); }
 public sealed class RetryDelay : IRetryDelay
@@ -22,6 +23,7 @@ public sealed class KafkaClient : IKafka, IDisposable
 {
   private readonly IProducer<string, string> producer;
   private readonly IConsumer<string, string> consumer;
+  private readonly IAdminClient admin;
   public KafkaClient()
   {
     string Required(string name) => Environment.GetEnvironmentVariable(name) is { Length: > 0 } value ? value : throw new InvalidOperationException($"Missing environment variable {name}");
@@ -33,6 +35,7 @@ public sealed class KafkaClient : IKafka, IDisposable
       SaslUsername = Required("CC_KAFKA_USERNAME"),
       SaslPassword = Required("CC_KAFKA_PASSWORD")
     };
+    admin = new AdminClientBuilder(config).SetLogHandler((_, _) => { }).SetErrorHandler((_, _) => { }).Build();
     producer = new ProducerBuilder<string, string>(new ProducerConfig(config) { EnableIdempotence = true, Acks = Acks.All, MessageTimeoutMs = 10000 }).SetLogHandler((_, _) => { }).SetErrorHandler((_, _) => { }).Build();
     consumer = new ConsumerBuilder<string, string>(new ConsumerConfig(config)
     {
@@ -41,7 +44,7 @@ public sealed class KafkaClient : IKafka, IDisposable
       EnableAutoOffsetStore = false,
       AutoOffsetReset = AutoOffsetReset.Earliest
     }).SetLogHandler((_, _) => { }).SetErrorHandler((_, _) => { }).Build();
-    consumer.Subscribe("approvals.requested");
+    consumer.Subscribe(new[] { "approvals.requested" }.Concat(DeadLetterConsumer.Topics));
   }
   public async Task Publish(string topic, string key, string value, CancellationToken ct) =>
       await producer.ProduceAsync(topic, new Message<string, string> { Key = key, Value = value }, ct);
@@ -52,7 +55,8 @@ public sealed class KafkaClient : IKafka, IDisposable
     return record is null ? null : new KafkaRecord(record.Topic, record.Message.Value, record);
   }
   public void Commit(KafkaRecord record) => consumer.Commit((ConsumeResult<string, string>)record.Position);
-  public void Dispose() { consumer.Close(); consumer.Dispose(); producer.Dispose(); }
+  public bool Healthy() => admin.GetMetadata(TimeSpan.FromSeconds(5)).Brokers.Count > 0;
+  public void Dispose() { consumer.Close(); consumer.Dispose(); producer.Dispose(); admin.Dispose(); }
 }
 
 public sealed class OutboxPublisher(CentreDb db, IKafka kafka)
@@ -133,7 +137,7 @@ public sealed class ApprovalConsumer(CentreDb db, SchemaChecks schemas, IRetryDe
     };
     db.Approvals.Add(approval);
     db.ProcessedEvents.Add(new ProcessedEvent { EventId = id, Topic = record.Topic });
-    Api.Change(db, "system", "approval.requested", approval.Id.ToString(), correlation, new { after = approval }, user);
+    Api.Change(db, "system", "approval.requested", approval.Id.ToString(), correlation, ControlCentre.Approvals.ApprovalRoutes.AuditView(approval), user);
     try { await db.SaveChangesAsync(ct); }
     catch (DbUpdateException e) when (e.InnerException is PostgresException { SqlState: "23505" })
     {
@@ -158,7 +162,8 @@ public sealed class KafkaWorker(IServiceScopeFactory scopes, IKafka kafka, ILogg
         pending ??= kafka.Read(stoppingToken);
         if (pending is not null)
         {
-          await scope.ServiceProvider.GetRequiredService<ApprovalConsumer>().Handle(pending, stoppingToken);
+          if (DeadLetterConsumer.Topics.Contains(pending.Topic)) await scope.ServiceProvider.GetRequiredService<DeadLetterConsumer>().Handle(pending, stoppingToken);
+          else await scope.ServiceProvider.GetRequiredService<ApprovalConsumer>().Handle(pending, stoppingToken);
           kafka.Commit(pending);
           pending = null;
         }

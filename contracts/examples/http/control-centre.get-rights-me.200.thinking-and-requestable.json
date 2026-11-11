@@ -26,5 +26,6 @@
     }
   ],
   "skills": [],
-  "image": false
+  "image": false,
+  "requestable_skills": []
 }

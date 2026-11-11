@@ -13,13 +13,14 @@ public static class ApprovalRoutes
     value["details"] = System.Text.Json.Nodes.JsonNode.Parse(row.Details);
     return value;
   }
+  public static object AuditView(Approval row) => new { row.Id, row.RequestEventId, row.CorrelationId, row.RequesterUserId, row.Action, row.Risk, row.Status, row.DecidedBy, row.Note };
   public static void Map(WebApplication app)
   {
     app.MapGet("/api/admin/approvals", async (HttpContext c, CentreDb db) =>
     {
       Api.Authorize(c); Api.Query(c, "status", "correlation_id", "limit", "before");
       var limit = Api.Limit(c);
-      var query = db.Approvals.Where(x => x.DeletedAt == null);
+      var query = db.Approvals.Where(x => x.DeletedAt == null && !x.RequesterUserId.StartsWith("stage-check-") && !x.RequesterUserId.StartsWith("service-account-") && !db.People.Any(p => p.UserId == x.RequesterUserId && p.IsServiceAccount) && !db.AccessRequests.Any(a => a.UserId == x.RequesterUserId && a.IsServiceAccount));
       if (c.Request.Query.ContainsKey("status"))
       {
         var status = Api.Q(c, "status");
@@ -58,13 +59,13 @@ public static class ApprovalRoutes
       var row = await db.Approvals.FindAsync(key);
       Api.Found(row is not null && row.DeletedAt == null);
       if (row!.Status != "pending") throw new ApiException(409, "conflict", "Approval already decided");
-      var before = System.Text.Json.Nodes.JsonNode.Parse(Api.Encode(row));
+
       row.Status = approved ? "approved" : "rejected";
       row.Note = note;
       row.DecidedBy = Api.Actor(c);
       row.DecidedAt = DateTimeOffset.UtcNow;
       Api.Stamp(row, Api.Actor(c));
-      Api.Change(db, Api.Actor(c), "approval.decided", row.Id.ToString(), Api.Correlation(c), new { before, after = row });
+      Api.Change(db, Api.Actor(c), "approval.decided", row.Id.ToString(), Api.Correlation(c), AuditView(row));
       Api.Event(db, "approvals.decided", "approval.decided", row.CorrelationId, row.RequesterUserId, new { approved, decided_by = Api.Actor(c), note });
       await db.SaveChangesAsync();
       return Results.Ok(View(row!));

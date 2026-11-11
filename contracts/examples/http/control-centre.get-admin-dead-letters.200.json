@@ -1,0 +1,12 @@
+[
+  {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "topic": "Synthetic",
+    "partition": 1,
+    "offset": 1,
+    "received_at": "2026-11-11T00:00:00Z",
+    "error_code": "Synthetic",
+    "error_message": "Synthetic",
+    "original_message": "Synthetic"
+  }
+]

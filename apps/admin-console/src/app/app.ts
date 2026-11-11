@@ -1,35 +1,35 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Component, DestroyRef, ElementRef, afterNextRender, inject, signal } from '@angular/core';
+import { Operations, Request } from './operations';
 import { FormsModule } from '@angular/forms';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { firstValueFrom, of, switchMap } from 'rxjs';
-import { AccessRequest, AccessStatus, ConnectionResult, connectionSummary, Grant, ModelEntry, TierRequest, modelPayload, tierRows } from './models';
+import { ConnectionResult, connectionSummary, Grant, ModelEntry, modelPayload, tierRows } from './models';
 
 export interface AppConfig { issuer: string; clientId: string; apiBase: string; }
 declare global { interface Window { oohConfig: AppConfig; OpenOfficeHarness?: { WordRain: { mount(el: HTMLCanvasElement): { stop(): void } } }; } }
-@Component({ selector: 'app-root', imports: [FormsModule], templateUrl: './app.html', styleUrl: './app.css' })
+@Component({ selector: 'app-root', imports: [FormsModule, Operations], templateUrl: './app.html', styleUrl: './app.css' })
 export class App {
   private auth = inject(OidcSecurityService);
   private element = inject(ElementRef<HTMLElement>);
   private destroy = inject(DestroyRef);
   signedIn = signal(false); admin = signal(false); ready = signal(false);
   models = signal<ModelEntry[]>([]); grants = signal<Grant[]>([]);
-  screen = signal<'models' | 'access'>('models');
-  accessFilter = signal<AccessStatus>('pending');
-  accessRequests = signal<AccessRequest[]>([]);
-  tierRequests = signal<TierRequest[]>([]);
-  pendingCount = signal(0); accessBusy = signal(false);
-  selectedTiers: Record<string, number | undefined> = {};
+  screen = signal('overview');
+  operationRequest: Request = <T>(path: string, method?: string, body?: unknown) => this.request<T>(path, method, body);
+  navigate(screen: string): void { if (['overview', 'approvals', 'rights', 'models', 'audit'].includes(screen)) this.screen.set(screen); }
+  pendingCount = signal(0);
   error = signal(''); busy = signal(false); editing = signal<ModelEntry | null>(null);
   testing = signal<Set<string>>(new Set());
   testResults = signal<Record<string, ConnectionResult>>({});
   connectionSummary = connectionSummary;
   key = ''; removeKey = false; settings = '{}'; thinkingOff = ''; people: Record<number, string> = {};
   types = [
-    { value: 'openai_chat_completions', title: 'OpenAI-compatible', help: 'Chat completions: https://api.deepseek.com or http://<host>:8000/v1' },
-    { value: 'openai_responses', title: 'OpenAI Responses', help: 'Responses API: https://api.openai.com/v1' },
-    { value: 'anthropic_messages', title: 'Anthropic Messages', help: 'Messages API: https://api.anthropic.com or https://api.deepseek.com/anthropic' }
+    { value: 'openai_chat_completions', title: 'OpenAI-compatible', help: 'Enter the chat completions endpoint.' },
+    { value: 'openai_responses', title: 'OpenAI Responses', help: 'Enter the Responses endpoint.' },
+    { value: 'anthropic_messages', title: 'Anthropic Messages', help: 'Enter the Messages endpoint.' }
   ];
+  availableTypes(purpose: string): typeof this.types { return purpose === 'classification' ? [...this.types, { value: 'jev_systemone', title: 'Jev System One', help: 'Enter the Jev service endpoint.' }] : this.types; }
   constructor() {
     afterNextRender(() => {
       const canvas = this.element.nativeElement.querySelector('canvas');
@@ -83,50 +83,20 @@ export class App {
     } catch (e) { this.failure(e); }
   }
   workspaceUrl(): string { return 'https://harness.' + new URL(window.oohConfig.issuer).hostname.replace(/^auth\./, ''); }
+  async pendingApprovals(): Promise<number> {
+    let before = ''; let count = 0;
+    do {
+      const page = await this.request<{ id: string; created_at: string }[]>('/admin/approvals?status=pending&limit=200' + (before ? '&before=' + encodeURIComponent(before) : ''));
+      count += page.length; before = page.length === 200 ? page[199].created_at + ',' + page[199].id : '';
+    } while (before);
+    return count;
+  }
   async loadAccessCount(): Promise<void> {
     try {
-      const [access, models] = await Promise.all([this.request<{ count: number }>('/admin/access-requests/count?status=pending'), this.request<{ count: number }>('/admin/tier-requests/count?status=pending')]);
-      this.pendingCount.set(access.count + models.count);
+      const [access, models, skills, approvals] = await Promise.all([this.request<{ count: number }>('/admin/access-requests/count?status=pending'), this.request<{ count: number }>('/admin/tier-requests/count?status=pending'), this.request<{ count: number }>('/admin/skill-requests/count?status=pending'), this.pendingApprovals()]);
+      this.pendingCount.set(access.count + models.count + skills.count + approvals);
     }
     catch (error) { this.failure(error); }
-  }
-  async openAccessRequests(): Promise<void> { this.screen.set('access'); await this.loadAccessRequests(); }
-  async loadAccessRequests(): Promise<void> {
-    this.error.set(''); this.selectedTiers = {}; this.accessRequests.set([]); this.tierRequests.set([]);
-    const filter = this.accessFilter();
-    try {
-      const rows: AccessRequest[] = []; let after = '';
-      do {
-        const page = await this.request<AccessRequest[]>('/admin/access-requests?status=' + filter + '&limit=200' + (after ? '&after=' + encodeURIComponent(after) : ''));
-        rows.push(...page); after = page.length === 200 ? page[page.length - 1].id : '';
-      } while (after);
-      const models: TierRequest[] = []; after = '';
-      do {
-        const page = await this.request<TierRequest[]>('/admin/tier-requests?status=' + filter + '&limit=200' + (after ? '&after=' + encodeURIComponent(after) : ''));
-        models.push(...page); after = page.length === 200 ? page[page.length - 1].id : '';
-      } while (after);
-      if (filter === this.accessFilter()) { this.accessRequests.set(rows); this.tierRequests.set(models); }
-      await this.loadAccessCount();
-    } catch (error) { this.failure(error); }
-  }
-  async decideAccess(row: AccessRequest, action: 'approve' | 'reject' | 'revoke'): Promise<void> {
-    const tier = this.selectedTiers[row.id];
-    if (this.accessBusy() || action === 'approve' && !tier) return;
-    this.accessBusy.set(true); this.error.set('');
-    try {
-      const updated = await this.request<AccessRequest>('/admin/access-requests/' + encodeURIComponent(row.id) + '/' + action, 'POST', action === 'approve' ? { tier } : {});
-      this.accessRequests.update(rows => rows.flatMap(item => item.id !== row.id ? [item] : updated.status === this.accessFilter() ? [updated] : []));
-      await this.load(); await this.loadAccessRequests();
-    } catch (error) { this.failure(error); } finally { this.accessBusy.set(false); }
-  }
-  async decideTier(row: TierRequest, action: 'approve' | 'reject'): Promise<void> {
-    if (this.accessBusy()) return;
-    this.accessBusy.set(true); this.error.set('');
-    try {
-      const updated = await this.request<TierRequest>('/admin/tier-requests/' + encodeURIComponent(row.id) + '/' + action, 'POST', {});
-      this.tierRequests.update(rows => rows.flatMap(item => item.id !== row.id ? [item] : updated.status === this.accessFilter() ? [updated] : []));
-      await this.load(); await this.loadAccessRequests();
-    } catch (error) { this.failure(error); } finally { this.accessBusy.set(false); }
   }
   edit(model?: ModelEntry): void {
     this.error.set(''); this.key = ''; this.removeKey = false;
