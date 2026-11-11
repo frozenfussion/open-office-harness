@@ -133,7 +133,7 @@ After the merged stage is deployed, open the Admin Console and sign in with an
 administrator account. **Overview** opens first. Its greeting uses the person's given name and the
 configured display-zone hour. It shows today's active and
 approved people, skill jobs, model calls and cost. Active people are counted from
-Control Centre sightings today in the configured zone, excluding service/check
+approved people's Control Centre sightings today in the configured zone, excluding service/check
 identities. A dash means the service that
 supplies a figure could not answer. Refresh reads the latest figures; system
 health is checked by the Control Centre every 30 seconds. Needs-attention links
