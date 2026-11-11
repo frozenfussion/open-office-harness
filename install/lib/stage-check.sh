@@ -15,7 +15,7 @@ _stage_check_admin() {
     trap '\''rm -rf -- "$directory"'\'' EXIT
     /opt/keycloak/bin/kcadm.sh config credentials --config "$directory/config" --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null 2>&1
     /opt/keycloak/bin/kcadm.sh "$@" --config "$directory/config" 2>/dev/null
-  ' -- "$@" 2>/dev/null
+  ' -- "$@" </dev/null 2>/dev/null
 }
 _stage_check_rotate() { _stage_check_admin create "clients/$STAGE_CHECK_ID/client-secret" -r ooh >/dev/null; }
 stage_check_begin() {
