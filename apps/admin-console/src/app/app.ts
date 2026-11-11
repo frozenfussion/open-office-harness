@@ -95,24 +95,28 @@ export class App {
   }
   async load(): Promise<void> {
     try {
-      // The registry is intentionally private; the console uses the admin list.
-      const models: ModelEntry[] = [];
-      let modelAfter = '';
-      do {
-        const page = await this.request<ModelEntry[]>('/admin/models?limit=200' + (modelAfter ? '&after=' + encodeURIComponent(modelAfter) : ''));
-        models.push(...page); modelAfter = page.length === 200 ? page[page.length - 1].model_entry_id : '';
-      } while (modelAfter);
-      models.sort((a, b) => a.purpose.localeCompare(b.purpose) || (a.tier ?? 0) - (b.tier ?? 0)
-        || (a.role === b.role ? 0 : a.role === 'main' ? -1 : 1) || a.priority - b.priority);
+      await this.loadModels();
       const grants: Grant[] = [];
       let after = '';
       do {
         const page = await this.request<Grant[]>('/admin/grants?limit=200' + (after ? '&after=' + encodeURIComponent(after) : ''));
         grants.push(...page); after = page.length === 200 ? page[page.length - 1].id : '';
       } while (after);
-      this.models.set(models); this.grants.set(grants);
+      this.grants.set(grants);
       await this.loadAccessCount();
     } catch (e) { this.failure(e); }
+  }
+  private async loadModels(): Promise<void> {
+    // The registry is intentionally private; the console uses the admin list.
+    const models: ModelEntry[] = [];
+    let modelAfter = '';
+    do {
+      const page = await this.request<ModelEntry[]>('/admin/models?limit=200' + (modelAfter ? '&after=' + encodeURIComponent(modelAfter) : ''));
+      models.push(...page); modelAfter = page.length === 200 ? page[page.length - 1].model_entry_id : '';
+    } while (modelAfter);
+    models.sort((a, b) => a.purpose.localeCompare(b.purpose) || (a.tier ?? 0) - (b.tier ?? 0)
+      || (a.role === b.role ? 0 : a.role === 'main' ? -1 : 1) || a.priority - b.priority);
+    this.models.set(models);
   }
   workspaceUrl(): string { return 'https://harness.' + new URL(window.oohConfig.issuer).hostname.replace(/^auth\./, ''); }
   async pendingApprovals(): Promise<number> {
@@ -162,6 +166,15 @@ export class App {
       clearTimeout(timer);
       this.testing.update(ids => { const next = new Set(ids); next.delete(id); return next; });
     }
+    try {
+      if (this.destroy.destroyed) return;
+      await this.loadModels();
+      const refreshed = this.models().find(entry => entry.model_entry_id === id);
+      if (refreshed && refreshed.health === model.health) {
+        await new Promise<void>(resolve => setTimeout(resolve, 2000));
+        if (!this.destroy.destroyed) await this.loadModels();
+      }
+    } catch (error) { this.failure(error); }
   }
   async switchOff(m: ModelEntry): Promise<void> {
     if (!confirm(`Switch off ${m.title || m.model_id}?`)) return;

@@ -94,7 +94,7 @@ describe('Admin console', () => {
     app.models.set([model]);
     let finish!: (result: ConnectionResult) => void;
     const pending = new Promise<ConnectionResult>(resolve => { finish = resolve; });
-    const request = vi.spyOn(app, 'request').mockReturnValueOnce(pending);
+    const request = vi.spyOn(app, 'request').mockReturnValueOnce(pending).mockResolvedValueOnce([{ ...model, health: 'ok' }]);
     const test = app.testConnection(model); fixture.detectChanges();
     const button = fixture.nativeElement.querySelector('button[title="One short paid call to this model only"]') as HTMLButtonElement;
     expect(button.disabled).toBe(true); expect(button.textContent).toContain('Testing…');
@@ -107,7 +107,7 @@ describe('Admin console', () => {
   it('shows the failure and provider detail as plain text', async () => {
     const { fixture } = await create(true); const app = fixture.componentInstance;
     app.models.set([model]);
-    vi.spyOn(app, 'request').mockResolvedValueOnce({ ok: false, reason: 'key refused', provider_status: 401, provider_message: '<img src=x onerror=alert(1)>' });
+    vi.spyOn(app, 'request').mockResolvedValueOnce({ ok: false, reason: 'key refused', provider_status: 401, provider_message: '<img src=x onerror=alert(1)>' }).mockResolvedValueOnce([{ ...model, health: 'down' }]);
     await app.testConnection(model); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[role=status]').textContent).toBe('Failed · key refused (provider answered 401) · <img src=x onerror=alert(1)>');
     expect(fixture.nativeElement.querySelector('img')).toBeNull();
@@ -115,14 +115,47 @@ describe('Admin console', () => {
   it('aborts the browser wait at the entry timeout plus fifteen seconds', async () => {
     const { fixture } = await create(true); const app = fixture.componentInstance;
     vi.useFakeTimers();
-    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+    vi.stubGlobal('fetch', vi.fn((url: string, init: RequestInit) => url.includes('/test') ? new Promise((_resolve, reject) => {
       init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
-    })));
+    }) : Promise.resolve({ ok: true, json: async () => [{ ...model, health: 'down' }] })));
     const test = app.testConnection({ ...model, timeout_seconds: 10 });
     await vi.advanceTimersByTimeAsync(24999); expect(app.testing().has(model.model_entry_id)).toBe(true);
     await vi.advanceTimersByTimeAsync(1); await test;
     expect(app.testResults()[model.model_entry_id]).toEqual({ ok: false, reason: 'took longer than its time limit', provider_status: null, provider_message: null });
     expect(app.testing().size).toBe(0);
+  });
+
+  it.each([true, false])('refreshes the row health after a connection test (works: %s) and preserves its result', async ok => {
+    const { fixture } = await create(true); const app = fixture.componentInstance;
+    const entry: ModelEntry = { ...model, purpose: 'classification', tier: undefined, health: 'unknown' };
+    app.models.set([entry]); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.ooh-chip').textContent).toBe('Unknown');
+    const result: ConnectionResult = ok
+      ? { ok: true, model_title: 'Synthetic', reply: '', duration_ms: 400, usage: { input_tokens: 0, output_tokens: 0 }, cost_usd: 0, score: 1 }
+      : { ok: false, reason: 'unavailable', provider_status: 503, provider_message: null };
+    const request = vi.spyOn(app, 'request').mockResolvedValueOnce(result).mockResolvedValueOnce([{ ...entry, health: ok ? 'ok' : 'down' }]);
+    await app.testConnection(entry); fixture.detectChanges();
+    expect(request).toHaveBeenNthCalledWith(2, '/admin/models?limit=200');
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(fixture.nativeElement.querySelector('.ooh-chip').textContent).toBe(ok ? 'OK' : 'Down');
+    expect(fixture.nativeElement.querySelector('[role=status]').textContent).toContain(ok ? 'Works · 0.4 s · score 1' : 'Failed · unavailable');
+  });
+  it.each(['ok', 'unknown'] as const)('retries unchanged health once after two seconds, ending at %s without polling', async health => {
+    const { fixture } = await create(true); const app = fixture.componentInstance;
+    vi.useFakeTimers();
+    const entry: ModelEntry = { ...model, health: 'unknown' }; app.models.set([entry]);
+    const result: ConnectionResult = { ok: true, model_title: 'Synthetic', reply: 'yes', duration_ms: 400, usage: { input_tokens: 1, output_tokens: 1 }, cost_usd: 0 };
+    const request = vi.spyOn(app, 'request').mockResolvedValueOnce(result).mockResolvedValueOnce([entry]).mockResolvedValueOnce([{ ...entry, health }]);
+    const test = app.testConnection(entry);
+    await vi.advanceTimersByTimeAsync(0); fixture.detectChanges();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(fixture.nativeElement.querySelector('[role=status]').textContent).toContain('Works');
+    await vi.advanceTimersByTimeAsync(1999); expect(request).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1); await test; fixture.detectChanges();
+    expect(request).toHaveBeenNthCalledWith(3, '/admin/models?limit=200');
+    expect(fixture.nativeElement.querySelector('.ooh-chip').textContent).toBe(health === 'ok' ? 'OK' : 'Unknown');
+    expect(fixture.nativeElement.querySelector('[role=status]').textContent).toContain('Works');
+    await vi.advanceTimersByTimeAsync(10000); expect(request).toHaveBeenCalledTimes(3);
   });
 
   const accessRow = { id: 'request-synthetic', user_id: 'user-synthetic', name: '<img src=x>', email: 'synthetic@example.invalid', organisation: 'Synthetic team', reason: '<script>test</script>', status: 'pending' as const, requested_at: '2026-11-10T00:00:00Z' };

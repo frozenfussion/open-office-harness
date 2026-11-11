@@ -44,6 +44,9 @@
    entries have a tier; Classification entries do not. Extra request settings
    must be a JSON object. Thinking-off settings may be blank or a JSON object.
    Save, then **Test**. Test makes one short paid call to this saved entry only.
+   The table refreshes after Test and keeps its result beneath the row. If health
+   is unchanged, it refreshes once more after two seconds to allow the Gateway
+   report to arrive. Save and Switch off also refresh the list.
    A classification test shows a score. Keys stay encrypted, and never return
    to the browser. Changing an endpoint/type removes its key unless a replacement
    is entered. **Switch off** marks the row removed and keeps its history.
