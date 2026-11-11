@@ -26,12 +26,14 @@ cleanup() {
   rm -rf -- "$tmp"
 }
 trap cleanup EXIT
+# shellcheck disable=SC2034 # The renderer reads this through indirect variable expansion.
+KEYCLOAK_THEME_SHA256="$(sha256sum deploy/platform/keycloak/theme/* | sha256sum | cut -d ' ' -f 1)"
 email="$(jq -Rn --arg value "$LETSENCRYPT_EMAIL" '$value')"
 render() {
   local source="$1" target="$2" line variable value token
   mkdir -p "$(dirname "$target")"
   while IFS= read -r line || [[ -n "$line" ]]; do
-    for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE KAFKA_STORAGE POSTGRES_STORAGE FILES_STORAGE LETSENCRYPT_EMAIL; do
+    for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE KAFKA_STORAGE POSTGRES_STORAGE FILES_STORAGE LETSENCRYPT_EMAIL KEYCLOAK_THEME_SHA256; do
       value="${!variable}"
       [[ "$variable" != LETSENCRYPT_EMAIL ]] || value="$email"
       token="\${$variable}"
@@ -43,6 +45,8 @@ render() {
 while IFS= read -r -d '' file; do
   render "$file" "$tmp/$file"
 done < <(find deploy/platform -type f -name '*.yaml' -print0)
+kubectl -n "$PLATFORM_NAMESPACE" create configmap ooh-keycloak-theme \
+  --from-file=deploy/platform/keycloak/theme/ --dry-run=client -o yaml > "$tmp/deploy/platform/keycloak/theme-configmap.yaml"
 if [[ "${1:-}" == --check ]]; then
   kubeconform -strict -summary -skip ClusterIssuer,Kafka,KafkaNodePool,KafkaTopic,KafkaUser,Cluster,DatabaseRole,Database,Keycloak,KeycloakRealmImport "$tmp/deploy/platform"
   printf 'DONE\n'
@@ -128,14 +132,15 @@ printf 'Waiting for Kafka (first start can take several minutes)\n'
 kubectl -n "$PLATFORM_NAMESPACE" wait --for=condition=Ready kafka/ooh-kafka --timeout=600s
 retain_claims "$PLATFORM_NAMESPACE" strimzi.io/cluster=ooh-kafka
 kubectl apply -f "$tmp/deploy/platform/kafka/topics/"
-kubectl apply -f "$tmp/deploy/platform/kafka/users/ooh-smoke.yaml"
+kubectl apply -f "$tmp/deploy/platform/kafka/users/"
 kubectl -n "$PLATFORM_NAMESPACE" wait --for=condition=Ready kafkatopic --all --timeout=300s
-kubectl -n "$PLATFORM_NAMESPACE" wait --for=condition=Ready kafkauser/ooh-smoke --timeout=300s
+kubectl -n "$PLATFORM_NAMESPACE" wait --for=condition=Ready kafkauser --all --timeout=300s
 kubectl apply -f "$tmp/deploy/platform/postgres/cluster.yaml"
 kubectl -n "$PLATFORM_NAMESPACE" wait --for=condition=Ready cluster.postgresql.cnpg.io/ooh-pg --timeout=600s
 retain_claims "$PLATFORM_NAMESPACE" cnpg.io/cluster=ooh-pg
 kubectl apply -f "$tmp/deploy/platform/postgres/db-keycloak.yaml"
 kubectl -n "$PLATFORM_NAMESPACE" wait --for=jsonpath='{.status.applied}'=true databaserole/keycloak database/keycloak --timeout=300s
+kubectl apply -f "$tmp/deploy/platform/keycloak/theme-configmap.yaml"
 kubectl apply -f "$tmp/deploy/platform/keycloak/keycloak.yaml"
 wait_keycloak
 kubectl apply -f "$tmp/deploy/platform/keycloak/realm-ooh.yaml"

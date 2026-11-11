@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: slides-worker
+  namespace: ${PLATFORM_NAMESPACE}
+  labels:
+    strimzi.io/cluster: ooh-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+    - resource:
+        type: topic
+        name: skill.results
+        patternType: literal
+      operations:
+      - Write
+      - Describe
+    - resource:
+        type: topic
+        name: audit.events
+        patternType: literal
+      operations:
+      - Write
+      - Describe
+    - resource:
+        type: topic
+        name: dlq.skill.requests.slides
+        patternType: literal
+      operations:
+      - Write
+      - Describe
+    - resource:
+        type: topic
+        name: skill.requests.slides
+        patternType: literal
+      operations:
+      - Read
+      - Describe
+    - resource:
+        type: group
+        name: slides-worker
+        patternType: literal
+      operations:
+      - Read

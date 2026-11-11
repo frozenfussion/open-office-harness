@@ -16,7 +16,7 @@ if [[ $# != 0 ]]; then
 fi
 registration_allowed=true
 [[ "$registration" != off ]] || registration_allowed=false
-for tool in kubectl jq awk sed; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
+for tool in kubectl jq awk sed flock; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 redact_errors() {
   local line
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -59,6 +59,9 @@ wait_keycloak() {
   stop "Keycloak rollout is not Ready on the current revision after 10 minutes; inspect the Keycloak CR, StatefulSet and pod, then re-run step 6"
 }
 wait_keycloak
+mkdir -p "$HOME/.config/ooh"
+exec {sync_lock}<>"$HOME/.config/ooh/stage-check.lock"
+flock -n "$sync_lock" || stop "another check is running"
 # Read only the client IDs and included audiences from the controlled realm YAML format.
 awk '/(^|[[:space:]])[&*][a-zA-Z0-9]/ {exit 1}' deploy/platform/keycloak/realm-ooh.yaml || stop "realm client format changed; expand YAML aliases before syncing"
 rows="$(awk '
@@ -66,8 +69,8 @@ rows="$(awk '
   $1 ~ /^included\.(client|custom)\.audience:$/ {print "AUDIENCE\t" client "\t" $2}
 ' deploy/platform/keycloak/realm-ooh.yaml)"
 desired="$(jq -Rn '[inputs | split("\t")] | reduce .[] as $row ({}; if $row[0] == "CLIENT" then .[$row[1]] = [] else .[$row[1]] += [$row[2]] end)' <<< "$rows")"
-jq -e 'keys | sort == (["ooh-workspace","ooh-admin-console","ooh-harness-api","ooh-control-centre","ooh-model-gateway"] | sort)' <<< "$desired" >/dev/null || stop "realm client format changed; check realm-ooh.yaml before syncing"
-jq -e '.["ooh-control-centre"] == ["ooh-model-gateway"]' <<< "$desired" >/dev/null ||
+jq -e 'keys | sort == (["ooh-workspace","ooh-admin-console","ooh-harness-api","ooh-control-centre","ooh-model-gateway","ooh-slides-worker","ooh-safety-watcher","ooh-stage-check"] | sort)' <<< "$desired" >/dev/null || stop "realm client format changed; check realm-ooh.yaml before syncing"
+jq -e '.["ooh-control-centre"] == ["ooh-model-gateway","ooh-audit-writer","ooh-cost-meter"]' <<< "$desired" >/dev/null ||
   stop "realm client format changed; check realm-ooh.yaml before syncing"
 config_dir=''
 cleanup() {
@@ -125,11 +128,12 @@ kcadm update realms/ooh -s "registrationAllowed=$registration_allowed" \
   -s registrationEmailAsUsername=true -s loginWithEmailAllowed=true \
   -s duplicateEmailsAllowed=false -s editUsernameAllowed=false -s verifyEmail=false \
   -s resetPasswordAllowed=false -s internationalizationEnabled=true \
+  -s 'displayName=Open Office Harness' -s loginTheme=ooh \
   -s 'supportedLocales=["en"]' -s defaultLocale=en \
   -s 'passwordPolicy=length(12) and notUsername and notEmail and maxLength(128)' >/dev/null
-realm_settings="$(kcadm get realms/ooh --fields registrationAllowed,registrationEmailAsUsername,loginWithEmailAllowed,duplicateEmailsAllowed,editUsernameAllowed,verifyEmail,resetPasswordAllowed,internationalizationEnabled,supportedLocales,defaultLocale,passwordPolicy)"
+realm_settings="$(kcadm get realms/ooh --fields displayName,loginTheme,registrationAllowed,registrationEmailAsUsername,loginWithEmailAllowed,duplicateEmailsAllowed,editUsernameAllowed,verifyEmail,resetPasswordAllowed,internationalizationEnabled,supportedLocales,defaultLocale,passwordPolicy)"
 jq -e --argjson registration "$registration_allowed" '
-  .registrationAllowed == $registration and .registrationEmailAsUsername == true and
+  .displayName == "Open Office Harness" and .loginTheme == "ooh" and .registrationAllowed == $registration and .registrationEmailAsUsername == true and
   .loginWithEmailAllowed == true and .duplicateEmailsAllowed == false and
   .editUsernameAllowed == false and .verifyEmail == false and .resetPasswordAllowed == false and
   .internationalizationEnabled == true and .supportedLocales == ["en"] and .defaultLocale == "en" and
@@ -172,10 +176,10 @@ normalize_attributes() {
     {name,protocol,protocolMapper,config:(.config | {"user.attribute","claim.name","jsonType.label","access.token.claim","id.token.claim","userinfo.token.claim"})}] | sort_by(.name)'
 }
 normalize_mappers() {
-  # Keycloak may add defaults or express the audience in either supported config field.
+  # The audience field determines whether Keycloak resolves a client or uses a custom value.
   jq -c '[.[] | select(.protocolMapper == "oidc-audience-mapper") |
     {name,protocol,protocolMapper,
-     audiences: ([.config["included.client.audience"], .config["included.custom.audience"]] | map(select(type == "string" and length > 0)) | unique),
+     audiences: {client: .config["included.client.audience"], custom: .config["included.custom.audience"]},
      accessToken: ((.config["access.token.claim"] | tostring) == "true"),
      idToken: (((.config["id.token.claim"] // false) | tostring) == "true")}] | sort_by(.name)'
 }
@@ -193,9 +197,24 @@ print_audiences() {
 while IFS= read -r client; do
   representation="$(kcadm get clients -r ooh -q "clientId=$client" --fields id,clientId)"
   if [[ "$(jq 'length' <<< "$representation")" == 0 ]]; then
-    stop "client $client is missing from realm ooh; realm sync cannot create clients; inspect the initial realm setup"
+    case "$client" in
+      ooh-slides-worker|ooh-safety-watcher|ooh-stage-check)
+        enabled=true; [[ "$client" != ooh-stage-check ]] || enabled=false
+        jq -cn --arg client "$client" --argjson enabled "$enabled" '{protocol:"openid-connect",clientId:$client,enabled:$enabled,publicClient:false,serviceAccountsEnabled:true,standardFlowEnabled:false,directAccessGrantsEnabled:false}' |
+          kcadm create clients -r ooh -f - >/dev/null
+        representation="$(kcadm get clients -r ooh -q "clientId=$client" --fields id,clientId)" ;;
+      *) stop "client $client is missing from realm ooh; only the three Stage 3 clients may be created" ;;
+    esac
   fi
   id="$(jq -er --arg client "$client" 'if length == 1 and .[0].clientId == $client then .[0].id else error("client missing or ambiguous") end' <<< "$representation")"
+  case "$client" in
+    ooh-slides-worker|ooh-safety-watcher|ooh-stage-check)
+      enabled=true; [[ "$client" != ooh-stage-check ]] || enabled=false
+      kcadm update "clients/$id" -r ooh -s protocol=openid-connect -s publicClient=false \
+        -s serviceAccountsEnabled=true -s standardFlowEnabled=false -s directAccessGrantsEnabled=false -s "enabled=$enabled" >/dev/null
+      client_config="$(kcadm get "clients/$id" -r ooh --fields protocol,enabled,publicClient,serviceAccountsEnabled,standardFlowEnabled,directAccessGrantsEnabled)"
+      jq -e --argjson enabled "$enabled" '.protocol == "openid-connect" and .enabled == $enabled and .publicClient == false and .serviceAccountsEnabled == true and .standardFlowEnabled == false and .directAccessGrantsEnabled == false' <<< "$client_config" >/dev/null || stop "service client configuration differs; inspect $client privately" ;;
+  esac
   if [[ "$client" == ooh-workspace || "$client" == ooh-admin-console ]]; then
     client_config="$(kcadm get "clients/$id" -r ooh)"
     jq '.attributes = ((.attributes // {}) + {"post.logout.redirect.uris":"+"})' <<< "$client_config" |
@@ -207,18 +226,28 @@ while IFS= read -r client; do
   fi
   if [[ "$client" == ooh-admin-console ]]; then
     client_config="$(kcadm get "clients/$id" -r ooh)"
-    printf '%s' "$client_config" | jq '.attributes = ((.attributes // {}) + {"oauth2.device.authorization.grant.enabled":"true"})' |
+    printf '%s' "$client_config" | jq '.attributes = ((.attributes // {}) + {"oauth2.device.authorization.grant.enabled":"false"})' |
       kcadm update "clients/$id" -r ooh -n -f - >/dev/null
     client_config="$(kcadm get "clients/$id" -r ooh)"
-    jq -e '.attributes["oauth2.device.authorization.grant.enabled"] == "true"' <<< "$client_config" >/dev/null ||
-      stop "device sign-in is not enabled; inspect the existing admin console client"
+    jq -e '.attributes["oauth2.device.authorization.grant.enabled"] == "false"' <<< "$client_config" >/dev/null ||
+      stop "device sign-in is not disabled; inspect the existing admin console client"
     unset client_config
-    printf 'Enabled device sign-in: ooh-admin-console\n'
+    printf 'Disabled device sign-in: ooh-admin-console\n'
+  fi
+  if [[ "$client" == ooh-stage-check ]]; then
+    kcadm update "clients/$id" -r ooh -s enabled=false >/dev/null
+    kcadm create "clients/$id/client-secret" -r ooh >/dev/null
+    account="$(kcadm get "clients/$id/service-account-user" -r ooh --fields id)"
+    account_id="$(jq -er '.id' <<< "$account")"
+    role="$(kcadm get roles/ooh-admin -r ooh | jq -c '[{id,name}]')"
+    printf '%s' "$role" | kcadm create "users/$account_id/role-mappings/realm" -r ooh -f - >/dev/null
+    kcadm get "users/$account_id/role-mappings/realm" -r ooh | jq -e 'any(.[]; .name == "ooh-admin")' >/dev/null || stop "check client admin role missing"
+    kcadm get "clients/$id" -r ooh --fields enabled | jq -e '.enabled == false' >/dev/null || stop "check client must stay disabled"
   fi
   endpoint="clients/$id/protocol-mappers/models"
   existing="$(kcadm get "$endpoint" -r ooh)"
   audiences="$(jq -c --arg client "$client" '.[$client]' <<< "$desired")"
-  expected="$(jq -cn --argjson audiences "$audiences" '$audiences | map({name:("audience-" + .),protocol:"openid-connect",protocolMapper:"oidc-audience-mapper",consentRequired:false,config:{"included.client.audience":.,"access.token.claim":"true","id.token.claim":"false"}})')"
+  expected="$(jq -cn --argjson audiences "$audiences" '$audiences | map({name:("audience-" + .),protocol:"openid-connect",protocolMapper:"oidc-audience-mapper",consentRequired:false,config:{(if . == "ooh-audit-writer" or . == "ooh-cost-meter" then "included.custom.audience" else "included.client.audience" end):.,"access.token.claim":"true","id.token.claim":"false"}})')"
   while IFS= read -r mapper; do
     name="$(jq -r '.name' <<< "$mapper")"
     matches="$(jq -c --arg name "$name" '[.[] | select(.name == $name)]' <<< "$existing")"

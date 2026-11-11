@@ -6,6 +6,7 @@ stop() { printf 'STOP: %s\n' "$*" >&2; exit 1; }
 trap 'stop "step failed; see README troubleshooting and re-run this script"' ERR
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+for tool in kubectl jq curl flock; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 # shellcheck source=/dev/null
 source deploy/values/do.env
 [[ -f "$HOME/.config/ooh/do.env" ]] || stop "local settings missing; copy install/ooh.env.example as described in README"
@@ -86,7 +87,29 @@ dlq.approvals.requested 1 2592000000
 dlq.approvals.decided 1 2592000000
 dlq.audit.events 1 2592000000
 ooh.smoke 1 3600000
+chat.messages 3 604800000
+dlq.chat.messages 1 2592000000
 TOPICS
+# shellcheck disable=SC2016 # Expansion occurs only in the Keycloak pod.
+check_enabled="$(kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- sh -c '
+  set -eu; set +x; umask 077
+  directory="$(mktemp -d /tmp/ooh-platform-check.XXXXXXXX)"
+  trap '\''rm -rf -- "$directory"'\'' EXIT
+  /opt/keycloak/bin/kcadm.sh config credentials --config "$directory/config" --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null 2>&1
+  /opt/keycloak/bin/kcadm.sh get clients -r ooh -q clientId=ooh-stage-check --fields enabled --config "$directory/config" 2>/dev/null
+' 2>/dev/null)" || check_enabled=''
+rc=0
+if ! jq -e 'length == 1 and .[0].enabled == false' <<< "$check_enabled" >/dev/null 2>&1; then
+  lock_pid="$(cat "$HOME/.config/ooh/stage-check.lock" 2>/dev/null || true)"
+  jq -e 'length == 1 and .[0].enabled == true' <<< "$check_enabled" >/dev/null 2>&1 || rc=1
+  [[ "$lock_pid" =~ ^[0-9]+$ ]] && kill -0 "$lock_pid" 2>/dev/null || rc=1
+  if [[ -f "$HOME/.config/ooh/stage-check.lock" ]]; then
+    exec {check_lock}<>"$HOME/.config/ooh/stage-check.lock"
+    if flock -n "$check_lock"; then rc=1; flock -u "$check_lock"; fi
+    exec {check_lock}>&-
+  else rc=1; fi
+fi
+if ((rc == 0)); then result 0 'ooh-stage-check disabled or check running' ''; else result 1 'ooh-stage-check enabled with no check running' 'run install/77-check-stage-3.sh <tag> once, then run 40 again'; fi
 check_pod=''
 check_namespace=${PLATFORM_NAMESPACE}
 cleanup() {

@@ -13,6 +13,13 @@ export class ChatModels {
   readonly busy = input(false);
   readonly tierChange = output<number>();
   readonly panel = signal(false);
+  readonly skillsPanel = signal(false);
+  readonly skillPanel = signal(false);
+  readonly requestSkill = signal<string | null>(null);
+  private readonly pendingSkills = signal<string[]>([]);
+  skillReason = '';
+  readonly skillChoices = computed(() => (this.me().requestable_skills ?? []).map(row => ({...row, requested: this.pendingSkills().includes(row.name) ? 'pending' as const : row.requested})));
+  readonly selectedSkill = computed(() => this.skillChoices().find(row => row.name === this.requestSkill()));
   readonly requesting = signal(false);
   readonly notice = signal('');
   private readonly pending = signal<number[]>([]);
@@ -34,9 +41,10 @@ export class ChatModels {
     const title = this.me().chat_tier_titles?.[String(tier)];
     return title ? `${title} - Tier ${tier}` : `Tier ${tier}`;
   }
-  choose(value: number | 'request', select: HTMLSelectElement): void {
+  choose(value: number | 'request' | 'skills', select: HTMLSelectElement): void {
     if (this.busy()) return;
-    if (value === 'request') {
+    if (value === 'request' || value === 'skills') {
+      if (value === 'skills') this.skillsPanel.set(true); else
       this.panel.set(true); this.notice.set('');
       select.selectedIndex = this.tier() === null ? 0 : this.me().chat_tiers.indexOf(this.tier()!);
     } else if (this.me().chat_tiers.includes(value)) this.tierChange.emit(value);
@@ -48,6 +56,16 @@ export class ChatModels {
     this.preferences.update(old => ({...old, [tier]: value}));
     try { localStorage.setItem('ooh.thinking.' + tier, String(value)); }
     catch { /* Keep the choice for this page when browser storage is unavailable. */ }
+  }
+  async sendSkillRequest(): Promise<void> {
+    const selected = this.selectedSkill();
+    if (this.me().access !== 'approved' || !selected || selected.requested === 'pending' || this.requesting() || this.skillReason.length > 300) return;
+    this.requesting.set(true); this.notice.set('');
+    try {
+      await this.api.requestSkill(selected.name, this.skillReason.trim());
+      this.pendingSkills.update(old => [...old, selected.name]); this.skillReason = '';
+    } catch (error) { this.notice.set(error instanceof ApiError ? error.message : 'The request failed. Try again.'); }
+    finally { this.requesting.set(false); }
   }
   async sendRequest(): Promise<void> {
     const selected = this.selected();

@@ -3,10 +3,12 @@ import { afterRenderEffect, Component, computed, ElementRef, inject, OnDestroy, 
 import { FormsModule } from '@angular/forms';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { Subscription } from 'rxjs';
-import { Api, ApiError, Conversation, Me, Message } from './api';
+import { Api, ApiError, Conversation, Job, Me, Message } from './api';
 import { Rain } from './rain';
 import { MessageContent } from './message-content';
 import { ChatModels } from './chat-models';
+import { Jobs } from './jobs';
+import { JobCard } from './job-card';
 
 export function greeting(date = new Date()): string {
   const hour = date.getHours();
@@ -18,11 +20,13 @@ export function metaLine(message: Message): string {
     (message.note ? ` · ${message.note}` : '') +
     (message.thinkingRequested === false && message.thinking_applied === false ? ' · thinking off not supported by this model' : '');
 }
-@Component({ selector: 'app-root', imports: [FormsModule, Rain, MessageContent, ChatModels], templateUrl: './app.html', styleUrl: './app.css' })
+@Component({ selector: 'app-root', imports: [FormsModule, Rain, MessageContent, ChatModels, JobCard], templateUrl: './app.html', styleUrl: './app.css' })
 export class App implements OnInit, OnDestroy {
   private readonly auth = inject(OidcSecurityService);
   private readonly api = inject(Api);
   private readonly subscription = new Subscription();
+  readonly jobs = inject(Jobs);
+  readonly showJobs = signal(false);
   readonly models = viewChild(ChatModels);
   readonly history = viewChild<ElementRef<HTMLElement>>('history');
   private abort?: AbortController;
@@ -54,6 +58,7 @@ export class App implements OnInit, OnDestroy {
       this.scrollMessages();
     });
   }
+  liveJob(job: Job): Job { return this.jobs.rows().find(row => row.job_id === job.job_id) ?? job; }
   scrollMessages(): void {
     const history = this.history()?.nativeElement;
     if (history) history.scrollTop = history.scrollHeight;
@@ -61,7 +66,7 @@ export class App implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.subscription.add(this.auth.isAuthenticated$.subscribe(({isAuthenticated}) => {
       this.signedIn.set(isAuthenticated);
-      if (!isAuthenticated) { this.streams.forEach(stream => stream.abort()); this.messages.set([]); this.me.set(null); }
+      if (!isAuthenticated) { this.jobs.stop(); this.streams.forEach(stream => stream.abort()); this.messages.set([]); this.me.set(null); }
     }));
     this.subscription.add(this.auth.checkAuth().subscribe({
       next: (result) => {
@@ -74,10 +79,10 @@ export class App implements OnInit, OnDestroy {
       error: () => { this.ready.set(true); this.notice.set('Sign-in could not finish. Try signing in again.'); },
     }));
   }
-  ngOnDestroy(): void { this.subscription.unsubscribe(); this.streams.forEach(stream => stream.abort()); }
+  ngOnDestroy(): void { this.jobs.stop(); this.subscription.unsubscribe(); this.streams.forEach(stream => stream.abort()); }
   signIn(): void { this.auth.authorize(); }
   requestAccess(): void { this.auth.authorize(undefined, {customParams: {prompt: 'create'}}); }
-  signOut(): void { this.streams.forEach(stream => stream.abort()); this.auth.logoff().subscribe(); }
+  signOut(): void { this.jobs.stop(); this.streams.forEach(stream => stream.abort()); this.auth.logoff().subscribe(); }
   async copyId(): Promise<void> {
     try { await navigator.clipboard.writeText(this.me()?.user_id || ''); this.copied.set(true); }
     catch { this.notice.set('Copy did not work. Select and copy your user ID.'); }
@@ -106,6 +111,7 @@ export class App implements OnInit, OnDestroy {
       }
       this.me.set(me);
       if (me.access !== 'approved') return;
+      this.jobs.start();
       me.chat_tiers.sort((a, b) => a - b);
       this.me.set(me);
       this.tier = me.chat_tiers[0] ?? null;
@@ -191,6 +197,12 @@ export class App implements OnInit, OnDestroy {
           applyTitle();
           return;
         }
+        if (event.type === 'job') {
+          this.jobs.add(event);
+          assistant!.jobs = [...(assistant!.jobs ?? []), event];
+          this.messages.update(old => [...old]);
+          return;
+        }
         if (ended) throw new Error('Stream continued after completion');
         if (event.type === 'thinking') assistant!.thinking = (assistant!.thinking ?? '') + event.text;
         else if (event.type === 'delta') assistant!.content += event.text;
@@ -217,7 +229,7 @@ export class App implements OnInit, OnDestroy {
       if (assistant) {
         assistant.outcome = 'failed';
         assistant.created_at = new Date().toISOString();
-        this.messages.update(old => assistant!.content || assistant!.thinking ? [...old] : old.filter(message => message !== assistant));
+        this.messages.update(old => assistant!.content || assistant!.thinking || assistant!.jobs?.length ? [...old] : old.filter(message => message !== assistant));
       }
       this.failure(error);
     } finally {

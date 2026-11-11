@@ -50,3 +50,36 @@ describe('Workspace API model controls', () => {
     await expect(api().requestTier(5, '')).rejects.toMatchObject(new ApiError(409, 'Test refusal', 'too_soon'));
   });
 });
+
+describe('Jobs API', () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); TestBed.resetTestingModule(); });
+  function api(): Api {
+    TestBed.configureTestingModule({providers:[{provide:CONFIG,useValue:{apiBase:'/api'}},{provide:OidcSecurityService,useValue:{getAccessToken:()=>of('test-token')}}]});
+    return TestBed.inject(Api);
+  }
+  it('downloads a bearer-authenticated blob by job, uses the filename, and revokes its URL', async () => {
+    vi.useFakeTimers();
+    const create=vi.fn().mockReturnValue('blob:test'); const revoke=vi.fn();
+    Object.defineProperty(URL,'createObjectURL',{configurable:true,value:create});
+    Object.defineProperty(URL,'revokeObjectURL',{configurable:true,value:revoke});
+    const click=vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
+    const fetchRequest=vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response('pptx bytes',{headers:{'Content-Disposition':'attachment; filename="water-cycle.pptx"'}}));
+    await api().download({job_id:'test-job',title:'Slides',label:'Water',skill:'slides',status:'completed'});
+    expect(fetchRequest.mock.calls[0][0]).toBe('/api/jobs/test-job/file');
+    expect(fetchRequest.mock.calls[0][1]?.headers).toEqual({Authorization:'Bearer test-token','Content-Type':'application/json'});
+    expect(create.mock.calls[0][0]).toBeInstanceOf(Blob);expect(click).toHaveBeenCalledOnce();
+    expect((click.mock.instances[0] as HTMLAnchorElement).download).toBe('water-cycle.pptx');
+    await vi.advanceTimersByTimeAsync(1000);expect(revoke).toHaveBeenCalledWith('blob:test');
+  });
+  it('reloads jobs when the SSE connection opens before handling events', async () => {
+    vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response('data: {"type":"job.queued","correlation_id":"job","skill":"slides","output":null,"error":null}\n\n',{headers:{'Content-Type':'text/event-stream'}}));
+    const order:string[]=[];
+    await api().events(new AbortController().signal,async()=>{order.push('reload');},()=>order.push('event'));
+    expect(order).toEqual(['reload','event']);
+  });
+  it('submits a skill request without a user ID and preserves server conflicts', async () => {
+    const fetchRequest=vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response('{"code":"too_soon","message":"Wait seven days."}',{status:409}));
+    await expect(api().requestSkill('slides','A reason')).rejects.toMatchObject({status:409,code:'too_soon',message:'Wait seven days.'});
+    expect(fetchRequest.mock.calls[0][1]?.body).toBe('{"skill":"slides","reason":"A reason"}');
+  });
+});
