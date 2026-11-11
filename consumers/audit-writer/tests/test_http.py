@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+import json
 import time
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -107,3 +109,29 @@ def test_routes_validate_caller_audience_and_input(path: str) -> None:
         "/v1/counts",
     ]:
         assert client.get(query, headers=headers).status_code == 400
+
+
+def test_trail_cost_is_json_number_rounded_to_six_places_or_null() -> None:
+    client, key, config = setup()
+
+    class DecimalTrail(Database):
+        async def trail(self, filters: dict, before_id: int | None, limit: int) -> list:
+            return [
+                {"cost_usd": Decimal("0.000451")},
+                {"cost_usd": Decimal("12.1234567")},
+                {"cost_usd": Decimal(0)},
+                {"cost_usd": None},
+            ]
+
+    client.app.state.db = DecimalTrail()
+    response = client.get(
+        "/v1/trail", headers={"Authorization": "Bearer " + token(key, config)}
+    )
+    assert response.status_code == 200
+    wire = json.loads(response.content)
+    for row, expected in zip(wire[:3], [0.000451, 12.123457, 0], strict=True):
+        assert isinstance(row["cost_usd"], (float, int)) and not isinstance(
+            row["cost_usd"], bool
+        )
+        assert row["cost_usd"] == expected
+    assert wire[3]["cost_usd"] is None

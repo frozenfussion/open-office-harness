@@ -5,6 +5,7 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -20,6 +21,10 @@ from consumer.database import Database
 from consumer.events import Bus, Processor, Runner
 from consumer.identity import Identity
 from consumer.identity_error import IdentityError
+
+
+def cost_number(value: Decimal | float) -> float:
+    return float(Decimal(str(value)).quantize(Decimal("0.000001")))
 
 
 def day_input(value: Any) -> Any:
@@ -102,7 +107,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         before_id: Annotated[int | None, Query(ge=1)] = None,
         limit: Annotated[int, Query(ge=1, le=200)] = 50,
     ) -> Any:
-        return await request.app.state.db.trail(
+        rows = await request.app.state.db.trail(
             {
                 "correlation_id": correlation_id,
                 "user_id": user_id,
@@ -112,6 +117,10 @@ def create_app(config: Config | None = None) -> FastAPI:
             before_id,
             limit,
         )
+        for row in rows:
+            if row.get("cost_usd") is not None:
+                row["cost_usd"] = cost_number(row["cost_usd"])
+        return rows
 
     @app.get("/v1/counts", dependencies=[Depends(caller)])
     async def counts(request: Request, day: Annotated[Day, Query()]) -> Any:
