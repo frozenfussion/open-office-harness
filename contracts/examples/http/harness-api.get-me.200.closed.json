@@ -6,5 +6,6 @@
   "access": "closed",
   "chat_tier_titles": {},
   "chat_tier_thinking_switch": {},
-  "requestable_tiers": []
+  "requestable_tiers": [],
+  "requestable_skills": []
 }

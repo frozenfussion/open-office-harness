@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from .errors import ApiError
 
@@ -79,12 +80,13 @@ class Store:
             )
             return await cursor.fetchall()
 
-    async def history(self, identifier: UUID) -> list[dict[str, str]]:
+    async def history(self, identifier: UUID) -> list[dict[str, Any]]:
         async with await psycopg.AsyncConnection.connect(
             self.connection, row_factory=dict_row
         ) as db:
             cursor = await db.execute(
-                "SELECT role,content FROM (SELECT id,role,content,created_at "
+                "SELECT role,content,reasoning_state FROM (SELECT "
+                "id,role,content,created_at,reasoning_state "
                 "FROM messages WHERE conversation_id=%s "
                 "AND outcome='completed' AND content<>'' "
                 "ORDER BY created_at DESC,id DESC LIMIT 20) recent "
@@ -92,6 +94,9 @@ class Store:
                 (identifier,),
             )
             rows = await cursor.fetchall()
+        for row in rows:
+            if row["role"] != "assistant" or row["reasoning_state"] is None:
+                row.pop("reasoning_state")
         while rows and rows[0]["role"] != "user":
             rows.pop(0)
         return rows
@@ -156,8 +161,8 @@ class Store:
             )
             await db.execute(
                 "INSERT INTO messages (id,conversation_id,role,content,thinking,tier,"
-                "model_entry_id,model_title,input_tokens,output_tokens,note,outcome,"
-                "created_at,created_by) SELECT %s,id,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+                "model_entry_id,model_title,input_tokens,output_tokens,note,outcome,reasoning_state,"
+                "created_at,created_by) SELECT %s,id,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
                 "updated_at,%s FROM conversations WHERE id=%s AND user_id=%s "
                 "AND deleted_at IS NULL",
                 (
@@ -172,6 +177,9 @@ class Store:
                     usage.get("output_tokens"),
                     note,
                     outcome,
+                    Jsonb(metadata.get("reasoning_state"))
+                    if role == "assistant"
+                    else None,
                     user,
                     identifier,
                     user,

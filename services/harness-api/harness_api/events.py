@@ -1,0 +1,181 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+import asyncio
+import json
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Protocol
+from uuid import UUID, uuid4, uuid5
+
+from confluent_kafka import Consumer, Producer
+from jsonschema import Draft202012Validator, FormatChecker, ValidationError
+from referencing import Registry, Resource
+
+from .config import Settings
+from .diagnostics import failure
+
+NAMESPACE = UUID("6f1d5b7e-3c1a-4b8e-9a52-1f0c8f3e2d10")
+
+
+def envelope(
+    kind: str,
+    correlation: str,
+    user: str,
+    payload: dict[str, Any],
+    incoming: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "event_id": str(uuid5(NAMESPACE, incoming + kind) if incoming else uuid4()),
+        "type": kind,
+        "version": 1,
+        "occurred_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "correlation_id": correlation,
+        "user_id": user,
+        "producer": "harness-api",
+        "payload": payload,
+    }
+
+
+def validator() -> Draft202012Validator:
+    folder = Path(__file__).parent / "event_schemas"
+    registry = Registry().with_resources(
+        ("payloads/" + path.name, Resource.from_contents(json.loads(path.read_text())))
+        for path in (folder / "payloads").glob("*.json")
+    )
+    return Draft202012Validator(
+        json.loads((folder / "envelope.schema.json").read_text()),
+        registry=registry,
+        format_checker=FormatChecker(),
+    )
+
+
+class Publisher(Protocol):
+    async def publish(self, topic: str, event: dict[str, Any]) -> None: ...
+
+
+class Kafka:
+    def __init__(self, settings: Settings) -> None:
+        config = {
+            "bootstrap.servers": settings.kafka_bootstrap,
+            "security.protocol": "SASL_PLAINTEXT",
+            "sasl.mechanism": "SCRAM-SHA-512",
+            "sasl.username": settings.kafka_username,
+            "sasl.password": settings.kafka_password,
+            "log_level": 0,
+        }
+        self.producer = Producer(config)
+        self.consumer = Consumer(
+            {
+                **config,
+                "group.id": "harness-api",
+                "enable.auto.commit": False,
+                "auto.offset.reset": "earliest",
+            }
+        )
+        self.consumer.subscribe(["skill.results", "approvals.decided"])
+        self.schema = validator()
+        self.alive = False
+
+    async def publish(self, topic: str, event: dict[str, Any]) -> None:
+        def send() -> None:
+            errors = []
+            self.producer.produce(
+                topic,
+                key=event["correlation_id"],
+                value=json.dumps(event),
+                on_delivery=lambda error, message: (
+                    errors.append(error) if error else None
+                ),
+            )
+            if self.producer.flush(10) or errors:
+                raise RuntimeError("queue_unavailable")
+
+        await asyncio.to_thread(send)
+
+    async def run(
+        self,
+        handle: Callable[[str, dict[str, Any]], Awaitable[None]],
+        stop: asyncio.Event,
+    ) -> None:
+        self.alive = True
+        try:
+            while not stop.is_set():
+                message = await asyncio.to_thread(self.consumer.poll, 1)
+                if message is None:
+                    continue
+                if message.error():
+                    raise RuntimeError("consumer_error")
+                raw = message.value().decode("utf-8", errors="replace")
+                event: dict[str, Any] = {}
+                try:
+                    event = json.loads(raw)
+                    self.schema.validate(event)
+                    expected = {
+                        "skill.results": "skill.result",
+                        "approvals.decided": "approval.decided",
+                    }
+                    if event["type"] != expected[message.topic()]:
+                        raise ValueError("wrong_type")
+                except ValueError, ValidationError:
+                    await self.dead_letter(message.topic(), raw, event, "bad_message")
+                else:
+                    for attempt in range(4):
+                        try:
+                            await handle(message.topic(), event)
+                            break
+                        except Exception:
+                            if attempt == 3:
+                                await self.dead_letter(
+                                    message.topic(), raw, event, "handling_failed"
+                                )
+                            else:
+                                await asyncio.sleep((1, 5, 15)[attempt])
+                await asyncio.to_thread(
+                    self.consumer.commit, message=message, asynchronous=False
+                )
+        except Exception:
+            failure("kafka_error", "consumer_stopped")
+            raise
+        finally:
+            self.alive = False
+            await asyncio.to_thread(self.consumer.close)
+
+    async def dead_letter(self, topic: str, raw: str, event: Any, code: str) -> None:
+        readable = event if isinstance(event, dict) else {}
+        try:
+            correlation = str(UUID(readable.get("correlation_id", "")))
+        except ValueError, TypeError, AttributeError:
+            correlation = str(uuid4())
+        user = readable.get("user_id")
+        if not isinstance(user, str) or not user:
+            user = "system"
+        incoming = readable.get("event_id")
+        if not isinstance(incoming, str):
+            incoming = None
+        await self.publish(
+            "dlq." + topic,
+            envelope(
+                "dlq.entry",
+                correlation,
+                user,
+                {
+                    "original_message": raw,
+                    "error": {
+                        "code": code,
+                        "message": "The event could not be handled.",
+                    },
+                },
+                incoming,
+            ),
+        )
+
+
+class JobEvents:
+    def __init__(self) -> None:
+        self.subscribers: dict[str, set[asyncio.Queue[dict[str, Any]]]] = {}
+
+    def emit(self, user: str, event: dict[str, Any]) -> None:
+        for queue in self.subscribers.get(user, set()):
+            if queue.full():
+                queue.get_nowait()
+            queue.put_nowait(event)

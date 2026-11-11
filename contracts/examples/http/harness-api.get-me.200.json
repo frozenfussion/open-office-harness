@@ -33,5 +33,6 @@
       "title": "Example advanced tier",
       "requested": "rejected"
     }
-  ]
+  ],
+  "requestable_skills": []
 }

@@ -1,0 +1,87 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slides-worker
+  namespace: ${APPS_NAMESPACE}
+  labels:
+    app: slides-worker
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 7500
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: slides-worker
+  template:
+    metadata:
+      annotations:
+        ooh/config-sha256: "${CONFIG_HASH}"
+      labels:
+        app: slides-worker
+        ooh/app: real
+    spec:
+      terminationGracePeriodSeconds: 7460
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: slides-worker
+        image: ghcr.io/frozenfussion/ooh-slides-worker:${IMAGE_TAG}
+        ports:
+        - name: http
+          containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: slides-worker-config
+        env:
+        - name: SW_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: slides-worker-oidc
+              key: client-secret
+        - name: SW_KAFKA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: slides-worker-kafka
+              key: password
+        resources:
+          requests:
+            cpu: 50m
+            memory: 96Mi
+          limits:
+            cpu: '1'
+            memory: 512Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 20
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: files
+          mountPath: /files
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: files
+        persistentVolumeClaim:
+          claimName: ooh-files
+      - name: tmp
+        emptyDir:
+          medium: Memory
+          sizeLimit: 64Mi

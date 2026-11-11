@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+import asyncio
 import json
 import logging
 import sys
@@ -12,7 +13,7 @@ import httpx
 import psycopg
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -29,6 +30,8 @@ from .config import Settings
 from .diagnostics import JsonFormatter
 from .diagnostics import failure as record_failure
 from .errors import ApiError, gateway_error
+from .events import JobEvents, Kafka, Publisher, envelope
+from .jobs import Jobs, download_path
 from .store import MAX_THINKING_CHARS, Store
 from .upstream import GatewayStream, Upstream
 
@@ -54,6 +57,11 @@ class Message(Empty):
 
 class TierRequest(Empty):
     tier: Annotated[StrictInt, Field(gt=0)]
+    reason: str | None = Field(default=None, max_length=300)
+
+
+class SkillRequest(Empty):
+    skill: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
     reason: str | None = Field(default=None, max_length=300)
 
 
@@ -91,22 +99,70 @@ def create_app(
     settings: Settings,
     store: Store | None = None,
     client: httpx.AsyncClient | None = None,
+    publisher: Publisher | None = None,
+    jobs: Jobs | None = None,
 ) -> FastAPI:
     http = client or httpx.AsyncClient(timeout=10, follow_redirects=False)
     database = store or Store(settings.database)
     auth = Auth(settings, http)
     upstream = Upstream(settings, http, auth)
 
+    kafka = Kafka(settings) if publisher is None and settings.kafka_bootstrap else None
+    bus = publisher or kafka
+    notifications = JobEvents()
+    job_store = jobs or Jobs(settings.database, upstream, bus, notifications)
+
+    async def publish_chat(
+        role: str,
+        content: str,
+        conversation: UUID,
+        message: UUID,
+        correlation: UUID,
+        user: str,
+        tier: int,
+        title: str | None = None,
+    ) -> None:
+        if not content or bus is None:
+            return
+        try:
+            await bus.publish(
+                "chat.messages",
+                envelope(
+                    "chat.message",
+                    str(correlation),
+                    user,
+                    {
+                        "conversation_id": str(conversation),
+                        "message_id": str(message),
+                        "role": role,
+                        "text": content[:20000],
+                        "tier": tier,
+                        "model_title": title,
+                    },
+                ),
+            )
+        except Exception:
+            record_failure("kafka_error", "chat_publish_failed")
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        yield
-        if client is None:
-            await http.aclose()
+        stop = asyncio.Event()
+        task = asyncio.create_task(kafka.run(job_store.handle, stop)) if kafka else None
+        try:
+            yield
+        finally:
+            stop.set()
+            if task:
+                await task
+            if client is None:
+                await http.aclose()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.auth = auth
     app.state.upstream = upstream
     app.state.store = database
+    app.state.jobs = job_store
+    app.state.notifications = notifications
 
     @app.exception_handler(ApiError)
     async def api_error(request: Request, error: ApiError) -> JSONResponse:
@@ -186,6 +242,8 @@ def create_app(
     async def health(request: Request) -> dict[str, str]:
         query(request)
         await database.health()
+        if kafka is not None and not kafka.alive:
+            raise ApiError(503, "unavailable", "Job consumer is unavailable.")
         return {"status": "ok"}
 
     @app.get("/api/me")
@@ -204,6 +262,9 @@ def create_app(
             "requestable_tiers": [
                 entry.model_dump() for entry in rights.requestable_tiers
             ],
+            "requestable_skills": [
+                entry.model_dump() for entry in rights.requestable_skills
+            ],
             "skills": [{"name": skill.name, "title": skill.title} for skill in skills],
         }
 
@@ -213,6 +274,13 @@ def create_app(
     ) -> dict[str, Any]:
         query(request)
         return await upstream.request_tier(claims["sub"], body.tier, body.reason)
+
+    @app.post("/api/skill-requests", status_code=201)
+    async def request_skill(
+        request: Request, body: SkillRequest, claims: User
+    ) -> dict[str, Any]:
+        query(request)
+        return await upstream.request_skill(claims["sub"], body.skill, body.reason)
 
     @app.post("/api/conversations", status_code=201)
     async def create(request: Request, claims: User, body: Empty) -> dict[str, UUID]:
@@ -234,7 +302,7 @@ def create_app(
         return await database.conversation(id, claims["sub"])
 
     async def make_title(
-        identifier: UUID, user_id: str, message_id: UUID, tier: int
+        identifier: UUID, user_id: str, message_id: UUID, tier: int, correlation: UUID
     ) -> str | None:
         try:
             with anyio.fail_after(TITLE_TIMEOUT_SECONDS):
@@ -243,7 +311,7 @@ def create_app(
                     return None
                 await upstream.check(user_id, tier)
                 title = await upstream.title(
-                    user_id, tier, source["question"], source["answer"]
+                    user_id, tier, source["question"], source["answer"], correlation
                 )
                 if not await database.set_title(
                     identifier, user_id, title, source["question"][:60]
@@ -269,23 +337,31 @@ def create_app(
         identifier: UUID,
         user_id: str,
         tier: int,
-        titles: dict[str, str],
         note: str | None,
+        history: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        thinking: bool,
+        correlation: UUID,
     ) -> AsyncGenerator[str]:
         content = ""
         thinking_text = ""
         outcome = "failed"
         metadata: dict[str, Any] = {}
         saved = False
-        tool_requested = False
+        calls: list[dict[str, Any]] = []
+        job_ids: list[str] = []
+        job_started = False
+        rounds = 0
+        pinned: str | None = None
+        round_content = ""
         try:
             event = first
             while True:
                 match event["type"]:
                     case "delta":
-                        if not tool_requested:
-                            content += event["text"]
-                            yield data(event)
+                        content += event["text"]
+                        round_content += event["text"]
+                        yield data(event)
                     case "thinking":
                         if len(thinking_text) < MAX_THINKING_CHARS:
                             thinking_text += event["text"][
@@ -293,20 +369,67 @@ def create_app(
                             ]
                         yield data(event)
                     case "tool_call":
-                        if event["name"] not in titles:
-                            raise ValueError("Unapproved tool")
-                        if not tool_requested:
-                            sentence = (
-                                f"I would use the {titles[event['name']]} "
-                                "skill for this. "
-                                "Skills are switched on in the next stage."
-                            )
-                            content += sentence
-                            tool_requested = True
-                            yield data({"type": "delta", "text": sentence})
+                        calls.append(
+                            {key: event[key] for key in ("id", "name", "arguments")}
+                        )
                     case "completed":
+                        if pinned is not None and event["model_entry_id"] != pinned:
+                            raise ValueError("Tool turn changed model entry")
+                        if calls:
+                            if rounds >= 2:
+                                sentence = "Tool limit reached for this message."
+                                content += sentence
+                                yield data({"type": "delta", "text": sentence})
+                                calls.clear()
+                            else:
+                                rounds += 1
+                                entry = event["model_entry_id"]
+                                if pinned is not None and entry != pinned:
+                                    raise ValueError("Tool turn changed model entry")
+                                pinned = entry
+                                history.append(
+                                    {
+                                        "role": "assistant",
+                                        "content": round_content,
+                                        "tool_calls": calls,
+                                        "reasoning_state": event.get("reasoning_state"),
+                                    }
+                                )
+                                for tool in calls:
+                                    result, job = await job_store.start(
+                                        user_id, identifier, tool
+                                    )
+                                    if job:
+                                        job_ids.append(job["job_id"])
+                                        job_started = job_started or job["status"] in {
+                                            "queued",
+                                            "awaiting_approval",
+                                        }
+                                        yield data(job)
+                                    history.append(
+                                        {
+                                            "role": "tool",
+                                            "tool_call_id": tool["id"],
+                                            "content": json.dumps(result),
+                                        }
+                                    )
+                                calls = []
+                                round_content = ""
+                                content = ""
+                                await stream.close()
+                                stream = await upstream.open(
+                                    user_id,
+                                    tier,
+                                    history,
+                                    tools,
+                                    thinking,
+                                    correlation,
+                                    pinned,
+                                )
+                                event = await anext(stream.events)
+                                continue
                         metadata = event
-                        outcome = "tool_requested" if tool_requested else "completed"
+                        outcome = "completed"
                         message_id = await database.append(
                             identifier,
                             user_id,
@@ -319,6 +442,18 @@ def create_app(
                             thinking=thinking_text or None,
                         )
                         saved = True
+                        if job_ids:
+                            await job_store.attach(job_ids, message_id)
+                        await publish_chat(
+                            "assistant",
+                            content,
+                            identifier,
+                            message_id,
+                            correlation,
+                            user_id,
+                            tier,
+                            event["model_title"],
+                        )
                         yield data(
                             {
                                 "type": "completed",
@@ -330,7 +465,9 @@ def create_app(
                                 "thinking_applied": event["thinking_applied"],
                             }
                         )
-                        title = await make_title(identifier, user_id, message_id, tier)
+                        title = await make_title(
+                            identifier, user_id, message_id, tier, correlation
+                        )
                         if title is not None:
                             yield data(
                                 {
@@ -362,7 +499,12 @@ def create_app(
                 else gateway_error("unavailable", tier)
             )
             record_failure("gateway_error", error_response.code, tier)
-            yield data({"type": "failed", "error": error_response.body()})
+            body = error_response.body()
+            if job_started:
+                body["message"] = (
+                    "The job has started, but the model could not finish its answer."
+                )
+            yield data({"type": "failed", "error": body})
         finally:
             # A browser disconnect cancels the generator; keep its partial answer.
             with anyio.CancelScope(shield=True):
@@ -371,7 +513,7 @@ def create_app(
                 finally:
                     if not saved:
                         try:
-                            await database.append(
+                            failed_message = await database.append(
                                 identifier,
                                 user_id,
                                 "assistant",
@@ -382,6 +524,8 @@ def create_app(
                                 note,
                                 thinking=thinking_text or None,
                             )
+                            if job_ids:
+                                await job_store.attach(job_ids, failed_message)
                         except psycopg.Error:
                             record_failure("database_error", "unavailable")
                             raise
@@ -402,20 +546,20 @@ def create_app(
         tier = body.tier if body.tier is not None else tiers[0]
         await upstream.check(user_id, tier)
         tools = upstream.tools(skills)
-        titles = {
-            skill.name: skill.title
-            for skill in skills
-            if skill.name in upstream.schemas
-        }
         history = await database.history(id)
         history.append({"role": "user", "content": body.content})
-        await database.append(id, user_id, "user", body.content, "completed", tier)
+        correlation = await database.append(
+            id, user_id, "user", body.content, "completed", tier
+        )
+        await publish_chat(
+            "user", body.content, id, correlation, correlation, user_id, tier
+        )
         note = None
         stream = None
         try:
             try:
                 stream = await upstream.open(
-                    user_id, tier, history, tools, body.thinking
+                    user_id, tier, history, tools, body.thinking, correlation
                 )
             except ApiError as error:
                 lower = [value for value in tiers if value < tier]
@@ -430,7 +574,7 @@ def create_app(
                     f"answered with tier {tier}"
                 )
                 stream = await upstream.open(
-                    user_id, tier, history, tools, body.thinking
+                    user_id, tier, history, tools, body.thinking, correlation
                 )
             first = await anext(stream.events)
             if first["type"] == "failed":
@@ -452,15 +596,67 @@ def create_app(
                 raise
             raise gateway_error("unavailable", tier) from None
         return ChatResponse(
-            browser_stream(stream, first, id, user_id, tier, titles, note), stream
+            browser_stream(
+                stream,
+                first,
+                id,
+                user_id,
+                tier,
+                note,
+                history,
+                tools,
+                body.thinking,
+                correlation,
+            ),
+            stream,
+        )
+
+    @app.get("/api/jobs")
+    async def job_list(request: Request, claims: User) -> list[dict[str, Any]]:
+        query(request, {"limit", "before"})
+        try:
+            page = Page.model_validate(dict(request.query_params))
+        except ValueError:
+            raise ApiError(400, "invalid_input", "Invalid pagination.") from None
+        return await job_store.listing(claims["sub"], page.limit, page.before)
+
+    @app.get("/api/jobs/{job_id}/file")
+    async def file(request: Request, job_id: UUID, claims: User) -> FileResponse:
+        query(request)
+        job = await job_store.get(job_id, claims["sub"])
+        path = download_path(settings.files_root, job)
+        return FileResponse(path, media_type=job["output"]["mime"], filename=path.name)
+
+    @app.get("/api/events")
+    async def events(request: Request, claims: User) -> StreamingResponse:
+        query(request)
+
+        async def stream() -> AsyncGenerator[str]:
+            queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
+            subscribers = notifications.subscribers.setdefault(claims["sub"], set())
+            subscribers.add(queue)
+            try:
+                while True:
+                    try:
+                        event = await asyncio.wait_for(queue.get(), timeout=15)
+                        yield data(event)
+                    except TimeoutError:
+                        yield ": keep-alive\n\n"
+            finally:
+                subscribers.discard(queue)
+                if not subscribers:
+                    notifications.subscribers.pop(claims["sub"], None)
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
 
     @app.post("/api/uploads")
-    @app.get("/api/events")
-    @app.get("/api/files/{key}")
-    async def future(request: Request, claims: User, key: str | None = None) -> None:
+    async def future(request: Request, claims: User) -> None:
         query(request)
-        raise ApiError(503, "not_built_yet", "Files and job events arrive in Stage 3.")
+        raise ApiError(503, "not_built_yet", "Uploads are not built yet.")
 
     return app
 

@@ -219,22 +219,6 @@ async def test_failed_and_tool_requested_answers_do_not_trigger_title(
     assert events(await h.send(identifier))[-1]["type"] == "failed"
     assert not h.title_gateway.called
     h.gateway.respond(
-        text=h.sse(
-            [
-                {
-                    "type": "tool_call",
-                    "id": "tool-1",
-                    "name": "slides",
-                    "arguments": {},
-                },
-                h.completed(),
-            ]
-        ),
-        headers={"Content-Type": "text/event-stream"},
-    )
-    assert events(await h.send(identifier))[-1]["type"] == "completed"
-    assert not h.title_gateway.called
-    h.gateway.respond(
         text=h.sse([{"type": "delta", "text": "First real answer"}, h.completed()]),
         headers={"Content-Type": "text/event-stream"},
     )

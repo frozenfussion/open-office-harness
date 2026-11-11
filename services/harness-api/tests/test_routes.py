@@ -40,7 +40,7 @@ async def test_health_and_storage_failure(h: Harness) -> None:
         ("post", f"/api/conversations/{uuid4()}/messages", {"content": "Question"}),
         ("post", "/api/uploads", None),
         ("get", "/api/events", None),
-        ("get", "/api/files/example", None),
+        ("get", f"/api/jobs/{uuid4()}/file", None),
     ],
 )
 async def test_every_route_needs_token(
@@ -75,6 +75,7 @@ async def test_me_and_own_conversations(h: Harness) -> None:
         "chat_tier_titles": {"1": "Example model"},
         "chat_tier_thinking_switch": {"1": True},
         "requestable_tiers": [],
+        "requestable_skills": [],
         "skills": [{"name": "slides", "title": "Example skill"}],
     }
     first = await h.conversation()
@@ -102,7 +103,7 @@ async def test_me_and_own_conversations(h: Harness) -> None:
         "/api/conversations?limit=2&limit=3",
         "/api/conversations/bad",
         "/api/events?x=1",
-        "/api/files/example?x=1",
+        f"/api/jobs/{uuid4()}/file?x=1",
     ],
 )
 async def test_invalid_query_or_path(h: Harness, path: str) -> None:
@@ -137,7 +138,7 @@ async def test_invalid_message(h: Harness, body: Any) -> None:
 
 @pytest.mark.parametrize(
     "method,path",
-    [("post", "/api/uploads"), ("get", "/api/events"), ("get", "/api/files/example")],
+    [("post", "/api/uploads")],
 )
 async def test_future_routes(h: Harness, method: str, path: str) -> None:
     response = await h.client.request(method, path)
@@ -207,47 +208,6 @@ async def test_no_tier_and_crafted_tier(h: Harness) -> None:
     response = await h.send(identifier, tier=5)
     assert response.status_code == 403
     assert response.json()["message"] == "You don't have tier 5. An admin can grant it."
-
-
-async def test_tools_and_fixed_sentence(h: Harness) -> None:
-    identifier = await h.conversation()
-    h.gateway.respond(
-        text=h.sse(
-            [
-                {"type": "delta", "text": "Plan: "},
-                {
-                    "type": "tool_call",
-                    "id": "tool-1",
-                    "name": "slides",
-                    "arguments": {"topic": "Example"},
-                },
-                h.completed(),
-            ]
-        ),
-        headers={"Content-Type": "text/event-stream"},
-    )
-    response = await h.send(identifier)
-    stream = events(response)
-    sentence = (
-        "I would use the Example skill skill for this. "
-        "Skills are switched on in the next stage."
-    )
-    assert stream[1] == {"type": "delta", "text": sentence}
-    assert stream[-1]["type"] == "completed"
-    assert h.store.rows[UUID(identifier)]["messages"][-1]["outcome"] == "tool_requested"
-    assert (
-        h.store.rows[UUID(identifier)]["messages"][-1]["content"] == "Plan: " + sentence
-    )
-    request = json.loads(h.gateway.calls[-1].request.content)
-    assert [tool["name"] for tool in request["tools"]] == ["slides"]
-    h.rights.respond(json={"chat_tiers": [1], "skills": []})
-    h.gateway.respond(
-        text=h.sse([h.completed()]), headers={"Content-Type": "text/event-stream"}
-    )
-    await h.send(identifier)
-    request = json.loads(h.gateway.calls[-1].request.content)
-    assert request["tools"] == []
-    assert all(message["role"] == "user" for message in request["messages"][1:])
 
 
 def test_schema_copy() -> None:

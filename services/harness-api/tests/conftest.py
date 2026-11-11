@@ -54,7 +54,14 @@ class MemoryStore:
         if identifier not in self.rows or self.rows[identifier]["user_id"] != user:
             raise ApiError(404, "not_found", "Conversation not found.")
         row = self.rows[identifier]
-        return {"id": identifier, "title": row["title"], "messages": row["messages"]}
+        return {
+            "id": identifier,
+            "title": row["title"],
+            "messages": [
+                {key: value for key, value in message.items() if key != "_state"}
+                for message in row["messages"]
+            ],
+        }
 
     async def listing(
         self, user: str, limit: int, before: UUID | None
@@ -81,6 +88,15 @@ class MemoryStore:
         ][-20:]
         while messages and messages[0]["role"] != "user":
             messages.pop(0)
+        for message in messages:
+            if message["role"] == "assistant":
+                original = next(
+                    row
+                    for row in self.rows[identifier]["messages"]
+                    if row["content"] == message["content"]
+                )
+                if original.get("_state") is not None:
+                    message["reasoning_state"] = original["_state"]
         return messages
 
     async def title_source(
@@ -142,15 +158,27 @@ class MemoryStore:
                 "tier": tier,
                 "note": note,
                 "thinking": thinking[:MAX_THINKING_CHARS] if thinking else None,
+                "_state": (metadata or {}).get("reasoning_state"),
                 **{
                     key: value
                     for key, value in (metadata or {}).items()
-                    if key != "thinking_applied"
+                    if key not in {"thinking_applied", "reasoning_state"}
                 },
             }
         )
         row["updated_at"] = datetime.now(UTC)
         return identifier_message
+
+
+class FakePublisher:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict[str, Any]]] = []
+        self.fail = False
+
+    async def publish(self, topic: str, event: dict[str, Any]) -> None:
+        if self.fail:
+            raise RuntimeError("synthetic queue failure")
+        self.events.append((topic, event))
 
 
 class Harness:
@@ -159,7 +187,11 @@ class Harness:
         self.private_key = private_key
         self.store = MemoryStore()
         self.http = httpx.AsyncClient()
-        self.app = create_app(SETTINGS, store=self.store, client=self.http)
+        self.publisher = FakePublisher()
+        self.app = create_app(
+            SETTINGS, store=self.store, client=self.http, publisher=self.publisher
+        )
+
         self.client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=self.app), base_url="http://harness.test"
         )
@@ -197,6 +229,9 @@ class Harness:
                     "title": "Example skill",
                     "description": "Example tool",
                     "input_schema": "contracts/skills/slides/input.schema.json",
+                    "needs_approval": False,
+                    "topic": "skill.requests.slides",
+                    "version": "1.0.0",
                 }
             ]
         )

@@ -48,7 +48,7 @@ status="$(printf 'header = "Authorization: Bearer %s"\n' "$registry_token" |
   stop "registry is unreachable; check ghcr.io availability and retry"
 unset registry_response registry_reply registry_token
 check_registry_status "$status"
-for secret in harness-api-db harness-api-oidc; do
+for secret in harness-api-db harness-api-oidc harness-api-kafka; do
   kubectl -n "$APPS_NAMESPACE" get secret "$secret" >/dev/null 2>&1 || stop "required application secret missing; run install/66-harness-api-setup.sh"
 done
 tmp="$(mktemp -d)"
@@ -80,5 +80,4 @@ jq -e --arg image "$image" '
     any(.status.initContainerStatuses[]?; .name == "migrate" and .state.terminated.exitCode == 0) and
     any(.spec.containers[]; .name == "harness-api" and .image == $image))
 ' <<< "$resources" >/dev/null || stop "current revision or migrations could not be verified; inspect the deployment and pods"
-kubectl -n "$APPS_NAMESPACE" delete configmap/harness-api --ignore-not-found
 printf 'Running image: %s\nDONE\n' "$image"

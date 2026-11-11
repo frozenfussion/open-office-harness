@@ -201,30 +201,6 @@ async def test_empty_thinking_does_not_start_browser_stream(h: Harness) -> None:
     assert response.status_code == 503 and response.json()["code"] == "no_model"
 
 
-async def test_thinking_with_tool_requested_reply(h: Harness) -> None:
-    identifier = await h.conversation()
-    h.gateway.respond(
-        text=h.sse(
-            [
-                {"type": "thinking", "text": "Plan"},
-                {
-                    "type": "tool_call",
-                    "id": "tool-1",
-                    "name": "slides",
-                    "arguments": {},
-                },
-                h.completed(),
-            ]
-        ),
-        headers={"Content-Type": "text/event-stream"},
-    )
-    result = events(await h.send(identifier))
-    assert [event["type"] for event in result] == ["thinking", "delta", "completed"]
-    assistant = h.store.rows[UUID(identifier)]["messages"][-1]
-    assert assistant["thinking"] == "Plan" and assistant["outcome"] == "tool_requested"
-    assert not h.title_gateway.called
-
-
 @pytest.mark.parametrize("text", [None, 3, []])
 async def test_invalid_thinking_text_is_an_unexpected_answer(
     h: Harness, text: Any

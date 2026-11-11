@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slides-worker-config
+  namespace: ${APPS_NAMESPACE}
+data:
+  SW_OIDC_ISSUER: https://auth.${DOMAIN}/realms/ooh
+  SW_CLIENT_ID: ooh-slides-worker
+  SW_GATEWAY_URL: http://model-gateway.${APPS_NAMESPACE}.svc:8080
+  SW_KAFKA_BOOTSTRAP: ooh-kafka-kafka-bootstrap.${PLATFORM_NAMESPACE}.svc:9092
+  SW_KAFKA_USERNAME: slides-worker
+  SW_PURPOSE: chat
+  SW_TIER: '1'
+  SW_FILES_ROOT: /files

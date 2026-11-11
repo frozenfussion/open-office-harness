@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v1
+kind: Service
+metadata:
+  name: slides-worker
+  namespace: ${APPS_NAMESPACE}
+  labels:
+    app: slides-worker
+spec:
+  selector:
+    app: slides-worker
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http

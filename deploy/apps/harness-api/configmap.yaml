@@ -12,3 +12,6 @@ data:
   HA_GATEWAY_URL: http://model-gateway.${APPS_NAMESPACE}.svc:8080
   HA_SYSTEM_PROMPT: >-
     You are the assistant in Open Office Harness. Always reply in the same language as the user's latest message.
+  HA_KAFKA_BOOTSTRAP: ooh-kafka-kafka-bootstrap.${PLATFORM_NAMESPACE}.svc:9092
+  HA_KAFKA_USERNAME: harness-api
+  HA_FILES_ROOT: /files
