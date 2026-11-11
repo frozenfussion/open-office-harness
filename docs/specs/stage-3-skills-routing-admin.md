@@ -344,6 +344,7 @@ Uploads, the Report and Animated deck workers, DLQ replay and the Failed message
 | # | Change | Who / when |
 |---|---|---|
 | 1 | Spec review by Claude Code before the builders started (38 findings, `reviews/stage-3-spec-review` in the course folder): every finding is resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 11 Nov 19:18 |
+| 2 | Spec re-review (37 fixed, 1 left to Aziz, 14 new findings, `reviews/stage-3-spec-rereview`): resolved in section 15 "Re-review additions" (items 39–52) | Spec author, 11 Nov 19:25 |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees; numbers = review findings)
 
@@ -371,7 +372,7 @@ Uploads, the Report and Animated deck workers, DLQ replay and the Failed message
 
 **Platform, identity and checks**
 11. The order in section 10 becomes: 30 → 35 → 66 → 64 → 72 → 74 → **(Aziz makes the four new GitHub packages public after their first green build)** → 61 → 65 → 67 → 73 → 75 → 68 → 69 → **(Aziz ticks Slides for himself in People & rights)** → (admin adds a classification model) → 77.
-12. `ooh-audit-writer` and `ooh-cost-meter` are custom audiences: mappers with `included.custom.audience` on `ooh-control-centre` (and `ooh-stage-check`); `35`'s expected-mapper list and its verification support custom audiences; the realm file uses the same form.
+12. `ooh-audit-writer` and `ooh-cost-meter` are custom audiences: mappers with `included.custom.audience` on `ooh-control-centre`; `35`'s expected-mapper list and its verification support custom audiences; the realm file uses the same form.
 13. `ooh-stage-check`: (a) every enable regenerates its client secret and every disable regenerates it again; (b) `40` FAILs when it is enabled while no check holds the lock; (c) lock file `~/.config/ooh/stage-check.lock` (with the running script's pid); a second check prints `STOP: another check is running`; a stale lock (pid gone) is taken over; (d) item 13: the script disables it explicitly, reads it back, prints PASS/FAIL, then `DONE`; the trap is only the fallback. `62`, `73` and `77` all use one shared helper file `install/lib/stage-check.sh` (Part C writes it; A's `73` sources it).
 23. Item 6 sends the value `not json`. The Overview's `dead_letter` attention item counts only the last 24 hours.
 24. A `dlq.entry` envelope uses the input's `correlation_id` and `user_id` when readable, else a new UUID and `system` (as the Control Centre does).
@@ -395,3 +396,20 @@ Uploads, the Report and Animated deck workers, DLQ replay and the Failed message
 7. `envelope.schema.json` has the seventh `allOf` branch for `chat.message`; a contract test rejects a `chat.message` envelope with a bad payload.
 35. EKS is Stage 6 (two lines above corrected in place).
 36. `contracts/README.md` updated (seven payload types; storage line; no signed-download url).
+
+**Re-review additions (binding; numbers = re-review findings)**
+39. Part A's file list also allows: removing the `/api/files/{key}` entries from `contracts/examples/index.json` and their example files `contracts/examples/http/harness-api.*files*`; no other edit to `index.json`.
+40. Item 10: when `tool_choice_applied` is false and no tool was called, retry once with the same request; still no tool call → `FAIL <title>: model did not call the tool with thinking on (auto)`. Part E: when the forced skill was not applied and no tool was called, the meta line says "The model chose not to use <skill title>." Done-when 5's slides check is made on a tier whose main entry does not refuse forced tools.
+41. `install/lib/stage-check.sh` is in Part C's file list. Its interface (fixed): `stage_check_begin` (takes the lock, enables `ooh-stage-check`, regenerates its secret; returns non-zero with a `STOP:` line on failure); `stage_check_token <audience>` prints a fresh access token for that audience on standard output, to be captured only by command substitution into a variable; `stage_check_end` (disables, regenerates the secret, reads back that it is disabled, releases the lock; prints `PASS ooh-stage-check disabled` or `FAIL ooh-stage-check still enabled`; returns 0/1). Callers write `# shellcheck source=install/lib/stage-check.sh`. Done-when 7 checks `install/*.sh install/lib/*.sh`. Part A's `73` is shellchecked against the helper at the merge.
+42. The phase 2 merge runs every image workflow on demand for the merge commit and every deploy script runs again with that tag, so item 1 holds in phase 2 as in phase 1.
+43. Item 11: an unknown job id → 404 and a malformed job id → 400 or 404; plus, from a short-lived check pod as `harness_app` (password from its Secret through the environment, as 70 does), one job id of another user if any exists → 404 (the line prints `SKIP no other user's job yet` only when none exists).
+44. A `chat.message` envelope's `correlation_id` = the user message id of that turn (for the assistant message: the user message it answers). Item 9 uses its own new id.
+45. `/v1/counts.distinct_users` counts only `user_id` values that do not start with `title-`, `admin-test-`, `stage-check-` or `service-account-` and are not `system`; Part B test.
+46. The job card and the Jobs panel show "Request ID <first 8 characters>" with Copy (the full id); the Audit screen's request ID filter takes the full id.
+47. When the follow-up call of a tool turn fails after a job was started, the stream's `failed` message is "The job has started, but the model could not finish its answer."; the job card stays.
+48. The Harness `observe` call passes `is_service_account` (true when the verified token has a `client_id` claim or its `preferred_username` starts with `service-account-`); the Control Centre stores it on the people and access rows; People & rights and Approvals hide those rows (Parts A and D).
+49. Safety watcher outcomes exactly: `clear`, `flagged`, `skipped_no_classifier` (404 `no_model`), `skipped_rate_limited` (429), `skipped_unavailable` (503 `unavailable`, `budget_exceeded`, `registry_unavailable`).
+50. 15.12 corrected: the custom audiences go on `ooh-control-centre` only, not on `ooh-stage-check` (section 8 stands).
+51. README rows: `FAIL ooh-stage-check enabled with no check running` → "run `install/77-check-stage-3.sh <tag>` once (it takes over the stale lock and disables the client on exit), then run 40 again"; `STOP: another check is running` → wait for it, or remove a stale lock only when its pid is gone (the script does this itself).
+52. The worker's "Kafka consumer alive" = the consumer thread is running without a fatal error (not time since the last poll); Part A test.
+
