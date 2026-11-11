@@ -205,8 +205,12 @@ The observe call marks service accounts from a verified `client_id` claim or a
 Stored user and completed assistant text is published to `chat.messages`, cut
 to 20,000 characters; empty text is omitted. Publishing runs in retained asynchronous tasks with a
 12-second limit, so broker failure cannot delay chat. Both Kafka producers use
-a 10-second message delivery timeout; unresolved messages are purged before
-reporting failure. Audit publish failures are logged and never fail a job whose
+a 10-second message delivery timeout and wait for each message's own delivery
+callback, without purging other messages. Harness sends use a dedicated pool of
+four threads, separate from consumer polling. When all four send slots are busy,
+chat events are skipped with `chat_publish_failed`; they are not queued. A send
+keeps its slot until the underlying thread finishes, even if its awaiting chat
+task times out. Audit publish failures are logged and never fail a job whose
 request was queued successfully. The turn's user message id is its correlation id, also used on chat and
 title Gateway calls. Job events and worker calls use the job's own id.
 

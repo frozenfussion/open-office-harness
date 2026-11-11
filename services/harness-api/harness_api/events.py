@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import asyncio
 import json
+import threading
 from collections.abc import Awaitable, Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -64,6 +66,10 @@ class Kafka:
             "log_level": 0,
         }
         self.producer = Producer({**config, "message.timeout.ms": 10000})
+        self.send_pool = ThreadPoolExecutor(
+            max_workers=4, thread_name_prefix="harness-kafka-send"
+        )
+        self.send_slots = asyncio.BoundedSemaphore(4)
         self.consumer_config = {
             **config,
             "group.id": "harness-api",
@@ -82,21 +88,42 @@ class Kafka:
     async def publish(self, topic: str, event: dict[str, Any]) -> None:
         def send() -> None:
             deliveries: list[Any] = []
+            delivered = threading.Event()
+
+            def on_delivery(error: Any, message: Any) -> None:
+                deliveries.append(error)
+                delivered.set()
+
             self.producer.produce(
                 topic,
                 key=event["correlation_id"],
                 value=json.dumps(event),
-                on_delivery=lambda error, message: deliveries.append(error),
+                on_delivery=on_delivery,
             )
-            # Allow the client's delivery deadline to expire before declaring failure.
-            self.producer.flush(11)
-            if not deliveries:
-                self.producer.purge(in_queue=True, in_flight=True, blocking=True)
-                self.producer.flush(1)
+            while not delivered.is_set():
+                self.producer.poll(0.1)
             if deliveries != [None]:
                 raise RuntimeError("queue_unavailable")
 
-        await asyncio.to_thread(send)
+        if topic == "chat.messages" and self.send_slots.locked():
+            raise RuntimeError("send_pool_full")
+        await self.send_slots.acquire()
+        loop = asyncio.get_running_loop()
+        try:
+            future = self.send_pool.submit(send)
+        except Exception:
+            self.send_slots.release()
+            raise
+
+        def release(done: Future[None]) -> None:
+            # Cancellation of the awaiter must not free a still-running send's slot.
+            loop.call_soon_threadsafe(self.send_slots.release)
+
+        future.add_done_callback(release)
+        await asyncio.wrap_future(future)
+
+    async def close(self) -> None:
+        await asyncio.to_thread(self.send_pool.shutdown, wait=True, cancel_futures=True)
 
     async def serve(
         self,

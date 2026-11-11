@@ -338,8 +338,8 @@ def test_consumer_nonfatal_errors_and_process_exit(
         assert kafka.consumer.commits == (1 if failure == "close" else 0)
 
 
-@pytest.mark.parametrize("mode", ["success", "timeout", "hang"])
-def test_worker_producer_deadline_and_purge(
+@pytest.mark.parametrize("mode", ["success", "timeout", "delayed"])
+def test_worker_producer_waits_for_own_callback(
     monkeypatch: pytest.MonkeyPatch, mode: str
 ) -> None:
     import slides_worker.app as module
@@ -349,26 +349,24 @@ def test_worker_producer_deadline_and_purge(
             assert config["message.timeout.ms"] == 10000
             self.callback: Any = None
             self.pending = False
-            self.purged = False
+            self.polls = 0
+            self.foreign_deliveries: list[Any] = []
 
         def produce(self, topic: str, **kwargs: Any) -> None:
             self.callback = kwargs["on_delivery"]
             self.pending = True
 
-        def flush(self, seconds: int) -> int:
-            assert seconds in {1, 11}
-            if mode != "hang" and self.pending:
-                self.pending = False
-                self.callback(
-                    None if mode == "success" else RuntimeError("timeout"), None
-                )
-            return int(self.pending)
+        def poll(self, seconds: float) -> None:
+            assert seconds == 0.1
+            self.polls += 1
+            if mode == "delayed" and self.polls < 3:
+                self.foreign_deliveries.append(RuntimeError("another message failed"))
+                return
+            self.pending = False
+            self.callback(None if mode != "timeout" else RuntimeError("timeout"), None)
 
         def purge(self, **kwargs: Any) -> None:
-            assert kwargs == {"in_queue": True, "in_flight": True, "blocking": True}
-            self.purged = True
-            self.pending = False
-            self.callback(RuntimeError("purged"), None)
+            pytest.fail("A publish must not purge other messages")
 
     class Consumer:
         def __init__(self, config: dict[str, Any]) -> None:
@@ -389,10 +387,10 @@ def test_worker_producer_deadline_and_purge(
         "http://gateway.invalid",
     )
     kafka = module.Kafka(settings)
-    if mode == "success":
+    if mode != "timeout":
         kafka.publish("skill.results", {"correlation_id": str(uuid4())})
     else:
         with pytest.raises(RuntimeError, match="queue_unavailable"):
             kafka.publish("skill.results", {"correlation_id": str(uuid4())})
     assert not kafka.producer.pending
-    assert kafka.producer.purged == (mode == "hang")
+    assert kafka.producer.polls == (3 if mode == "delayed" else 1)

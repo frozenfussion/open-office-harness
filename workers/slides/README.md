@@ -172,6 +172,5 @@ The pod runs as user 10001 with a read-only root and the existing file volume
 mounted read-write. The worker creates its own `outputs/slides/` folder with
 mode 0755; it does not claim fsGroup ownership of the volume.
 
-Both producers use a 10,000 ms message delivery timeout. Delivery callbacks are
-checked after that deadline; any message still queued is purged before reporting
-failure. A single surrounding JSON code fence is removed before deck validation.
+Both producers use a 10,000 ms message delivery timeout. Each publish waits for
+its own delivery callback; it never purges other pending messages. A single surrounding JSON code fence is removed before deck validation.

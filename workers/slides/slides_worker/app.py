@@ -43,16 +43,20 @@ class Kafka:
 
     def publish(self, topic: str, event: dict[str, Any]) -> None:
         deliveries: list[Any] = []
+        delivered = threading.Event()
+
+        def on_delivery(error: Any, message: Any) -> None:
+            deliveries.append(error)
+            delivered.set()
+
         self.producer.produce(
             topic,
             key=event["correlation_id"],
             value=json.dumps(event),
-            on_delivery=lambda error, message: deliveries.append(error),
+            on_delivery=on_delivery,
         )
-        self.producer.flush(11)
-        if not deliveries:
-            self.producer.purge(in_queue=True, in_flight=True, blocking=True)
-            self.producer.flush(1)
+        while not delivered.is_set():
+            self.producer.poll(0.1)
         if deliveries != [None]:
             raise RuntimeError("queue_unavailable")
 

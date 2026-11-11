@@ -170,6 +170,8 @@ def create_app(
                 await task
             if chat_tasks:
                 await asyncio.gather(*chat_tasks)
+            if kafka:
+                await kafka.close()
             if client is None:
                 await http.aclose()
 
