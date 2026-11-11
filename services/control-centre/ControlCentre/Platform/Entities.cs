@@ -12,6 +12,28 @@ public abstract class BusinessRow
   public string CreatedBy { get; set; } = "system";
   public string UpdatedBy { get; set; } = "system";
 }
+public sealed class SkillRequest : BusinessRow
+{
+  public string UserId { get; set; } = "";
+  public string Skill { get; set; } = "";
+  public string? Reason { get; set; }
+  public string Status { get; set; } = "pending";
+  public DateTimeOffset RequestedAt { get; set; } = DateTimeOffset.UtcNow;
+  public DateTimeOffset? DecidedAt { get; set; }
+  public string? DecidedBy { get; set; }
+}
+public sealed class DeadLetter
+{
+  public Guid Id { get; set; } = Guid.NewGuid();
+  public string Topic { get; set; } = "";
+  public int Partition { get; set; }
+  public long Offset { get; set; }
+  public DateTimeOffset ReceivedAt { get; set; } = DateTimeOffset.UtcNow;
+  public string ErrorCode { get; set; } = "";
+  public string ErrorMessage { get; set; } = "";
+  public string OriginalMessage { get; set; } = "";
+  public Guid? CorrelationId { get; set; }
+}
 public sealed class TierRequest : BusinessRow
 {
   public string UserId { get; set; } = "";
@@ -27,6 +49,7 @@ public sealed class AccessRequest : BusinessRow
   public string UserId { get; set; } = "";
   public string? Name { get; set; }
   public string? Email { get; set; }
+  public bool IsServiceAccount { get; set; }
   public string? Organisation { get; set; }
   public string? Reason { get; set; }
   public string Status { get; set; } = "pending";
@@ -37,6 +60,7 @@ public sealed class AccessRequest : BusinessRow
 }
 public sealed class Person : BusinessRow
 {
+  public bool IsServiceAccount { get; set; }
   public string UserId { get; set; } = "";
   public string? Email { get; set; }
   public string? Name { get; set; }
@@ -77,6 +101,8 @@ public sealed class ModelEntry : BusinessRow
   public int RateLimitPerMinute { get; set; }
   public decimal DailyBudget { get; set; }
   public string Health { get; set; } = "unknown";
+  public string? HealthReason { get; set; }
+  public DateTimeOffset? HealthChangedAt { get; set; }
 }
 public sealed class Skill : BusinessRow
 {
@@ -128,6 +154,8 @@ public sealed class AuditRow
 
 public sealed class CentreDb(DbContextOptions<CentreDb> options) : DbContext(options)
 {
+  public DbSet<SkillRequest> SkillRequests => Set<SkillRequest>();
+  public DbSet<DeadLetter> DeadLetters => Set<DeadLetter>();
   public DbSet<TierRequest> TierRequests => Set<TierRequest>();
   public DbSet<AccessRequest> AccessRequests => Set<AccessRequest>();
   public DbSet<Person> People => Set<Person>();
@@ -142,6 +170,17 @@ public sealed class CentreDb(DbContextOptions<CentreDb> options) : DbContext(opt
 
   protected override void OnModelCreating(ModelBuilder b)
   {
+    b.Entity<SkillRequest>().ToTable("skill_requests");
+    b.Entity<SkillRequest>().ToTable(t =>
+    {
+      t.HasCheckConstraint("skill_requests_status_check", "status IN ('pending','approved','rejected')");
+      t.HasCheckConstraint("skill_requests_reason_check", "reason IS NULL OR length(reason) <= 300");
+    });
+    b.Entity<SkillRequest>().HasIndex(x => new { x.UserId, x.Skill }).IsUnique().HasFilter("deleted_at IS NULL AND status = 'pending'").HasDatabaseName("skill_requests_pending");
+    b.Entity<SkillRequest>().HasIndex(x => new { x.RequestedAt, x.Id }).IsDescending().HasDatabaseName("skill_requests_paging");
+    b.Entity<DeadLetter>().ToTable("dead_letters");
+    b.Entity<DeadLetter>().HasIndex(x => new { x.Topic, x.Partition, x.Offset }).IsUnique();
+    b.Entity<DeadLetter>().HasIndex(x => new { x.ReceivedAt, x.Id }).IsDescending();
     b.Entity<TierRequest>().ToTable("tier_requests");
     b.Entity<TierRequest>().ToTable(t =>
     {
@@ -172,6 +211,7 @@ public sealed class CentreDb(DbContextOptions<CentreDb> options) : DbContext(opt
     });
     b.Entity<ModelEntry>().ToTable(t =>
     {
+      t.HasCheckConstraint("model_entries_health_check", "health IN ('unknown','ok','down')");
       t.HasCheckConstraint("model_entries_priority_check", "priority BETWEEN 1 AND 1000");
       t.HasCheckConstraint("model_entries_timeout_seconds_check", "timeout_seconds BETWEEN 10 AND 900");
       t.HasCheckConstraint("model_entries_request_settings_check", "jsonb_typeof(request_settings) = 'object'");

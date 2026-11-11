@@ -1,0 +1,15 @@
+[
+  {
+    "id": 1,
+    "event_id": "00000000-0000-4000-8000-000000000001",
+    "occurred_at": "2026-11-11T00:00:00Z",
+    "received_at": "2026-11-11T00:00:00Z",
+    "producer": "Synthetic",
+    "correlation_id": "00000000-0000-4000-8000-000000000001",
+    "user_id": "Synthetic",
+    "actor": "Synthetic",
+    "action": "Synthetic",
+    "target": "Synthetic",
+    "outcome": "Synthetic"
+  }
+]

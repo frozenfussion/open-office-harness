@@ -11,15 +11,17 @@ public static class People
     var actor = Api.Actor(context);
     var email = context.User.FindFirst("email")?.Value;
     var name = context.User.FindFirst("name")?.Value;
+    var service = context.User.HasClaim(x => x.Type == "client_id") || context.User.FindFirst("preferred_username")?.Value.StartsWith("service-account-", StringComparison.Ordinal) == true;
     var now = DateTimeOffset.UtcNow;
     var current = await db.People.AsNoTracking().SingleOrDefaultAsync(x => x.UserId == actor);
-    if (current is not null && current.Email == email && current.Name == name && current.LastSeenAt > now.AddHours(-1) && (!Api.Admin(context.User) || await AccessPolicy.Approved(db, actor))) return;
+    if (current is not null && current.IsServiceAccount == service && current.Email == email && current.Name == name && current.LastSeenAt > now.AddHours(-1) && (!Api.Admin(context.User) || await AccessPolicy.Approved(db, actor))) return;
 
     await using var transaction = await db.Database.BeginTransactionAsync();
+    AccessRequest? access = null;
     if (Api.Admin(context.User))
     {
       await AccessPolicy.Lock(db);
-      await AccessPolicy.Approve(db, actor, actor, "system:admin-role", Api.Correlation(context));
+      access = await AccessPolicy.Approve(db, actor, actor, "system:admin-role", Api.Correlation(context));
     }
     var (person, created) = await Ensure(db, actor, actor, Api.Correlation(context), email, name);
     if (!created && (person.Email != email || person.Name != name))
@@ -30,6 +32,9 @@ public static class People
       Api.Stamp(person, actor);
       Api.Change(db, actor, "person.updated", actor, Api.Correlation(context), new { before, after = person });
     }
+    person.IsServiceAccount = service;
+    access ??= await db.AccessRequests.SingleOrDefaultAsync(x => x.UserId == actor);
+    if (access is not null) access.IsServiceAccount = service;
     // A sighting is a system timestamp, refreshed at most hourly without a business audit event.
     if (person.LastSeenAt <= now.AddHours(-1)) person.LastSeenAt = now;
     await db.SaveChangesAsync();

@@ -1,0 +1,23 @@
+{
+  "people_active_today": 1,
+  "people_approved": 1,
+  "skill_jobs_today": 1,
+  "model_calls_today": 1,
+  "cost_today_usd": 1,
+  "needs_attention": [
+    {
+      "kind": "access_request",
+      "title": "Synthetic",
+      "detail": "Synthetic",
+      "at": "2026-11-11T00:00:00Z",
+      "link": "#approvals"
+    }
+  ],
+  "health": [
+    {
+      "name": "Synthetic",
+      "status": "ok",
+      "checked_at": "2026-11-11T00:00:00Z"
+    }
+  ]
+}

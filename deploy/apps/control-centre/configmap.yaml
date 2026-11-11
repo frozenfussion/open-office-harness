@@ -10,3 +10,8 @@ data:
   CC_OIDC_ISSUER: https://auth.${DOMAIN}/realms/ooh
   CC_OIDC_AUDIENCE: ooh-control-centre
   CC_GATEWAY_URL: http://model-gateway.${APPS_NAMESPACE}.svc:8080
+  CC_HARNESS_API_URL: http://harness-api.${APPS_NAMESPACE}.svc:8080
+  CC_SLIDES_WORKER_URL: http://slides-worker.${APPS_NAMESPACE}.svc:8080
+  CC_AUDIT_WRITER_URL: http://audit-writer.${APPS_NAMESPACE}.svc:8080
+  CC_COST_METER_URL: http://cost-meter.${APPS_NAMESPACE}.svc:8080
+  CC_SAFETY_WATCHER_URL: http://safety-watcher.${APPS_NAMESPACE}.svc:8080

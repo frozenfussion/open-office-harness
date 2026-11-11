@@ -52,6 +52,7 @@ public sealed class FakeKafka : IKafka
   }
   public KafkaRecord? Read(CancellationToken ct) => null;
   public void Commit(KafkaRecord record) { }
+  public bool Healthy() => true;
 }
 public sealed class FakeDelay : IRetryDelay
 {
@@ -79,7 +80,7 @@ public sealed class Host : WebApplicationFactory<Program>
     builder.ConfigureLogging(logging => { logging.ClearProviders(); logging.AddProvider(Logs); });
     builder.ConfigureServices(services =>
     {
-      foreach (var descriptor in services.Where(x => x.ServiceType == typeof(IHostedService) && x.ImplementationType == typeof(KafkaWorker)).ToArray()) services.Remove(descriptor);
+      foreach (var descriptor in services.Where(x => x.ServiceType == typeof(IHostedService) && (x.ImplementationType == typeof(KafkaWorker) || x.ImplementationType == typeof(HealthPoller))).ToArray()) services.Remove(descriptor);
       services.AddTransient<IStartupFilter, TestPort>();
       services.RemoveAll<HttpClient>(); services.AddSingleton(new HttpClient(Gateway) { Timeout = Timeout.InfiniteTimeSpan });
       services.RemoveAll<TimeProvider>(); services.AddSingleton(Clock);

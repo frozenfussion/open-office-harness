@@ -61,7 +61,7 @@ public sealed class AccessTests
     {
       var detail = JsonNode.Parse(row.Detail)!.AsObject();
       Assert.Equal(new[] { "approved_tier", "decided_by", "status", "user_id" }, detail.Select(x => x.Key).Order());
-      var envelope = await db.Outbox.SingleAsync(x => x.Key == row.CorrelationId.ToString() && x.Topic == "audit.events");
+      var envelope = (await db.Outbox.Where(x => x.Key == row.CorrelationId.ToString() && x.Topic == "audit.events").ToListAsync()).Single(x => JsonNode.Parse(x.Envelope)!["payload"]!["action"]!.GetValue<string>() == row.Action);
       foreach (var secret in new[] { "Synthetic Applicant", "synthetic@access.invalid", "Synthetic team", "Synthetic request reason" })
       {
         Assert.DoesNotContain(secret, row.Detail); Assert.DoesNotContain(secret, envelope.Envelope);
@@ -187,7 +187,7 @@ public sealed class AccessTests
     var next = (await f.Admin.GetFromJsonAsync<JsonArray>("/api/admin/access-requests?limit=200&after=" + after))!;
     Assert.DoesNotContain(next, x => page.Any(p => p!["id"]!.GetValue<string>() == x!["id"]!.GetValue<string>()));
     await using var db = Database();
-    var expected = await db.AccessRequests.CountAsync(x => x.DeletedAt == null && x.Status == "pending" && !x.UserId.StartsWith("stage-check-"));
+    var expected = await db.AccessRequests.CountAsync(x => x.DeletedAt == null && x.Status == "pending" && !x.IsServiceAccount && !x.UserId.StartsWith("stage-check-") && !x.UserId.StartsWith("service-account-") && !db.People.Any(p => p.UserId == x.UserId && p.IsServiceAccount));
     Assert.Equal(expected, (await Object(await f.Admin.GetAsync("/api/admin/access-requests/count?status=pending")))["count"]!.GetValue<int>());
     foreach (var query in new[] { "?status=invalid", "?limit=201", "?after=bad" })
       Assert.Equal(HttpStatusCode.BadRequest, (await f.Admin.GetAsync("/api/admin/access-requests" + query)).StatusCode);
