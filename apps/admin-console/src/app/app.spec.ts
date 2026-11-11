@@ -6,7 +6,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { App } from './app';
 import { ConnectionResult, ModelEntry, modelPayload, settingsObject, tierRows } from './models';
 const model: ModelEntry = { model_entry_id: 'synthetic', title: 'Synthetic', purpose: 'chat', tier: 1, role: 'main', location: 'cloud', api_type: 'openai_responses', endpoint_url: 'https://synthetic.invalid', model_id: 'synthetic', has_key: true, priority: 100, rate_limit_per_minute: 10, daily_budget: 0, input_price_per_million: 0, output_price_per_million: 0, timeout_seconds: 120, request_settings: {} };
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); sessionStorage.removeItem('ooh-admin-signin-screen'); window.history.replaceState(null, '', window.location.pathname + window.location.search); });
 describe('Model settings and rights', () => {
   it('rejects arrays, null and scalar request settings', () => {
     for (const value of ['[]', 'null', 'true', '1', '"text"', '{']) expect(() => settingsObject(value)).toThrow();
@@ -164,6 +164,69 @@ describe('Admin console', () => {
     expect(app.pendingCount()).toBe(1);
     expect(request).toHaveBeenCalledWith('/admin/approvals?status=pending&limit=200');
     expect(fixture.nativeElement.querySelector('.ooh-nav__count').textContent).toBe('1');
+  });
+
+  it.each([
+    [0, 0, 'Good morning.'], [11, 59, 'Good morning.'],
+    [12, 0, 'Good afternoon.'], [17, 59, 'Good afternoon.'],
+    [18, 0, 'Good evening.'], [21, 46, 'Good evening.']
+  ])('greets signed-out users at browser-local %i:%i', async (hour, minute, expected) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 11, hour, minute));
+    const { fixture } = await create(false, false);
+    expect(fixture.nativeElement.querySelector('.signin h1').textContent).toBe(expected);
+  });
+
+  it('renders stored health for classification without a tier after loading the admin list', async () => {
+    const { fixture } = await create(true); const app = fixture.componentInstance;
+    vi.mocked(App.prototype.load).mockRestore();
+    const classifier = { ...model, model_entry_id: 'synthetic-classifier', title: 'Synthetic classifier', purpose: 'classification', tier: undefined, health: 'ok', health_changed_at: '2026-11-11T12:00:00Z' };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(
+      url.startsWith('/api/admin/models?') ? [{ ...model, health: 'ok' }, classifier] : url.includes('/count?') ? { count: 0 } : []
+    ), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+    await app.load(); fixture.detectChanges();
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('.ooh-table tbody tr')) as HTMLTableRowElement[];
+    const classification = rows.find(row => row.cells[0]?.textContent === 'classification');
+    expect(classification).toBeDefined();
+    expect(classification!.cells[6].textContent).toBe('OK');
+    expect(classification!.querySelector('.ooh-chip--done')).not.toBeNull();
+  });
+
+  it('opens a direct hash link and keeps navigation, hash changes and history in agreement', async () => {
+    window.history.replaceState(null, '', '#approvals');
+    await create(true);
+    const fixture = TestBed.createComponent(App); const app = fixture.componentInstance;
+    vi.spyOn(app, 'request').mockResolvedValue([]); fixture.detectChanges(); await fixture.whenStable();
+    expect(app.screen()).toBe('approvals'); expect(fixture.nativeElement.textContent).toContain('Human decisions');
+    fixture.nativeElement.querySelector('a[href="#audit"]').click();
+    expect(app.screen()).toBe('audit'); expect(window.location.hash).toBe('#audit');
+    window.history.replaceState(null, '', '#rights'); window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(app.screen()).toBe('rights');
+    window.history.replaceState(null, '', '#models'); window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(app.screen()).toBe('models');
+    window.history.replaceState(null, '', '#unrecognised'); window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(app.screen()).toBe('overview'); expect(window.location.hash).toBe('#overview');
+  });
+  it('uses the given name for Overview and accepts the Control Centre display-zone setting', async () => {
+    const { fixture } = await create(true, true, { given_name: 'Synthetic' }); const app = fixture.componentInstance;
+    expect(app.givenName()).toBe('Synthetic');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('[]', { headers: { 'Content-Type': 'application/json', 'X-Display-Time-Zone': 'UTC' } })));
+    await app.request('/admin/models?limit=200'); expect(app.displayTimeZone()).toBe('UTC');
+    expect(app.formatTime('2026-11-11T13:55:46Z')).toBe('11 Nov 13:55:46');
+  });
+
+  it('restores the intended screen after sign-in removes the callback hash', async () => {
+    window.history.replaceState(null, '', '#approvals');
+    const { fixture, auth } = await create(false, false); fixture.componentInstance.screen.set('approvals'); fixture.componentInstance.signIn();
+    expect(sessionStorage.getItem('ooh-admin-signin-screen')).toBe('approvals');
+    vi.spyOn(auth, 'checkAuth').mockImplementation(() => {
+      window.history.replaceState(null, '', window.location.pathname);
+      return of({ isAuthenticated: true, userData: {} });
+    });
+    auth.getPayloadFromAccessToken.mockReturnValue(of({ realm_access: { roles: ['ooh-admin'] } }));
+    const returned = TestBed.createComponent(App).componentInstance;
+    expect(returned.screen()).toBe('approvals'); expect(window.location.hash).toBe('#approvals');
+    expect(sessionStorage.getItem('ooh-admin-signin-screen')).toBeNull();
   });
 
 });

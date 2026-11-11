@@ -62,4 +62,26 @@ describe('Stage 3 admin screens', () => {
     request.mockResolvedValueOnce(rows).mockResolvedValueOnce([{ id: 1, occurred_at: '2026-11-11T01:00:00Z', correlation_id: 'synthetic-request' }]); await app.trace('synthetic-request'); expect(app.trail()).toHaveLength(201); expect(app.trail()[0].id).toBe(1); expect(request).toHaveBeenLastCalledWith('/admin/trail?limit=200&correlation_id=synthetic-request&before_id=2');
   });
   it('formats a classification score', () => { expect(connectionSummary({ ok: true, model_title: 'Synthetic', reply: '', duration_ms: 1234, score: 0.9, usage: { input_tokens: 1, output_tokens: 1 }, cost_usd: 0 })).toBe('Works · 1.2 s · score 0.9'); });
+  it('shows the local greeting and readable Overview times without refetching on display input changes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-11T13:55:46Z'));
+    try {
+      const request = vi.fn().mockResolvedValue({ people_active_today: 1, people_approved: 2, skill_jobs_today: 0, model_calls_today: 0, cost_today_usd: 0, needs_attention: [{ kind: 'dead_letter', title: 'Failed messages', detail: 'Synthetic error', at: '2026-11-11T13:09:06Z', link: '#overview' }], health: [{ name: 'synthetic-service', status: 'ok', checked_at: '2026-11-11T13:55:46Z' }] });
+      const { fixture } = await create('overview', request); fixture.componentRef.setInput('givenName', 'Synthetic'); fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('h1').textContent).toBe('Good evening, Synthetic.');
+      expect(fixture.nativeElement.textContent).toContain('11 Nov 21:09:06'); expect(fixture.nativeElement.textContent).toContain('11 Nov 21:55:46');
+      expect(fixture.nativeElement.textContent).not.toContain('2026-11-11T');
+      fixture.componentRef.setInput('timeZone', 'UTC'); fixture.detectChanges(); expect(fixture.nativeElement.querySelector('h1').textContent).toBe('Good afternoon, Synthetic.');
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+  it('formats approval and audit timestamps and shows the known person with an id tooltip', async () => {
+    const request = vi.fn().mockResolvedValue([]); const { fixture, app } = await create('approvals', request);
+    app.decisions.set([{ ...row, created_at: '2026-11-11T13:55:46Z' }]); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('11 Nov 21:55:46'); expect(fixture.nativeElement.textContent).not.toContain('(UTC)');
+    fixture.componentRef.setInput('screen', 'audit'); fixture.detectChanges(); await fixture.whenStable();
+    app.trail.set([{ id: 1, occurred_at: '2026-11-11T13:55:46.453Z', user_id: 'synthetic-id', person: 'Synthetic Person', producer: 'synthetic', correlation_id: 'synthetic-request', actor: 'synthetic', action: 'synthetic', target: 'synthetic', outcome: 'ok' }]); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('11 Nov 21:55:46.453'); expect(fixture.nativeElement.textContent).not.toContain('(UTC)');
+    expect(fixture.nativeElement.querySelector('td[title="synthetic-id"]').textContent).toBe('Synthetic Person');
+  });
+
 });

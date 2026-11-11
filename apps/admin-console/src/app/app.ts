@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Component, DestroyRef, ElementRef, afterNextRender, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, afterNextRender, computed, inject, signal } from '@angular/core';
 import { Operations, Request } from './operations';
+import { defaultTimeZone, displayTime, validTimeZone } from './display-time';
 import { FormsModule } from '@angular/forms';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { firstValueFrom, of, switchMap } from 'rxjs';
 import { ConnectionResult, connectionSummary, Grant, ModelEntry, modelPayload, tierRows } from './models';
+
+export function greeting(date = new Date()): string {
+  const hour = date.getHours();
+  return hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
+}
 
 export interface AppConfig { issuer: string; clientId: string; apiBase: string; }
 declare global { interface Window { oohConfig: AppConfig; OpenOfficeHarness?: { WordRain: { mount(el: HTMLCanvasElement): { stop(): void } } }; } }
@@ -15,9 +21,21 @@ export class App {
   private destroy = inject(DestroyRef);
   signedIn = signal(false); admin = signal(false); ready = signal(false);
   models = signal<ModelEntry[]>([]); grants = signal<Grant[]>([]);
-  screen = signal('overview');
+  readonly greeting = computed(() => {
+    this.ready(); this.signedIn();
+    return greeting();
+  });
+  givenName = signal(''); displayTimeZone = signal(defaultTimeZone);
+  private screens = ['overview', 'approvals', 'rights', 'models', 'audit'];
+  private screenFromHash(): string { const value = window.location.hash.slice(1); return this.screens.includes(value) ? value : 'overview'; }
+  screen = signal(this.screenFromHash());
   operationRequest: Request = <T>(path: string, method?: string, body?: unknown) => this.request<T>(path, method, body);
-  navigate(screen: string): void { if (['overview', 'approvals', 'rights', 'models', 'audit'].includes(screen)) this.screen.set(screen); }
+  navigate(screen: string): void {
+    if (!this.screens.includes(screen)) return;
+    this.screen.set(screen);
+    if (window.location.hash !== '#' + screen) window.history.pushState(null, '', '#' + screen);
+  }
+  formatTime(value: string | null | undefined): string { return displayTime(value, this.displayTimeZone()); }
   pendingCount = signal(0);
   error = signal(''); busy = signal(false); editing = signal<ModelEntry | null>(null);
   testing = signal<Set<string>>(new Set());
@@ -31,21 +49,33 @@ export class App {
   ];
   availableTypes(purpose: string): typeof this.types { return purpose === 'classification' ? [...this.types, { value: 'jev_systemone', title: 'Jev System One', help: 'Enter the Jev service endpoint.' }] : this.types; }
   constructor() {
+    const syncHash = (): void => {
+      const screen = this.screenFromHash(); this.screen.set(screen);
+      if (window.location.hash !== '#' + screen) window.history.replaceState(null, '', '#' + screen);
+    };
+    syncHash(); window.addEventListener('hashchange', syncHash); window.addEventListener('popstate', syncHash);
+    this.destroy.onDestroy(() => { window.removeEventListener('hashchange', syncHash); window.removeEventListener('popstate', syncHash); });
     afterNextRender(() => {
       const canvas = this.element.nativeElement.querySelector('canvas');
       if (canvas) { const rain = window.OpenOfficeHarness?.WordRain.mount(canvas); this.destroy.onDestroy(() => rain?.stop()); }
     });
     this.auth.checkAuth().pipe(switchMap(result => {
       this.signedIn.set(result.isAuthenticated);
+      const givenName: unknown = result.userData?.given_name;
+      this.givenName.set(typeof givenName === 'string' ? givenName.trim() : '');
       return result.isAuthenticated ? this.auth.getPayloadFromAccessToken() : of(null);
     })).subscribe({ next: payload => {
       const roles: unknown = payload?.realm_access?.roles;
+      if (!this.givenName() && typeof payload?.given_name === 'string') this.givenName.set(payload.given_name.trim());
       this.admin.set(Array.isArray(roles) && roles.includes('ooh-admin'));
       this.ready.set(true);
+      const intended = this.signedIn() ? sessionStorage.getItem('ooh-admin-signin-screen') : null;
+      if (this.signedIn()) sessionStorage.removeItem('ooh-admin-signin-screen');
+      this.navigate(intended && this.screens.includes(intended) ? intended : this.screen());
       if (this.admin()) void this.load();
     }, error: () => { this.ready.set(true); this.error.set('Sign-in could not finish. Try signing in again.'); } });
   }
-  signIn(): void { this.auth.authorize(); }
+  signIn(): void { sessionStorage.setItem('ooh-admin-signin-screen', this.screen()); this.auth.authorize(); }
   signOut(): void { this.auth.logoff().subscribe({ error: () => this.error.set('Sign-out failed. Try again.') }); }
   tiers(): number[] { return tierRows(this.models(), this.grants()); }
   groups(): string[] { return [...new Set(this.models().map(m => this.label(m)))]; }
@@ -57,6 +87,8 @@ export class App {
   async request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
     const token = await firstValueFrom(this.auth.getAccessToken());
     const response = await fetch(window.oohConfig.apiBase + path, { method, signal, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const zone = response.headers?.get('X-Display-Time-Zone');
+    if (zone && validTimeZone(zone)) this.displayTimeZone.set(zone);
     const result = await response.json();
     if (!response.ok) throw new Error(result.message || 'The request failed. Try again.');
     return result as T;

@@ -8,6 +8,8 @@ RUN dotnet publish ControlCentre/ControlCentre.csproj -c Release --no-restore -o
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0.14-noble-chiseled
 WORKDIR /app
+# The chiseled runtime omits tzdata; reuse it from the pinned SDK image.
+COPY --from=build /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=build /app .
 USER $APP_UID
 ENV ASPNETCORE_HTTP_PORTS="8080;8081"

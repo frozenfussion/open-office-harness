@@ -20,7 +20,7 @@ public static class AccessRoutes
   }
   public static void Map(WebApplication app)
   {
-    app.MapPost("/api/access/observe", async (HttpContext c, CentreDb db) =>
+    app.MapPost("/api/access/observe", async (HttpContext c, CentreDb db, DisplayCalendar calendar, TimeProvider clock) =>
     {
       if (!Api.Service(c.User, "ooh-harness-api")) throw new ApiException(403, "forbidden", "Harness service account required");
       Api.Query(c);
@@ -54,8 +54,10 @@ public static class AccessRoutes
         if (admin && row.Status != "approved") row = await AccessPolicy.Approve(db, userId, Api.Actor(c), "system:admin-role", Api.Correlation(c));
       }
       row.IsServiceAccount = service;
-      var (person, _) = await People.Ensure(db, userId, Api.Actor(c), Api.Correlation(c));
+      var (person, created) = await People.Ensure(db, userId, Api.Actor(c), Api.Correlation(c));
       person.IsServiceAccount = service;
+      var now = clock.GetUtcNow();
+      if (created || calendar.RefreshSighting(person.LastSeenAt, now)) person.LastSeenAt = now;
       await db.SaveChangesAsync(); await transaction.CommitAsync();
       return Results.Ok(new { status = row.Status });
     }).RequireAuthorization();

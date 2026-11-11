@@ -2,6 +2,7 @@
 openapi: 3.1.0
 info:
   title: Control Centre
+  description: Admin responses include X-Display-Time-Zone, the configured IANA zone for display. Stored and transmitted timestamps remain UTC.
   version: 1.0.0
 paths:
   /health:
@@ -3913,6 +3914,9 @@ components:
         producer: *id001
         correlation_id: *id008
         user_id: *id001
+        person:
+          type: string
+          description: Known person name or email from the Control Centre; otherwise user_id.
         actor: *id001
         action: *id001
         target: *id001
@@ -3954,9 +3958,9 @@ components:
       type: object
       properties:
         people_active_today:
-          type:
-          - integer
-          - 'null'
+          type: integer
+          minimum: 0
+          description: Active non-service people seen in the configured local day; excludes reserved check, admin-test and title identities.
         people_approved:
           type: integer
           minimum: 0
