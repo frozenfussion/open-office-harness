@@ -4,7 +4,7 @@ import json
 import logging
 import math
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import aclosing
 from decimal import Decimal
 from typing import Any
@@ -14,10 +14,10 @@ import httpx
 import psycopg
 
 from gateway.adapters import resolve
-from gateway.adapters.common import failure_info
+from gateway.adapters.common import ProviderError, failure_info
 from gateway.database import Database
 from gateway.events import envelope
-from gateway.models import Call, Classify, Entry, GatewayError
+from gateway.models import Call, Classify, Entry, GatewayError, ToolChoice
 from gateway.registry import Registry
 
 logger = logging.getLogger("gateway")
@@ -44,14 +44,42 @@ class Engine:
         self.client, self.registry, self.db = client, registry, db
         self.publisher = publisher
         self.health_states: dict[UUID, str] = {}
+        self.background_tasks: set[asyncio.Task[None]] = set()
+        self.side_effect_timeout = 2.0
+
+    async def _effect(
+        self, action: Callable[[], Awaitable[None]], message: str
+    ) -> None:
+        try:
+            async with asyncio.timeout(self.side_effect_timeout):
+                await action()
+        except TimeoutError, RuntimeError, OSError, ValueError, httpx.HTTPError:
+            logger.warning(json.dumps({"message": message}))
+
+    async def dispatch(
+        self, effects: list[tuple[Callable[[], Awaitable[None]], str]]
+    ) -> None:
+        for action, message in effects:
+            task = asyncio.create_task(self._effect(action, message))
+            self.background_tasks.add(task)
+            task.add_done_callback(self.background_tasks.discard)
+
+    async def drain_background(self) -> None:
+        if self.background_tasks:
+            await asyncio.gather(*tuple(self.background_tasks))
 
     async def health(
-        self, entry: Entry, status: str, reason: str | None = None
+        self, entry: Entry, effects: list, status: str, reason: str | None = None
     ) -> None:
         if self.health_states.get(entry.id) == status:
             return
         self.health_states[entry.id] = status
-        await self.registry.report_health(entry, status, reason)
+        effects.append(
+            (
+                lambda: self.registry.report_health(entry, status, reason),
+                "health_report_failed",
+            )
+        )
 
     async def events(
         self,
@@ -60,7 +88,9 @@ class Engine:
         provider_details: bool = False,
         correlation_id: UUID | None = None,
         classification: Classify | None = None,
+        background: Any = None,
     ) -> AsyncIterator[dict[str, Any]]:
+        effects: list[tuple[Callable[[], Awaitable[None]], str]] = []
         result: dict[str, Any] = {}
         succeeded = False
         try:
@@ -69,6 +99,7 @@ class Engine:
                     call,
                     provider_details=provider_details,
                     classification=classification,
+                    effects=effects,
                 )
             ) as output:
                 async for event in output:
@@ -95,12 +126,14 @@ class Engine:
                         payload[key] = result[key]
                 if "model_title" in result:
                     payload["model"] = result["model_title"]
-                try:
-                    await self.publisher.publish(
-                        envelope(correlation_id or uuid4(), call.user_id, payload)
-                    )
-                except RuntimeError, OSError, ValueError:
-                    logger.warning(json.dumps({"message": "audit_publish_failed"}))
+                value = envelope(correlation_id or uuid4(), call.user_id, payload)
+                effects.append(
+                    (lambda: self.publisher.publish(value), "audit_publish_failed")
+                )
+            if background is None:
+                await self.dispatch(effects)
+            else:
+                background.add_task(self.dispatch, effects)
 
     async def classify(
         self,
@@ -108,6 +141,7 @@ class Engine:
         correlation_id: UUID | None = None,
         *,
         provider_details: bool = False,
+        background: Any = None,
     ) -> dict[str, Any]:
         call = Call(
             purpose="classification",
@@ -129,6 +163,7 @@ class Engine:
             correlation_id=correlation_id,
             classification=body,
             provider_details=provider_details,
+            background=background,
         ):
             if event["type"] == "completed":
                 result = {
@@ -151,6 +186,7 @@ class Engine:
         *,
         provider_details: bool = False,
         classification: Classify | None = None,
+        effects: list,
     ) -> AsyncIterator[dict[str, Any]]:
         entries = await self.registry.get(call.purpose, call.tier)
         entries = [
@@ -243,25 +279,51 @@ class Engine:
                         usage.get("output_tokens", 0),
                     )
                 else:
-                    async with aclosing(
-                        resolve(entry)(self.client, entry, key, call)
-                    ) as output:
-                        async for event in output:
-                            if event["type"] == "usage":
-                                input_tokens, output_tokens = (
-                                    event["input_tokens"],
-                                    event["output_tokens"],
+                    auto_retry = False
+                    while True:
+                        try:
+                            async with aclosing(
+                                resolve(entry)(
+                                    self.client,
+                                    entry,
+                                    key,
+                                    call,
+                                    **(
+                                        {"auto_tool_choice": True} if auto_retry else {}
+                                    ),
                                 )
-                            elif event["type"] == "reasoning_state":
-                                reasoning_state = event["state"]
-                            elif event["type"] == "tool_choice_applied":
-                                tool_choice_applied = event["applied"]
-                            elif classification:
-                                if event["type"] == "delta":
-                                    text += event["text"]
-                            elif event["type"] in {"delta", "thinking", "tool_call"}:
-                                started = True
-                                yield event
+                            ) as output:
+                                async for event in output:
+                                    if event["type"] == "usage":
+                                        input_tokens, output_tokens = (
+                                            event["input_tokens"],
+                                            event["output_tokens"],
+                                        )
+                                    elif event["type"] == "reasoning_state":
+                                        reasoning_state = event["state"]
+                                    elif event["type"] == "tool_choice_applied":
+                                        tool_choice_applied = event["applied"]
+                                    elif classification:
+                                        if event["type"] == "delta":
+                                            text += event["text"]
+                                    elif event["type"] in {
+                                        "delta",
+                                        "thinking",
+                                        "tool_call",
+                                    }:
+                                        started = True
+                                        yield event
+                            break
+                        except ProviderError as error:
+                            if (
+                                error.status != 400
+                                or started
+                                or auto_retry
+                                or not isinstance(call.tool_choice, ToolChoice)
+                                or not tool_choice_applied
+                            ):
+                                raise
+                            auto_retry = True
                     if classification:
                         answer = json.loads(text)
                         scores = {k: answer[k] for k in classification.questions}
@@ -285,7 +347,7 @@ class Engine:
                     int((time.monotonic() - start) * 1000),
                 )
                 recorded = True
-                await self.health(entry, "ok")
+                await self.health(entry, effects, "ok")
                 yield {
                     "type": "completed",
                     "reasoning_state": reasoning_state,
@@ -339,7 +401,7 @@ class Engine:
                         if reason == "timeout"
                         else "connection"
                     )
-                    await self.health(entry, "down", health_reason)
+                    await self.health(entry, effects, "down", health_reason)
                 if provider_attempted and not provider_finished:
                     logger.warning(
                         json.dumps(

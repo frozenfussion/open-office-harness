@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -185,30 +186,71 @@ def _uuid(value: Any) -> bool:
 
 
 class Runner:
-    def __init__(self, bus: Bus, processor: Processor, topics: list[str]) -> None:
+    def __init__(
+        self,
+        bus: Bus,
+        processor: Processor,
+        topics: list[str],
+        exit_process: Any = None,
+    ) -> None:
         self.bus, self.processor, self.topics = bus, processor, topics
+        self.exit_process = exit_process or os._exit
         self.stopping = False
         self.fatal = False
         self.task: asyncio.Task[None] | None = None
+
+    def stopped(self) -> None:
+        self.fatal = True
+        logger.error(json.dumps({"message": "consumer_stopped"}))
+        self.exit_process(1)
 
     async def run(self) -> None:
         try:
             self.bus.consumer.subscribe(self.topics)
             while not self.stopping:
-                message = await asyncio.to_thread(self.bus.consumer.poll, 1)
-                if message is None:
-                    continue
-                if message.error():
-                    raise RuntimeError("consumer_failed")
-                await self.processor.process(message.topic(), message.value() or b"")
-                await asyncio.to_thread(
-                    self.bus.consumer.commit, message=message, asynchronous=False
-                )
-        except RuntimeError, OSError, KafkaException:
-            self.fatal = True
-            logger.error(json.dumps({"message": "consumer_stopped"}))
+                try:
+                    message = await asyncio.to_thread(self.bus.consumer.poll, 1)
+                    if message is None:
+                        continue
+                    error = message.error()
+                    if error:
+                        if error.fatal():
+                            raise RuntimeError("consumer_failed")
+                        logger.warning(
+                            json.dumps(
+                                {"message": "consumer_poll_error", "code": error.code()}
+                            )
+                        )
+                        continue
+                    await self.processor.process(
+                        message.topic(), message.value() or b""
+                    )
+                    await asyncio.to_thread(
+                        self.bus.consumer.commit, message=message, asynchronous=False
+                    )
+                except KafkaException as error:
+                    if not error.args or error.args[0].fatal():
+                        raise
+                    logger.warning(
+                        json.dumps(
+                            {
+                                "message": "consumer_poll_error",
+                                "code": error.args[0].code(),
+                            }
+                        )
+                    )
+        except asyncio.CancelledError:
+            if not self.stopping:
+                self.stopped()
+            raise
+        except Exception:  # noqa: BLE001 -- Any permanently stopped consumer must restart its process.
+            self.stopped()
         finally:
-            await asyncio.to_thread(self.bus.consumer.close)
+            if not self.fatal:
+                try:
+                    await asyncio.to_thread(self.bus.consumer.close)
+                except Exception:  # noqa: BLE001 -- A shutdown failure must not leave a live, idle API.
+                    self.stopped()
 
     def healthy(self) -> bool:
         return self.task is not None and not self.task.done() and not self.fatal

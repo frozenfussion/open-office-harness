@@ -8,7 +8,7 @@ from uuid import UUID
 
 import httpx
 import psycopg
-from fastapi import Depends, FastAPI, Header, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -73,7 +73,10 @@ def create_app(config: Config | None = None) -> FastAPI:
                 if settings.kafka_bootstrap
                 else None,
             )
-            yield
+            try:
+                yield
+            finally:
+                await app.state.engine.drain_background()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -85,7 +88,11 @@ def create_app(config: Config | None = None) -> FastAPI:
                 "provider_status": error.provider_status,
                 "provider_message": error.provider_message,
             }
-        return JSONResponse(body, status_code=error.status)
+        return JSONResponse(
+            body,
+            status_code=error.status,
+            background=getattr(request.state, "gateway_background", None),
+        )
 
     @app.exception_handler(RequestValidationError)
     async def invalid(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -108,14 +115,17 @@ def create_app(config: Config | None = None) -> FastAPI:
     async def call(
         body: Call,
         request: Request,
+        background: BackgroundTasks,
         claims: Annotated[dict[str, Any], Depends(caller)],
         x_correlation_id: Annotated[UUID | None, Header()] = None,
     ) -> Any:
+        request.state.gateway_background = background
         request.state.test_connection = authorize_call(body, claims)
         events = request.app.state.engine.events(
             body,
             provider_details=request.state.test_connection,
             correlation_id=x_correlation_id,
+            background=background,
         )
         try:
             first = await anext(events)
@@ -137,6 +147,7 @@ def create_app(config: Config | None = None) -> FastAPI:
 
             return StreamingResponse(
                 stream(),
+                background=background,
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
             )
@@ -180,6 +191,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     async def classify(
         body: Classify,
         request: Request,
+        background: BackgroundTasks,
         claims: Annotated[dict[str, Any], Depends(caller)],
         x_correlation_id: Annotated[UUID | None, Header()] = None,
     ) -> dict[str, Any]:
@@ -187,15 +199,16 @@ def create_app(config: Config | None = None) -> FastAPI:
         pinned_test = (
             azp == "ooh-control-centre"
             and body.model_entry_id is not None
-            and body.user_id == "admin-test-" + claims["sub"]
+            and body.user_id.startswith("admin-test-")
             and body.text == "This is a connection test."
             and body.questions == {"test": "Is this a connection test?"}
         )
         if azp not in {"ooh-harness-api", "ooh-safety-watcher"} and not pinned_test:
             raise GatewayError(403, "forbidden", "This caller may not classify")
+        request.state.gateway_background = background
         request.state.test_connection = pinned_test
         return await request.app.state.engine.classify(
-            body, x_correlation_id, provider_details=pinned_test
+            body, x_correlation_id, provider_details=pinned_test, background=background
         )
 
     return app

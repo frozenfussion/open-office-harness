@@ -66,7 +66,12 @@ def messages(call: Call, entry: Entry) -> list[dict[str, Any]]:
 
 
 async def run(
-    client: httpx.AsyncClient, entry: Entry, key: str, call: Call
+    client: httpx.AsyncClient,
+    entry: Entry,
+    key: str,
+    call: Call,
+    *,
+    auto_tool_choice: bool = False,
 ) -> AsyncIterator[dict[str, Any]]:
     body = {
         "model": entry.model_id,
@@ -82,7 +87,7 @@ async def run(
     body = request_body(body, entry, call)
     yield {
         "type": "tool_choice_applied",
-        "applied": forced_choice(body, call, entry.api_type),
+        "applied": forced_choice(body, call, entry.api_type, auto=auto_tool_choice),
     }
     async with client.stream(
         "POST",

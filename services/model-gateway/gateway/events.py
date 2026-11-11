@@ -36,7 +36,7 @@ class Events:
                 "sasl.username": username,
                 "sasl.password": password,
                 "enable.idempotence": True,
-                "message.timeout.ms": 5000,
+                "message.timeout.ms": 1000,
                 "log_level": 0,
             }
         )
@@ -49,7 +49,7 @@ class Events:
             value=json.dumps(value),
             on_delivery=lambda error, message: errors.append(error) if error else None,
         )
-        if self.producer.flush(6) or errors:
+        if self.producer.flush(1) or errors:
             raise RuntimeError("audit_unavailable")
 
     async def publish(self, value: dict[str, Any]) -> None:

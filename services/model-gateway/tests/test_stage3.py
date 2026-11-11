@@ -332,7 +332,7 @@ async def test_forced_tools_effective_thinking_choice(
                 )
             ]
         body = json.loads(route.calls[0].request.content)
-    assert events[-1]["tool_choice_applied"] == (not thinking or kind == TYPES[2])
+    assert events[-1]["tool_choice_applied"] == (not thinking)
     assert (
         body["tool_choice"]
         == ({"type": "auto"} if thinking else {"type": "tool", "name": "fake_tool"})
@@ -344,7 +344,8 @@ async def test_forced_tools_effective_thinking_choice(
             else {"type": "function", "function": {"name": "fake_tool"}}
         )
         if kind == TYPES[0]
-        else body["tool_choice"] == {"type": "function", "name": "fake_tool"}
+        else body["tool_choice"]
+        == ("auto" if thinking else {"type": "function", "name": "fake_tool"})
     )
 
 
@@ -407,9 +408,8 @@ async def test_classification_scores_validation_and_failover(
             else None
         )
         async with httpx.AsyncClient() as client:
-            result = await Engine(
-                client, FakeRegistry([main, backup]), FakeDatabase(), pub
-            ).classify(
+            engine = Engine(client, FakeRegistry([main, backup]), FakeDatabase(), pub)
+            result = await engine.classify(
                 Classify(
                     text="Synthetic example",
                     questions={"risk": "Is it risky?"},
@@ -417,6 +417,7 @@ async def test_classification_scores_validation_and_failover(
                 ),
                 correlation,
             )
+            await engine.drain_background()
         assert result["scores"] == {"risk": 0.4 if bad else 0.8}
         assert result["model_entry_id"] == str(backup.id if bad else main.id)
         if fallback:
@@ -479,6 +480,7 @@ async def test_pinned_turn_no_failover_and_audit_failure_no_text(
                 e
                 async for e in engine.events(call.model_copy(update={"stream": False}))
             ]
+            await engine.drain_background()
         assert route.call_count == 4
     assert reports == [("down", "http_503"), ("ok", None)]
     assert [v["payload"]["outcome"] for v in pub.rows] == [

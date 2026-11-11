@@ -127,7 +127,9 @@ def matching_state(message: Any, entry: Entry) -> dict[str, Any]:
     return state if state.get("model_entry_id") == str(entry.id) else {}
 
 
-def forced_choice(body: dict[str, Any], call: Call, kind: str) -> bool:
+def forced_choice(
+    body: dict[str, Any], call: Call, kind: str, *, auto: bool = False
+) -> bool:
     if call.tool_choice is None:
         return True
     if call.tool_choice == "none":
@@ -135,10 +137,8 @@ def forced_choice(body: dict[str, Any], call: Call, kind: str) -> bool:
             {"type": "none"} if kind == "anthropic_messages" else "none"
         )
         return True
-    thinking = body.get("thinking") or {}
-    manual = isinstance(thinking, dict) and thinking.get("type") == "enabled"
-    # Manual thinking refuses named tools on both compatible chat and Messages APIs.
-    if manual and kind in {"anthropic_messages", "openai_chat_completions"}:
+    # The binding rule treats absent and adaptive thinking as on, too.
+    if auto or body.get("thinking") != {"type": "disabled"}:
         body["tool_choice"] = (
             {"type": "auto"} if kind == "anthropic_messages" else "auto"
         )

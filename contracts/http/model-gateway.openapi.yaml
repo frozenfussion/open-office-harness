@@ -459,12 +459,13 @@ paths:
         calls; Messages replays complete ordered content blocks with thinking signatures
         and redacted thinking; Responses requests reasoning.encrypted_content with
         store:false and replays output items before function_call_output. Forced tools
-        use auto when manual thinking refuses forcing, with tool_choice_applied:false;
+        use auto unless thinking is exactly disabled, with tool_choice_applied:false;
         none disables tools. Provider details are scrubbed and returned only for Control
         Centre tests. Visible thinking remains separate from answer text. Opaque reasoning
         is never logged or published on Kafka. Audit events contain only IDs, model
-        title, usage, cost and classification scores. Health changes are reported
-        privately to the Control Centre.'
+        title, usage, cost and classification scores. Health changes and audit publishes run after the answer in retained background
+        tasks with two-second limits. A forced-tool HTTP 400 before output retries once
+        on the same entry with auto, without a health report for the initial 400.'
       parameters:
       - name: X-Correlation-Id
         in: header
@@ -601,8 +602,8 @@ paths:
           format: uuid
         description: Caller correlation UUID; generated when omitted.
       description: Audience ooh-model-gateway. Harness and safety watcher may classify.
-        Control Centre may only test a pinned classification entry with user_id admin-test-<verified
-        sub>, text This is a connection test. and questions {"test":"Is this a connection
+        Control Centre may only test a pinned classification entry with user_id starting
+        admin-test-, text This is a connection test. and questions {"test":"Is this a connection
         test?"}. Active classification entries have no tier, use main before backup,
         and obey the same rates, budgets and cost rules as calls. jev_systemone uses
         state and typed noul questions. Chat adapters request a JSON object of scores.

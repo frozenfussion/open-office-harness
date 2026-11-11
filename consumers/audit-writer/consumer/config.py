@@ -29,7 +29,7 @@ class Config:
         values: dict[str, Any] = {
             "issuer": os.environ[prefix + "_OIDC_ISSUER"],
             "bootstrap": os.environ[prefix + "_KAFKA_BOOTSTRAP"],
-            "username": os.environ[prefix + "_KAFKA_USERaudit-writer"],
+            "username": os.environ[prefix + "_KAFKA_USERNAME"],
             "password": os.environ[prefix + "_KAFKA_PASSWORD"],
         }
         if prefix == "SF":
