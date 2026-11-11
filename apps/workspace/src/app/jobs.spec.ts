@@ -14,16 +14,29 @@ describe('Jobs', () => {
     parser.push('"correlation_id":"job","skill":"slides","output":null,"error":null}\r\n\r\n');
     expect(receive).toHaveBeenCalledOnce(); expect(receive.mock.calls[0][0].type).toBe('job.completed');
   });
-  it('uses the specified reconnect delays and reloads jobs on every connection', async () => {
+  it('backs off failed connections after 1, 2, 5 and 10 seconds', async () => {
     vi.useFakeTimers();
     expect([0,1,2,3,4].map(reconnectDelay)).toEqual([1000,2000,5000,10000,10000]);
+    const events = vi.fn().mockRejectedValue(new Error('Connection failed'));
+    TestBed.configureTestingModule({providers: [{provide: Api, useValue: {events}}]});
+    const store = TestBed.inject(Jobs); store.start();
+    await vi.advanceTimersByTimeAsync(0); expect(events).toHaveBeenCalledTimes(1);
+    for (const [index, delay] of [1000,2000,5000,10000].entries()) {
+      await vi.advanceTimersByTimeAsync(delay - 1); expect(events).toHaveBeenCalledTimes(index + 1);
+      await vi.advanceTimersByTimeAsync(1); expect(events).toHaveBeenCalledTimes(index + 2);
+    }
+    store.stop();
+  });
+  it('reloads on connection and waits one second again after reconnecting then dropping', async () => {
+    vi.useFakeTimers();
     const jobs = vi.fn().mockResolvedValue([job]);
     const events = vi.fn(async (_signal, connected) => { await connected(); });
     TestBed.configureTestingModule({providers: [{provide: Api, useValue: {jobs, events}}]});
     const store = TestBed.inject(Jobs); store.start();
     await vi.advanceTimersByTimeAsync(0); expect(jobs).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1000); expect(jobs).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(2000); expect(jobs).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(999); expect(jobs).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1); expect(jobs).toHaveBeenCalledTimes(3);
     store.stop(); await vi.advanceTimersByTimeAsync(10000);
     expect(events).toHaveBeenCalledTimes(3); expect(store.rows()).toEqual([]);
   });

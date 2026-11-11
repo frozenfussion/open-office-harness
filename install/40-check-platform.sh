@@ -6,6 +6,7 @@ stop() { printf 'STOP: %s\n' "$*" >&2; exit 1; }
 trap 'stop "step failed; see README troubleshooting and re-run this script"' ERR
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+for tool in kubectl jq curl flock; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 # shellcheck source=/dev/null
 source deploy/values/do.env
 [[ -f "$HOME/.config/ooh/do.env" ]] || stop "local settings missing; copy install/ooh.env.example as described in README"

@@ -176,10 +176,10 @@ normalize_attributes() {
     {name,protocol,protocolMapper,config:(.config | {"user.attribute","claim.name","jsonType.label","access.token.claim","id.token.claim","userinfo.token.claim"})}] | sort_by(.name)'
 }
 normalize_mappers() {
-  # Keycloak may add defaults or express the audience in either supported config field.
+  # The audience field determines whether Keycloak resolves a client or uses a custom value.
   jq -c '[.[] | select(.protocolMapper == "oidc-audience-mapper") |
     {name,protocol,protocolMapper,
-     audiences: ([.config["included.client.audience"], .config["included.custom.audience"]] | map(select(type == "string" and length > 0)) | unique),
+     audiences: {client: .config["included.client.audience"], custom: .config["included.custom.audience"]},
      accessToken: ((.config["access.token.claim"] | tostring) == "true"),
      idToken: (((.config["id.token.claim"] // false) | tostring) == "true")}] | sort_by(.name)'
 }

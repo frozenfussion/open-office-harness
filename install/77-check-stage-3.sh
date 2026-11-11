@@ -371,7 +371,7 @@ while IFS= read -r entry; do
   request ooh-harness-api POST http://127.0.0.1:18082/v1/call "$follow" && [[ "$status" == 200 ]] && jq -e '(.content | type == "string" and length > 0) and (.tool_calls | length == 0)' <<< "$body" >/dev/null || rc=1
   result "$rc" "$title tool result and reasoning round" 'inspect adapter reasoning history; the response must contain text'
   if ((rc == 0)); then
-    third="$(printf '%s\n%s\n' "$follow" "$body" | jq -sc '.[0] as $follow | .[1] as $answer | $follow | .messages += [{role:"assistant",content:$answer.content},{role:"user",content:"What test value did the tool return earlier? Answer briefly."}]')"
+    third="$(printf '%s\n%s\n' "$follow" "$body" | jq -sc '.[0] as $follow | .[1] as $answer | $follow | .messages += [{role:"assistant",content:$answer.content,reasoning_state:$answer.reasoning_state},{role:"user",content:"What test value did the tool return earlier? Answer briefly."}]')"
     rc=0
     request ooh-harness-api POST http://127.0.0.1:18082/v1/call "$third" && [[ "$status" == 200 ]] && jq -e '.content | type == "string" and length > 0' <<< "$body" >/dev/null || rc=1
     result "$rc" "$title new question with earlier tool turn in history" 'inspect adapter handling of reasoning across turns'

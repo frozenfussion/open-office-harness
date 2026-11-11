@@ -60,7 +60,7 @@ export class Jobs {
     let attempt = 0;
     while (!controller.signal.aborted) {
       try {
-        await this.api.events(controller.signal, async () => { await this.reload(generation); this.notice.set(''); }, event => { if (!controller.signal.aborted && generation === this.generation) this.receive(event); });
+        await this.api.events(controller.signal, async () => { attempt = 0; await this.reload(generation); this.notice.set(''); }, event => { if (!controller.signal.aborted && generation === this.generation) this.receive(event); });
       } catch (error) {
         if (controller.signal.aborted) return;
         if (error instanceof ApiError && [401, 403].includes(error.status)) { this.notice.set(error.message); return; }
