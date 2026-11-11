@@ -114,7 +114,9 @@ phase 2. These steps also apply after merging the routing Part.
    To tune Auto routing, edit `deploy/apps/harness-api/configmap.yaml`:
    `HA_ROUTE_TIER_QUESTION` asks whether advanced reasoning is needed;
    `HA_ROUTE_TIER_THRESHOLD` is 0.7, `HA_ROUTE_UP_TIER` is 2, and
-   `HA_ROUTE_SKILL_THRESHOLD` is 0.8 by default. Scores at or above a threshold
+   `HA_ROUTE_SKILL_THRESHOLD` is 0.8 by default. `HA_ROUTE_TIMEOUT_SECONDS`
+   limits the routing call to 30 seconds by default; a timeout uses the lowest
+   allowed tier with the routing-unavailable note. Scores at or above a threshold
    qualify. Skill questions come from allowed skills' descriptions. Keep these
    settings in the ConfigMap. Type this in your harness terminal, Shell tile,
    plain shell. This loads the routing settings; good result: Ready and `DONE`.
@@ -184,12 +186,12 @@ phase 2. These steps also apply after merging the routing Part.
     keep the password they enter; it is not temporary.
 
 13. **Run the Workspace checks locally.** Type this in your harness terminal,
-    plain shell, in this Part's worktree. This installs the locked packages,
-    builds and runs the tests without changing the cluster. Good result: build
+    plain shell, in the merged Stage 3 worktree. This installs the locked
+    packages, builds and runs the tests without changing the cluster. Good result: build
     succeeds, all tests pass. Use the merged worktree for the combined checks.
 
     ```bash
-    cd ~/projects/worktrees/stage-3-part-e/apps/workspace
+    cd ~/projects/worktrees/stage-3/apps/workspace
     npm ci
     npx ng build
     npx ng test --watch=false

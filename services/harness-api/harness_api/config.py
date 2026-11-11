@@ -27,10 +27,14 @@ class Settings:
     route_tier_threshold: float = 0.7
     route_up_tier: int = 2
     route_skill_threshold: float = 0.8
+    route_timeout_seconds: float = 30
 
     @classmethod
     def from_env(cls) -> Settings:
         return cls(
+            route_timeout_seconds=float(
+                os.environ.get("HA_ROUTE_TIMEOUT_SECONDS", "30")
+            ),
             route_tier_question=os.environ.get("HA_ROUTE_TIER_QUESTION", ""),
             route_tier_threshold=float(
                 os.environ.get("HA_ROUTE_TIER_THRESHOLD", "0.7")

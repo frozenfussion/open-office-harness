@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+import asyncio
 import math
 from typing import Any
 from uuid import UUID
@@ -18,6 +19,7 @@ async def route(
     correlation: UUID,
 ) -> dict[str, Any]:
     settings = upstream.settings
+    skills = [skill for skill in skills if skill.name in upstream.schemas]
     result: dict[str, Any] = {"tier": lowest, "scores": {}}
     questions = {"needs_tier2": settings.route_tier_question}
     questions.update(
@@ -31,15 +33,16 @@ async def route(
     try:
         if not settings.route_tier_question:
             raise ValueError("Routing question is not configured")
-        response = await upstream.client.post(
-            f"{settings.gateway}/v1/classify",
-            headers={
-                **await upstream.headers(),
-                "X-Correlation-Id": str(correlation),
-            },
-            json={"text": text, "questions": questions, "user_id": user},
-            timeout=httpx.Timeout(10, read=910),
-        )
+        async with asyncio.timeout(settings.route_timeout_seconds):
+            response = await upstream.client.post(
+                f"{settings.gateway}/v1/classify",
+                headers={
+                    **await upstream.headers(),
+                    "X-Correlation-Id": str(correlation),
+                },
+                json={"text": text, "questions": questions, "user_id": user},
+                timeout=httpx.Timeout(settings.route_timeout_seconds),
+            )
         response.raise_for_status()
         scores = response.json()["scores"]
         if not isinstance(scores, dict) or any(
@@ -50,7 +53,7 @@ async def route(
         ):
             raise ValueError("Invalid routing scores")
         result["scores"] = {key: scores[key] for key in questions}
-    except httpx.HTTPError, ApiError, ValueError, KeyError, TypeError:
+    except httpx.HTTPError, ApiError, ValueError, KeyError, TypeError, TimeoutError:
         result["note"] = f"Routing is unavailable; answered with tier {lowest}."
         return result
     if scores["needs_tier2"] >= settings.route_tier_threshold:

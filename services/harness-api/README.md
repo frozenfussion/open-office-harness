@@ -225,9 +225,14 @@ from the merged Stage 3 worktree after Parts B–D are present.
 
 Only `tier: "auto"` invokes routing; omitted/null and explicit numeric tiers keep
 existing behavior. The ConfigMap supplies `HA_ROUTE_TIER_QUESTION`,
-`HA_ROUTE_TIER_THRESHOLD` (0.7), `HA_ROUTE_UP_TIER` (2), and
-`HA_ROUTE_SKILL_THRESHOLD` (0.8). The classifier sees `needs_tier2` and
-`wants_<skill>` questions for allowed skills, with hyphens replaced by underscores.
+`HA_ROUTE_TIER_THRESHOLD` (0.7), `HA_ROUTE_UP_TIER` (2),
+`HA_ROUTE_SKILL_THRESHOLD` (0.8), and `HA_ROUTE_TIMEOUT_SECONDS` (30 seconds).
+The routing call has its own overall deadline; expiry uses the existing
+routing-unavailable note and lowest allowed tier. Route audit publishing uses
+retained asynchronous tasks with the same 12-second publish limit as chat events,
+so a slow broker cannot delay the answer stream. The classifier sees `needs_tier2` and
+`wants_<skill>` questions for allowed skills with a loaded tool schema, with
+hyphens replaced by underscores.
 The highest qualifying skill is forced on the first Gateway call only; job
 rights and schema checks still apply. A classifier failure uses the lowest
 allowed tier with a note. A refused or unavailable upgrade uses that tier with

@@ -152,6 +152,44 @@ def create_app(
                 "kafka_error", "chat_publish_failed", correlation_id=str(correlation)
             )
 
+    async def publish_route(
+        routing: dict[str, Any], user_id: str, correlation: UUID, tier: int
+    ) -> None:
+        if bus is None:
+            return
+        try:
+            async with asyncio.timeout(CHAT_PUBLISH_TIMEOUT_SECONDS):
+                await bus.publish(
+                    "audit.events",
+                    envelope(
+                        "audit.event",
+                        str(correlation),
+                        user_id,
+                        {
+                            "actor": user_id,
+                            "action": "route",
+                            "target": "chat",
+                            "outcome": f"skill_{routing['skill']}"
+                            if routing.get("skill")
+                            else f"tier_{tier}",
+                            "scores": routing["scores"],
+                        },
+                    ),
+                )
+        except Exception:
+            record_failure(
+                "kafka_error",
+                "audit_publish_failed",
+                correlation_id=str(correlation),
+            )
+
+    def schedule_route(
+        routing: dict[str, Any], user_id: str, correlation: UUID, tier: int
+    ) -> None:
+        task = asyncio.create_task(publish_route(routing, user_id, correlation, tier))
+        chat_tasks.add(task)
+        task.add_done_callback(chat_tasks.discard)
+
     def schedule_chat(*args: Any) -> None:
         task = asyncio.create_task(publish_chat(*args))
         chat_tasks.add(task)
@@ -667,32 +705,8 @@ def create_app(
                 raise
             raise gateway_error("unavailable", tier) from None
         finally:
-            if routing is not None and bus is not None:
-                try:
-                    async with asyncio.timeout(CHAT_PUBLISH_TIMEOUT_SECONDS):
-                        await bus.publish(
-                            "audit.events",
-                            envelope(
-                                "audit.event",
-                                str(correlation),
-                                user_id,
-                                {
-                                    "actor": user_id,
-                                    "action": "route",
-                                    "target": "chat",
-                                    "outcome": f"skill_{routing['skill']}"
-                                    if routing.get("skill")
-                                    else f"tier_{tier}",
-                                    "scores": routing["scores"],
-                                },
-                            ),
-                        )
-                except Exception:
-                    record_failure(
-                        "kafka_error",
-                        "audit_publish_failed",
-                        correlation_id=str(correlation),
-                    )
+            if routing is not None:
+                schedule_route(routing, user_id, correlation, tier)
         return ChatResponse(
             browser_stream(
                 stream,

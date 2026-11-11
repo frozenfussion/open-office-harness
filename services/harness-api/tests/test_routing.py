@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+import asyncio
 import json
 from dataclasses import replace
 from typing import Any
@@ -54,6 +55,7 @@ async def test_simple_auto_correlations_storage_and_audit(h: Harness) -> None:
     }
     for call in [*h.gateway.calls, *h.title_gateway.calls]:
         assert call.request.headers["X-Correlation-Id"] == correlation
+    await asyncio.gather(*h.app.state.chat_tasks)
     audit = next(
         event for topic, event in h.publisher.events if topic == "audit.events"
     )
@@ -239,6 +241,7 @@ async def test_forced_skill_first_call_only_preserves_reasoning(
     assert follow["model_entry_id"] == state["model_entry_id"]
     assert follow["messages"][-2]["reasoning_state"] == state
     assert "PRIVATE_STATE" not in response.text
+    await asyncio.gather(*h.app.state.chat_tasks)
     audit = next(
         event for topic, event in h.publisher.events if topic == "audit.events"
     )
@@ -253,6 +256,7 @@ async def test_normalized_keys_highest_skill_and_settings(h: Harness) -> None:
         route_skill_threshold=0.95,
         route_up_tier=3,
     )
+    upstream.schemas["example-skill"] = {"type": "object"}
     skills = [
         Skill(
             name=name,
@@ -276,12 +280,19 @@ async def test_normalized_keys_highest_skill_and_settings(h: Harness) -> None:
     )
 
 
-async def test_route_audit_outage_does_not_fail_chat(h: Harness) -> None:
+async def test_route_audit_outage_does_not_fail_chat(
+    h: Harness, caplog: pytest.LogCaptureFixture
+) -> None:
     classifier(h)
     h.publisher.fail = True
     assert (
         events(await h.send(await h.conversation(), tier="auto"))[-1]["type"]
         == "completed"
+    )
+    await asyncio.gather(*h.app.state.chat_tasks)
+    assert any(
+        getattr(record, "code", "") == "audit_publish_failed"
+        for record in caplog.records
     )
 
 
@@ -305,7 +316,113 @@ async def test_auto_budget_fallback_keeps_metadata_and_audit_consistent(
     done = events(await h.send(await h.conversation(), tier="auto"))[-1]
     assert done["tier"] == done["routing"]["tier"] == 1
     assert done["note"] == done["routing"]["note"]
+    await asyncio.gather(*h.app.state.chat_tasks)
     audit = next(
         event for topic, event in h.publisher.events if topic == "audit.events"
     )
     assert audit["payload"]["outcome"] == "tier_1"
+
+
+async def test_allowed_skill_without_loaded_schema_is_not_forced(h: Harness) -> None:
+    skills = h.skills.return_value.json()
+    skills.append(
+        {
+            **skills[0],
+            "name": "unloaded",
+            "input_schema": "contracts/skills/unloaded/input.schema.json",
+        }
+    )
+    h.skills.respond(json=skills)
+    h.rights.respond(json={"chat_tiers": [1], "skills": ["slides", "unloaded"]})
+    classify = classifier(h, wants_unloaded=1)
+    done = events(await h.send(await h.conversation(), tier="auto"))[-1]
+    questions = json.loads(classify.calls[0].request.content)["questions"]
+    assert set(questions) == {"needs_tier2", "wants_slides"}
+    assert "skill" not in done["routing"]
+    assert "tool_choice" not in json.loads(h.gateway.calls[0].request.content)
+    assert done["type"] == "completed"
+
+
+async def test_answer_starts_while_route_audit_publish_hangs(
+    h: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    classifier(h)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    original = h.publisher.publish
+
+    async def publish(topic: str, event: dict[str, Any]) -> None:
+        if topic == "audit.events" and event["payload"]["action"] == "route":
+            entered.set()
+            await release.wait()
+        await original(topic, event)
+
+    monkeypatch.setattr(h.publisher, "publish", publish)
+    identifier = await h.conversation()
+    try:
+        response = await asyncio.wait_for(h.send(identifier, tier="auto"), timeout=1)
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        assert events(response)[0] == {"type": "delta", "text": "Hello"}
+        assert events(response)[-1]["type"] == "completed"
+        assert any(not task.done() for task in h.app.state.chat_tasks)
+        assert not any(topic == "audit.events" for topic, _ in h.publisher.events)
+    finally:
+        release.set()
+        await asyncio.gather(*h.app.state.chat_tasks)
+    audit = next(
+        event for topic, event in h.publisher.events if topic == "audit.events"
+    )
+    assert audit["payload"]["outcome"] == "tier_1"
+
+
+async def test_slow_classifier_times_out_then_answers_lowest_tier(h: Harness) -> None:
+    upstream = h.app.state.upstream
+    upstream.settings = replace(upstream.settings, route_timeout_seconds=0.03)
+    cancelled = asyncio.Event()
+
+    async def slow(request: httpx.Request) -> httpx.Response:
+        assert request.extensions["timeout"]["read"] == 0.03
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+        return httpx.Response(
+            200, json={"scores": {"needs_tier2": 1, "wants_slides": 1}}
+        )
+
+    h.router.post("http://gateway.test/v1/classify").mock(side_effect=slow)
+    identifier = await h.conversation()
+    response = await asyncio.wait_for(h.send(identifier, tier="auto"), timeout=1)
+    assert cancelled.is_set()
+    done = events(response)[-1]
+    assert done["routing"] == {
+        "tier": 1,
+        "scores": {},
+        "note": "Routing is unavailable; answered with tier 1.",
+    }
+    request = json.loads(h.gateway.calls[0].request.content)
+    assert request["tier"] == 1 and "tool_choice" not in request
+    stored = (await h.client.get(f"/api/conversations/{identifier}")).json()[
+        "messages"
+    ][-1]
+    assert stored["routing"] == done["routing"]
+
+
+async def test_routing_timeout_default_and_environment_setting(
+    h: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from harness_api.config import Settings
+
+    assert h.app.state.upstream.settings.route_timeout_seconds == 30
+    for name, value in {
+        "HA_DB_CONNECTION": "unused",
+        "HA_OIDC_ISSUER": "https://identity.test",
+        "HA_OIDC_AUDIENCE": "ooh-harness-api",
+        "HA_CLIENT_ID": "ooh-harness-api",
+        "HA_CLIENT_SECRET": "synthetic-test-value",
+        "HA_CONTROL_CENTRE_URL": "http://centre.test",
+        "HA_GATEWAY_URL": "http://gateway.test",
+        "HA_ROUTE_TIMEOUT_SECONDS": "12.5",
+    }.items():
+        monkeypatch.setenv(name, value)
+    assert Settings.from_env().route_timeout_seconds == 12.5
