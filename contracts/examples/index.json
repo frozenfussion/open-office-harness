@@ -603,51 +603,6 @@
       "status": "503"
     },
     {
-      "file": "examples/http/harness-api.get-files-key.200.json",
-      "openapi": "http/harness-api.openapi.yaml",
-      "path": "/api/files/{key}",
-      "method": "get",
-      "kind": "response",
-      "media_type": "application/json",
-      "status": "200"
-    },
-    {
-      "file": "examples/http/harness-api.get-files-key.400.json",
-      "openapi": "http/harness-api.openapi.yaml",
-      "path": "/api/files/{key}",
-      "method": "get",
-      "kind": "response",
-      "media_type": "application/json",
-      "status": "400"
-    },
-    {
-      "file": "examples/http/harness-api.get-files-key.401.json",
-      "openapi": "http/harness-api.openapi.yaml",
-      "path": "/api/files/{key}",
-      "method": "get",
-      "kind": "response",
-      "media_type": "application/json",
-      "status": "401"
-    },
-    {
-      "file": "examples/http/harness-api.get-files-key.403.json",
-      "openapi": "http/harness-api.openapi.yaml",
-      "path": "/api/files/{key}",
-      "method": "get",
-      "kind": "response",
-      "media_type": "application/json",
-      "status": "403"
-    },
-    {
-      "file": "examples/http/harness-api.get-files-key.503.json",
-      "openapi": "http/harness-api.openapi.yaml",
-      "path": "/api/files/{key}",
-      "method": "get",
-      "kind": "response",
-      "media_type": "application/json",
-      "status": "503"
-    },
-    {
       "file": "examples/http/control-centre.get-rights-me.parameters.json",
       "openapi": "http/control-centre.openapi.yaml",
       "path": "/api/rights/me",
@@ -680,27 +635,10 @@
       "media_type": "parameters"
     },
     {
-      "file": "examples/http/harness-api.get-files-key.parameters.json",
-      "openapi": "http/harness-api.openapi.yaml",
-      "path": "/api/files/{key}",
-      "method": "get",
-      "kind": "parameters",
-      "media_type": "parameters"
-    },
-    {
       "file": "examples/http/harness-api.post-conversations-id-messages.404.json",
       "openapi": "http/harness-api.openapi.yaml",
       "path": "/api/conversations/{id}/messages",
       "method": "post",
-      "kind": "response",
-      "media_type": "application/json",
-      "status": "404"
-    },
-    {
-      "file": "examples/http/harness-api.get-files-key.404.json",
-      "openapi": "http/harness-api.openapi.yaml",
-      "path": "/api/files/{key}",
-      "method": "get",
       "kind": "response",
       "media_type": "application/json",
       "status": "404"

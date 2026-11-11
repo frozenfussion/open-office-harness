@@ -37,9 +37,17 @@ class TierRequestResult(BaseModel):
     status: Literal["pending"]
 
 
+class RequestableSkill(BaseModel):
+    name: str
+    title: str
+    description: str
+    requested: Literal["pending", "rejected"] | None
+
+
 class Rights(BaseModel):
     chat_tiers: list[Annotated[StrictInt, Field(gt=0)]]
     skills: list[str]
+    requestable_skills: list[RequestableSkill] = Field(default_factory=list)
     chat_tier_titles: dict[str, str] = Field(default_factory=dict)
     chat_tier_thinking_switch: dict[str, StrictBool] = Field(default_factory=dict)
     requestable_tiers: list[RequestableTier] = Field(default_factory=list)
@@ -50,6 +58,9 @@ class Skill(BaseModel):
     title: str
     description: str
     input_schema: str
+    needs_approval: StrictBool
+    topic: str
+    version: str
 
 
 class Decision(BaseModel):
@@ -79,6 +90,8 @@ class ToolCall(BaseModel):
 
 
 class Completed(BaseModel):
+    reasoning_state: dict[str, Any] | None = None
+    tool_choice_applied: StrictBool = True
     type: Literal["completed"]
     model_entry_id: UUID
     model_title: str
@@ -153,6 +166,10 @@ class Upstream:
         self.client = client
         self.auth = auth
         folder = Path(__file__).parent / "schemas"
+        self.manifests = {
+            file.stem: json.loads(file.read_text())
+            for file in (Path(__file__).parent / "manifests").glob("*.json")
+        }
         self.schemas = {
             file.stem: json.loads(file.read_text()) for file in folder.glob("*.json")
         }
@@ -172,6 +189,9 @@ class Upstream:
             body[field] = value.strip()[:limit] if isinstance(value, str) else None
         realm = claims.get("realm_access")
         roles = realm.get("roles") if isinstance(realm, dict) else None
+        body["is_service_account"] = "client_id" in claims or str(
+            claims.get("preferred_username", "")
+        ).startswith("service-account-")
         body["is_admin"] = isinstance(roles, list) and "ooh-admin" in roles
         try:
             response = await self.client.post(
@@ -288,10 +308,55 @@ class Upstream:
         except httpx.HTTPError, ValueError, KeyError, TypeError:
             raise self.rights_error() from None
 
-    async def title(self, user: str, tier: int, question: str, answer: str) -> str:
+    async def request_skill(
+        self, user: str, skill: str, reason: str | None
+    ) -> dict[str, Any]:
+        try:
+            response = await self.client.post(
+                f"{self.settings.control_centre}/api/skill-requests",
+                headers=await self.headers(),
+                json={"user_id": user, "skill": skill, "reason": reason},
+            )
+            if response.status_code == 201:
+                return TierRequestResult.model_validate(response.json()).model_dump(
+                    mode="json"
+                )
+            errors = {
+                (
+                    403,
+                    "not_approved",
+                ): "Your access must be approved before requesting a skill.",
+                (400, "skill_not_requestable"): "This skill cannot be requested.",
+                (409, "already_requested"): "You have already requested this skill.",
+                (409, "too_soon"): "You can ask again 7 days after the last answer.",
+                (
+                    429,
+                    "too_many_requests",
+                ): "You already have 20 pending skill requests.",
+            }
+            code = response.json().get("code")
+            if (response.status_code, code) not in errors:
+                raise ValueError("Unexpected skill request response")
+            raise ApiError(
+                response.status_code, code, errors[(response.status_code, code)]
+            )
+        except httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError:
+            raise self.rights_error() from None
+
+    async def title(
+        self,
+        user: str,
+        tier: int,
+        question: str,
+        answer: str,
+        correlation_id: UUID | None = None,
+    ) -> str:
         response = await self.client.post(
             f"{self.settings.gateway}/v1/call",
-            headers=await self.headers(),
+            headers={
+                **await self.headers(),
+                **({"X-Correlation-Id": str(correlation_id)} if correlation_id else {}),
+            },
             json={
                 "purpose": "chat",
                 "tier": tier,
@@ -338,17 +403,29 @@ class Upstream:
         self,
         user: str,
         tier: int,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         thinking: bool = True,
+        correlation_id: UUID | None = None,
+        model_entry_id: str | None = None,
+        tool_choice: str | None = None,
     ) -> GatewayStream:
         response = None
         try:
             request = self.client.build_request(
                 "POST",
                 f"{self.settings.gateway}/v1/call",
-                headers=await self.headers(),
+                headers={
+                    **await self.headers(),
+                    **(
+                        {"X-Correlation-Id": str(correlation_id)}
+                        if correlation_id
+                        else {}
+                    ),
+                },
                 json={
+                    **({"model_entry_id": model_entry_id} if model_entry_id else {}),
+                    **({"tool_choice": tool_choice} if tool_choice else {}),
                     "purpose": "chat",
                     "tier": tier,
                     "user_id": user,

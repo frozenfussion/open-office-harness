@@ -19,9 +19,18 @@ class Settings:
     gateway: str
     system_prompt: str = field(default=DEFAULT_SYSTEM_PROMPT, repr=False)
 
+    kafka_bootstrap: str = ""
+    kafka_username: str = "harness-api"
+    kafka_password: str = field(default="", repr=False)
+    files_root: str = "/files"
+
     @classmethod
     def from_env(cls) -> Settings:
         return cls(
+            kafka_bootstrap=os.environ.get("HA_KAFKA_BOOTSTRAP", ""),
+            kafka_username=os.environ.get("HA_KAFKA_USERNAME", "harness-api"),
+            kafka_password=os.environ.get("HA_KAFKA_PASSWORD", ""),
+            files_root=os.environ.get("HA_FILES_ROOT", "/files"),
             database=os.environ["HA_DB_CONNECTION"],
             issuer=os.environ["HA_OIDC_ISSUER"].rstrip("/"),
             audience=os.environ["HA_OIDC_AUDIENCE"],

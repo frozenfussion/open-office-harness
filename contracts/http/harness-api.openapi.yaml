@@ -126,8 +126,8 @@ paths:
           default: 20
       - name: before
         in: query
-        description: Conversation ID from the previous page. Own active conversations
-          only. Ordered by updated_at then id, descending.
+        description: Conversation ID from the previous page. Own active conversations only. Ordered by
+          updated_at then id, descending.
         schema: &id001
           type: string
           format: uuid
@@ -164,7 +164,7 @@ paths:
                     model_title: *id002
                     usage:
                       $ref: '#/components/schemas/Usage'
-                    note: &id005
+                    note: &id007
                       type:
                       - string
                       - 'null'
@@ -216,6 +216,35 @@ paths:
                   - type
                   - text
                   additionalProperties: false
+                - type: object
+                  properties:
+                    type:
+                      const: job
+                    job_id: &id006
+                      type: string
+                      format: uuid
+                    skill:
+                      type: string
+                    title:
+                      type: string
+                    label:
+                      type: string
+                      maxLength: 80
+                    status:
+                      enum:
+                      - queued
+                      - awaiting_approval
+                      - failed
+                    error: &id005
+                      $ref: '#/components/schemas/Error'
+                  required:
+                  - type
+                  - job_id
+                  - skill
+                  - title
+                  - label
+                  - status
+                  additionalProperties: false
         '400':
           description: Invalid input
           content:
@@ -252,38 +281,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-      description: 'SSE: one JSON object per data line, no event lines; delta events
-        then completed or failed, with one optional final title event after completed.
-        Rights are checked before storing the user message. Gateway errors before
-        the first event are JSON. Headers: Cache-Control: no-store, X-Accel-Buffering:
-        no. Only user tokens with audience ooh-harness-api are accepted. No caller-supplied
-        user_id. Every streamed chat call prepends one system message from HA_SYSTEM_PROMPT,
-        including budget fallback; an empty setting omits it. The default asks the
-        assistant to reply in the language of the latest user message. The system
-        prompt is never logged or stored in history. Only while the conversation still
-        has its default title, after the first assistant answer stored as completed,
-        one extra non-streamed title call uses the tier that answered and user_id
-        title-<sub>, with a fixed 20-second total limit; the first user message and
-        first completed answer are each cut to 2000 characters. The fixed title instruction
-        overrides HA_SYSTEM_PROMPT for this call. A generated title is trimmed, stripped
-        of surrounding quotes and a final full stop, cut to 60 characters and saved
-        without changing updated_at. Failure keeps the initial title, logs title_failed
-        with a safe code, and emits no title or failed event after completed. Later
-        answers do not retry. Failed and tool_requested answers do not trigger title
-        generation. Title rights are checked as the original user. Title calls bypass
-        that user''s rate allowance, but still count model budget/cost. Completed
-        ends the answer; title may follow on the same stream before it closes. Thinking
-        defaults true and is forwarded unchanged through budget fallback; thinking_applied
-        in completed reports the actual answering model''s support, and is not stored
-        in history. Thinking events pass through before or between answer deltas,
-        never after completed. Their text is concatenated into the assistant message''s
-        nullable thinking field, including partial thinking on failure. Thinking is
-        never logged or sent to a model in chat history or title context; empty thinking
-        events are dropped. Unknown Gateway event types are ignored. Only the first
-        100000 characters of thinking are stored, for all outcomes; later thinking
-        still streams. The title call sends thinking false and ignores thinking in
-        its answer, using answer content only. Deploy Gateway, then Harness, then
-        Workspace.'
+      description: Runs at most two tool rounds. Follow-ups stay pinned to the first entry. Provider reasoning
+        is private database state and is sent only to the Gateway; it is never included in browser events
+        or conversation routes.
       parameters:
       - name: id
         in: path
@@ -368,8 +368,7 @@ paths:
               required:
               - file
               additionalProperties: false
-      description: Stage 2 always returns 503 not_built_yet after authentication and
-        query validation. Success schemas are reserved for Stage 3.
+      description: 'Always returns 503 not_built_yet: Uploads are not built yet.'
   /api/events:
     get:
       operationId: get_api_events
@@ -475,72 +474,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-      description: Stage 2 always returns 503 not_built_yet after authentication and
-        query validation. Success schemas are reserved for Stage 3.
-  /api/files/{key}:
-    get:
-      operationId: get_api_files_key
-      security:
-      - bearerAuth: []
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  url:
-                    type: string
-                    format: uri
-                    pattern: ^https?://[^\s/?#]+(?:[/?#][^\s]*)?$
-                  expires_at:
-                    type: string
-                    format: date-time
-                    pattern: Z$
-                required:
-                - url
-                - expires_at
-                additionalProperties: false
-        '400':
-          description: Invalid input
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          description: Missing or invalid token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '403':
-          description: Not allowed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          description: Unavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: Resource not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-      parameters:
-      - name: key
-        in: path
-        required: true
-        schema:
-          type: string
-          minLength: 1
-      description: Stage 2 always returns 503 not_built_yet after authentication and
-        query validation. Success schemas are reserved for Stage 3.
+      description: 'User-scoped job events. Sends : keep-alive comments every 15 seconds. Reload /api/jobs
+        on every reconnect. Closes when the verified access token expires.'
   /api/me:
     get:
       operationId: get_api_me
@@ -583,9 +518,9 @@ paths:
                     type: object
                     additionalProperties:
                       type: string
-                    description: Tier-to-title map from the Control Centre, with string
-                      tier keys. The title comes from the active main entry with lowest
-                      priority, then created_at; a missing entry has no map value.
+                    description: Tier-to-title map from the Control Centre, with string tier keys. The
+                      title comes from the active main entry with lowest priority, then created_at; a
+                      missing entry has no map value.
                   chat_tier_thinking_switch:
                     type: object
                     additionalProperties:
@@ -610,6 +545,28 @@ paths:
                       - title
                       - requested
                       additionalProperties: false
+                  requestable_skills:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        title:
+                          type: string
+                        description:
+                          type: string
+                        requested:
+                          enum:
+                          - pending
+                          - rejected
+                          - null
+                      required:
+                      - name
+                      - title
+                      - description
+                      - requested
+                      additionalProperties: false
                 required:
                 - user_id
                 - name
@@ -619,6 +576,7 @@ paths:
                 - chat_tier_titles
                 - chat_tier_thinking_switch
                 - requestable_tiers
+                - requestable_skills
                 additionalProperties: false
         '400':
           description: Request could not be completed
@@ -638,13 +596,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-      description: 'Observe access first through the Control Centre using the Harness
-        service token and verified user claims, including is_admin from realm_access.roles.
-        Missing/non-string profile claims become null; strings are trimmed then limited:
-        name 200, email 320, organisation 100, access_reason 300. The exact sub is
-        preserved. Then read rights and skills. Observe or rights failure returns
-        503 rights_unavailable. Closed means new requests are temporarily full. Pass
-        chat_tier_titles through from the Control Centre.'
+      description: 'Observe access first through the Control Centre using the Harness service token and
+        verified user claims, including is_admin from realm_access.roles. Missing/non-string profile claims
+        become null; strings are trimmed then limited: name 200, email 320, organisation 100, access_reason
+        300. The exact sub is preserved. Then read rights and skills. Observe or rights failure returns
+        503 rights_unavailable. Closed means new requests are temporarily full. Pass chat_tier_titles
+        through from the Control Centre.'
   /api/conversations/{id}:
     get:
       operationId: get_api_conversations_id
@@ -703,11 +660,10 @@ paths:
       operationId: post_api_tier_requests
       security:
       - bearerAuth: []
-      description: Forwards a request using the verified sub and Harness service token.
-        The Control Centre enforces approved access, requestable tiers, a seven-day
-        rejection wait and at most 20 pending requests per user. No caller-supplied
-        user_id. Reason is never logged. Unavailable or invalid upstream responses
-        return 503 rights_unavailable.
+      description: Forwards a request using the verified sub and Harness service token. The Control Centre
+        enforces approved access, requestable tiers, a seven-day rejection wait and at most 20 pending
+        requests per user. No caller-supplied user_id. Reason is never logged. Unavailable or invalid
+        upstream responses return 503 rights_unavailable.
       requestBody:
         required: true
         content:
@@ -756,9 +712,8 @@ paths:
           description: not_approved
           content: *id004
         '409':
-          description: 'already_requested or too_soon. too_soon means the last rejection
-            was less than 7 days ago: You can ask for this model again 7 days after
-            the last answer.'
+          description: 'already_requested or too_soon. too_soon means the last rejection was less than
+            7 days ago: You can ask for this model again 7 days after the last answer.'
           content: *id004
         '429':
           description: too_many_requests
@@ -766,6 +721,163 @@ paths:
         '503':
           description: rights_unavailable
           content: *id004
+  /api/jobs/{job_id}/file:
+    get:
+      operationId: get_api_jobs_job_id_file
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/vnd.openxmlformats-officedocument.presentationml.presentation:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+        '401':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+        '404':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+        '503':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema: *id006
+      description: Streams the completed job file owned by the verified user; resolved paths must stay
+        under /files/outputs/. Other users and unknown, incomplete or missing files receive 404.
+  /api/jobs:
+    get:
+      operationId: get_api_jobs
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Job'
+        '400':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+        '401':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+        '404':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+        '503':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: before
+        in: query
+        description: Conversation ID from the previous page. Own active conversations only. Ordered by
+          updated_at then id, descending.
+        schema:
+          type: string
+          format: uuid
+  /api/skill-requests:
+    post:
+      operationId: post_api_skill_requests
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: *id006
+                  status:
+                    const: pending
+                required:
+                - id
+                - status
+                additionalProperties: false
+        '400':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+        '401':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+        '403':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+        '409':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+        '429':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+        '503':
+          description: Success
+          content:
+            application/json:
+              schema: *id005
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                skill:
+                  type: string
+                  pattern: ^[a-z][a-z0-9-]*$
+                reason:
+                  type:
+                  - string
+                  - 'null'
+                  maxLength: 300
+              required:
+              - skill
+              additionalProperties: false
 components:
   securitySchemes:
     bearerAuth:
@@ -804,7 +916,7 @@ components:
       properties:
         id: *id001
         title: *id002
-        updated_at: &id006
+        updated_at: &id008
           type: string
           format: date-time
       required:
@@ -831,7 +943,7 @@ components:
           - string
           - 'null'
           format: uuid
-        model_title: *id005
+        model_title: *id007
         input_tokens:
           type:
           - integer
@@ -842,21 +954,20 @@ components:
           - integer
           - 'null'
           minimum: 0
-        note: *id005
+        note: *id007
         outcome:
           enum:
           - completed
           - failed
           - tool_requested
-        created_at: *id006
+        created_at: *id008
         thinking:
           type:
           - string
           - 'null'
-          description: Concatenated assistant thinking, separate from answer content.
-            Null when absent or for older messages. Never logged or sent back to a
-            model. At most the first 100000 characters per message are stored; later
-            thinking continues streaming.
+          description: Concatenated assistant thinking, separate from answer content. Null when absent
+            or for older messages. Never logged or sent back to a model. At most the first 100000 characters
+            per message are stored; later thinking continues streaming.
           maxLength: 100000
       required:
       - id
@@ -871,4 +982,61 @@ components:
       - outcome
       - created_at
       - thinking
+      additionalProperties: false
+    Job:
+      type: object
+      properties:
+        job_id: *id006
+        skill:
+          type: string
+        title:
+          type: string
+        label:
+          type: string
+          maxLength: 80
+        status:
+          enum:
+          - awaiting_approval
+          - queued
+          - completed
+          - failed
+          - rejected
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        output:
+          anyOf:
+          - type: object
+            properties:
+              file_key:
+                type: string
+                minLength: 1
+              mime:
+                type: string
+              summary:
+                type: string
+                minLength: 1
+            required:
+            - file_key
+            - mime
+            - summary
+            additionalProperties: false
+          - type: 'null'
+        error:
+          anyOf:
+          - *id005
+          - type: 'null'
+      required:
+      - job_id
+      - skill
+      - title
+      - label
+      - status
+      - created_at
+      - updated_at
+      - output
+      - error
       additionalProperties: false

@@ -74,6 +74,11 @@ spec:
             secretKeyRef:
               name: harness-api-oidc
               key: client-secret
+        - name: HA_KAFKA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: harness-api-kafka
+              key: password
         resources:
           requests:
             cpu: 100m
@@ -97,9 +102,15 @@ spec:
           capabilities:
             drop: [ALL]
         volumeMounts:
+        - name: files
+          mountPath: /files
+          readOnly: true
         - name: tmp
           mountPath: /tmp
       volumes:
+      - name: files
+        persistentVolumeClaim:
+          claimName: ooh-files
       - name: tmp
         emptyDir:
           medium: Memory

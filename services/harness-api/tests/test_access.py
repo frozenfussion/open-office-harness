@@ -50,6 +50,7 @@ async def test_observe_verified_claims_before_rights(h: Harness) -> None:
         "organisation": "Example team",
         "access_reason": "Example reason",
         "is_admin": True,
+        "is_service_account": False,
     }
     centre_paths = [
         call.request.url.path
@@ -177,8 +178,6 @@ async def test_other_routes_do_not_observe(h: Harness) -> None:
     assert (await h.client.get(f"/api/conversations/{identifier}")).status_code == 200
     assert (await h.send(identifier)).status_code == 200
     assert (await h.client.post("/api/uploads")).status_code == 503
-    assert (await h.client.get("/api/events")).status_code == 503
-    assert (await h.client.get("/api/files/example")).status_code == 503
     assert not h.observe.called
 
 

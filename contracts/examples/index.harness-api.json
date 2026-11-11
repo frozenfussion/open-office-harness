@@ -302,6 +302,192 @@
       "kind": "response",
       "media_type": "application/json",
       "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-jobs.parameters.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/jobs",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/harness-api.get-jobs.200.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/jobs",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-jobs.400.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/jobs",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/harness-api.get-jobs.401.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/jobs",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/harness-api.get-jobs.404.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/jobs",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/harness-api.get-jobs.503.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/jobs",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.get-jobs-job_id-file.parameters.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/jobs/{job_id}/file",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/harness-api.get-jobs-job_id-file.200.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/jobs/{job_id}/file",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/harness-api.get-jobs-job_id-file.400.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/jobs/{job_id}/file",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/harness-api.get-jobs-job_id-file.401.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/jobs/{job_id}/file",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/harness-api.get-jobs-job_id-file.404.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/jobs/{job_id}/file",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/harness-api.get-jobs-job_id-file.503.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/jobs/{job_id}/file",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.post-skill-requests.request.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/skill-requests",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/harness-api.post-skill-requests.201.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/skill-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "201"
+    },
+    {
+      "file": "examples/http/harness-api.post-skill-requests.400.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/skill-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/harness-api.post-skill-requests.401.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/skill-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/harness-api.post-skill-requests.403.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/skill-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/harness-api.post-skill-requests.409.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/skill-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "409"
+    },
+    {
+      "file": "examples/http/harness-api.post-skill-requests.429.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/skill-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "429"
+    },
+    {
+      "file": "examples/http/harness-api.post-skill-requests.503.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/skill-requests",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/harness-api.post-conversations-id-messages.200.job.sse.json",
+      "openapi": "http/harness-api.openapi.yaml",
+      "path": "/api/conversations/{id}/messages",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
     }
   ]
 }
