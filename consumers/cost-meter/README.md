@@ -120,7 +120,9 @@ Versions match the stage's pinned stack: FastAPI 0.162.2, uvicorn 0.54.0, pydant
 | Invalid deployment value / missing tool | Ask the maintainer to correct settings or finish server setup. |
 | Platform namespace missing / PostgreSQL not Ready / database resources not ready | Finish platform setup, inspect resource status and rerun setup. |
 | Existing credentials unexpected / password format unexpected / invalid ClusterIP | Have the maintainer inspect the named resource privately; never print credentials. |
-| Cannot read client secret / client secret missing or changed | Inspect Keycloak and the safety watcher client privately before replacing the application copy. |
+| `Keycloak client ooh-safety-watcher not found; run install/35-realm-sync.sh first` | Finish realm sync, then rerun consumer setup. |
+| Cannot read client secret; check Keycloak bootstrap access | The Keycloak administration login failed; have the maintainer inspect bootstrap access privately. |
+| Cannot contact Keycloak / client lookup or secret read failed / client secret missing or changed | Inspect pod readiness, realm/client permissions or the existing application copy privately, then rerun setup. |
 | `KafkaUser <name> not ready; re-run 30` | Finish platform apply; setup waits at most 120 seconds, then can be rerun. |
 | Kafka password changed | Have the maintainer reconcile the existing application Secret privately. |
 | Database setup failed | Inspect PostgreSQL readiness and rerun setup; settings writes are atomic. |

@@ -173,14 +173,32 @@ client_secret="$(kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloa
   private_dir=$(mktemp -d /tmp/ooh-safety-setup.XXXXXXXX)
   trap '\''rm -rf -- "$private_dir"'\'' EXIT
   cli=/opt/keycloak/bin/kcadm.sh
-  "$cli" config credentials --config "$private_dir/config" --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null 2>&1
-  clients=$("$cli" get clients -r ooh -q clientId=ooh-safety-watcher --fields id,clientId --config "$private_dir/config" 2>/dev/null)
-  printf "%s" "$clients"
+  if ! "$cli" config credentials --config "$private_dir/config" --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null 2>&1; then
+    printf "login_failed"
+    exit 0
+  fi
+  if ! clients=$("$cli" get clients -r ooh -q clientId=ooh-safety-watcher --fields id,clientId --config "$private_dir/config" 2>/dev/null); then
+    printf "client_lookup_failed"
+    exit 0
+  fi
+  if [[ "$clients" =~ ^[[:space:]]*\[[[:space:]]*\][[:space:]]*$ ]]; then
+    printf "client_missing"
+    exit 0
+  fi
   id=$(printf "%s" "$clients" | sed -n '\''s/.*"id" *: *"\([^" ]*\)".*/\1/p'\'')
-  [[ "$id" =~ ^[a-f0-9-]{36}$ ]]
-  "$cli" get "clients/$id/client-secret" -r ooh --config "$private_dir/config" 2>/dev/null
-')" || stop "could not read Safety watcher client secret; check Keycloak bootstrap access"
-client_secret="$(printf '%s' "$client_secret" | jq -s -ej '.[1].value | select(type == "string" and length > 0)')" || stop "Safety watcher client secret missing; inspect the realm client"
+  if [[ ! "$id" =~ ^[a-f0-9-]{36}$ ]]; then
+    printf "client_lookup_failed"
+    exit 0
+  fi
+  "$cli" get "clients/$id/client-secret" -r ooh --config "$private_dir/config" 2>/dev/null || printf "secret_read_failed"
+')" || stop "could not contact Keycloak; check pod readiness"
+case "$client_secret" in
+  login_failed) stop "could not read Safety watcher client secret; check Keycloak bootstrap access" ;;
+  client_missing) stop "Keycloak client ooh-safety-watcher not found; run install/35-realm-sync.sh first" ;;
+  client_lookup_failed) stop "could not find Safety watcher client; check Keycloak realm access" ;;
+  secret_read_failed) stop "could not read Safety watcher client secret; check Keycloak client access" ;;
+esac
+client_secret="$(printf '%s' "$client_secret" | jq -ej '.value | select(type == "string" and length > 0)')" || stop "Safety watcher client secret missing; inspect the realm client"
 existing="$(kubectl -n "$APPS_NAMESPACE" get secret safety-watcher-oidc --ignore-not-found -o json)"
 if [[ -n "$existing" ]]; then
   stored="$(printf '%s' "$existing" | jq -r '.data["client-secret"] // ""')"

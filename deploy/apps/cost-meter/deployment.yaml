@@ -16,7 +16,7 @@ spec:
   template:
     metadata:
       annotations:
-        ooh/config-hash: ${CONFIG_HASH}
+        ooh/config-hash: "${CONFIG_HASH}"
       labels:
         app: cost-meter
         ooh/app: real
