@@ -100,20 +100,23 @@ class Database:
                 )
             ).fetchall()
 
-    async def counts(self, day: date) -> dict[str, Any]:
+    async def counts(
+        self, day: date, *, bounds: tuple[datetime, datetime] | None = None
+    ) -> dict[str, Any]:
+        selected_bounds = bounds if bounds is not None else window(day)
         async with await psycopg.AsyncConnection.connect(
             self.connection, row_factory=dict_row
         ) as db:
             rows = await (
                 await db.execute(
                     "SELECT action,count(*) AS n FROM trail WHERE occurred_at >= %s AND occurred_at < %s GROUP BY action",
-                    window(day),
+                    selected_bounds,
                 )
             ).fetchall()
             distinct = await (
                 await db.execute(
                     "SELECT count(DISTINCT user_id) AS n FROM trail WHERE occurred_at >= %s AND occurred_at < %s AND user_id <> 'system' AND NOT starts_with(user_id,'title-') AND NOT starts_with(user_id,'admin-test-') AND NOT starts_with(user_id,'stage-check-') AND NOT starts_with(user_id,'service-account-')",
-                    window(day),
+                    selected_bounds,
                 )
             ).fetchone()
             return {

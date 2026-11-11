@@ -4,7 +4,7 @@ import logging
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID
@@ -34,6 +34,36 @@ def day_input(value: Any) -> Any:
 
 
 Day = Annotated[date, BeforeValidator(day_input)]
+
+
+def utc_input(value: Any) -> datetime:
+    if not isinstance(value, str) or "T" not in value:
+        raise ValueError("timestamp must be ISO 8601 UTC")
+    instant = datetime.fromisoformat(value)
+    if instant.tzinfo is None or instant.utcoffset() != timedelta(0):
+        raise ValueError("timestamp must be UTC")
+    return instant.astimezone(UTC)
+
+
+UtcInstant = Annotated[datetime, BeforeValidator(utc_input)]
+
+
+def summary_window(
+    day: date | None, start: datetime | None, end: datetime | None
+) -> tuple[date, tuple[datetime, datetime] | None]:
+    if start is not None or end is not None:
+        if (
+            start is None
+            or end is None
+            or not timedelta(0) < end - start <= timedelta(days=31)
+        ):
+            raise ValueError(
+                "from and to require an ordered UTC range of at most 31 days"
+            )
+        return start.date(), (start, end)
+    if day is None:
+        raise ValueError("day or from and to is required")
+    return day, None
 
 
 async def caller(
@@ -123,7 +153,21 @@ def create_app(config: Config | None = None) -> FastAPI:
         return rows
 
     @app.get("/v1/counts", dependencies=[Depends(caller)])
-    async def counts(request: Request, day: Annotated[Day, Query()]) -> Any:
-        return await request.app.state.db.counts(day)
+    async def counts(
+        request: Request,
+        day: Annotated[Day | None, Query()] = None,
+        from_: Annotated[UtcInstant | None, Query(alias="from")] = None,
+        to: Annotated[UtcInstant | None, Query()] = None,
+    ) -> Any:
+        try:
+            selected_day, bounds = summary_window(day, from_, to)
+        except ValueError:
+            return JSONResponse(
+                {"code": "invalid_input", "message": "Invalid date range"},
+                status_code=400,
+            )
+        if bounds is None:
+            return await request.app.state.db.counts(selected_day)
+        return await request.app.state.db.counts(selected_day, bounds=bounds)
 
     return app
