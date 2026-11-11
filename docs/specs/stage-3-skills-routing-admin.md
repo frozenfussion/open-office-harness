@@ -351,6 +351,7 @@ Uploads, the Report and Animated deck workers, DLQ replay and the Failed message
 | 6 | **Keycloak theme (asked by Codex C):** the theme ConfigMap includes `login/theme.properties` (parent `keycloak.v2`, the stylesheet line) besides CSS and messages; 15.33 is widened to that | Spec author, 11 Nov 19:30 |
 | 7 | **Worker poll limit (asked by Codex A):** no shared deadline; each Gateway call keeps the entry's time limit; `max.poll.interval.ms` = 7 400 000 (4 attempts × 2 calls × 910 s + 21 s + 60 s), replacing 15.14's 3 900 000 | Spec author, 11 Nov 19:32 |
 | 8 | **Cost meter and events without a model (asked by Codex B):** a `model.call` / `model.classify` event without `model` and `model_entry_id` (no entry was tried, no cost) is skipped and counted as handled; no row, no DLQ; test | Spec author, 11 Nov 19:49 |
+| 9 | **Part reviews A and C (Claude Code, `reviews/stage-3-part-a-review`, `-c-review`):** all findings fixed by the builders. Spec-author decisions: the Slides worker's health file is `/files/outputs/slides/.health` (replaces 15.32's `/files/checks/...`, which is owned by another user on the volume); the Harness `/health` stays "ok when its database answers" and a stopped Harness consumer is rebuilt after 5 s; the Slides worker exits (code 1) when its consumer thread stops so Kubernetes restarts it | Spec author, 11 Nov 20:02 |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees; numbers = review findings)
 
