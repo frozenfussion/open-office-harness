@@ -150,6 +150,22 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "chat.message"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "payloads/chat.message.schema.json"
+          }
+        }
+      }
     }
   ]
 }

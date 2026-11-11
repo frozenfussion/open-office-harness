@@ -55,7 +55,7 @@ Phase 2 adds **classifier routing**: with "Auto" chosen in the model picker, the
 | Kafka connection | `ooh-kafka-kafka-bootstrap.${PLATFORM_NAMESPACE}.svc:9092`, SASL_PLAINTEXT, SCRAM-SHA-512, one principal per service, consumer group = principal name, `enable.auto.commit` false (commit after handling), `auto.offset.reset` earliest | Strimzi listener from Stage 0; contract `identity.md` |
 | Consumer rules (every consumer) | skip an `event_id` already handled; a message that fails the envelope or payload schema goes straight to `dlq.<topic>` (no retries); any other failure is retried 3 times (waits 1 s, 5 s, 15 s), then a `dlq.entry` to `dlq.<topic>` and move on | Global rules; same numbers as the Control Centre |
 | Idempotency without extra tables | a service that publishes because of an incoming message makes the outgoing `event_id` = UUID v5 of the incoming `event_id` (namespace `6f1d5b7e-3c1a-4b8e-9a52-1f0c8f3e2d10` + the outgoing type), so a repeated input gives the same output id and the receiver drops it | No processed-events table in the worker or the safety watcher |
-| Files | the existing volume `ooh-files` (20Gi, `ooh-apps`, local-path, Retain) mounted at `/files`: read-write in the Slides worker, read-only in the Harness. Key layout `outputs/<skill>/<correlation_id>/<file>`; the worker writes to a temporary name in the same folder and renames when complete | Stage 0 row 2: files on the Droplet disk, no Spaces. On EKS (Stage 4) a different volume type, same paths |
+| Files | the existing volume `ooh-files` (20Gi, `ooh-apps`, local-path, Retain) mounted at `/files`: read-write in the Slides worker, read-only in the Harness. Key layout `outputs/<skill>/<correlation_id>/<file>`; the worker writes to a temporary name in the same folder and renames when complete | Stage 0 row 2: files on the Droplet disk, no Spaces. On EKS (Stage 6) a different volume type, same paths |
 | Downloads | the Workspace calls `GET /api/files/{key}` with its bearer token; the Harness checks the key belongs to a completed job of this user and streams the file (`Content-Disposition: attachment`); the browser saves the blob. No signed links | No extra secret, no exception to "every route needs a token" |
 | Chat with tools | the Harness runs the tool loop: model → tool call → Harness acts → tool result back to the model → the model's next answer, at most 2 tool rounds per user message (a third tool call is answered "Tool limit reached for this message." and the stream ends). The model's reasoning for that turn is passed back to it exactly as the provider requires (section 6.3) | Carried from Stage 2; DeepSeek with thinking needs it; real agentic loop for the course |
 | Skill title | from the manifest's `title` | Already in the manifest |
@@ -329,7 +329,7 @@ Each run makes a few short paid calls (README says so).
 | ACLs | a principal lacks a group or topic right | "Not authorized" in logs | item 3 compares with the contract |
 | Tool loop | provider refuses the passed-back reasoning | 400 on the second call | item 10 per connection type before Aziz's browser test; builder checks references on the day |
 | Files | volume mounted read-only in the worker or wrong user | worker DLQs everything | `/health` checks `/files` writable; fsGroup 10001 |
-| Single node | the volume is ReadWriteOnce | a pod on another node cannot mount it | one node today; EKS changes the volume type in Stage 4 |
+| Single node | the volume is ReadWriteOnce | a pod on another node cannot mount it | one node today; EKS changes the volume type in Stage 6 |
 | Keycloak theme | theme not found | default Keycloak look | item 2; builder reports how the theme loads |
 | Check client | left enabled after a failed check | standing admin credential | trap + item 13 |
 | Classifier | no classification model yet | item 8 FAIL; safety watcher audits `skipped_no_classifier` | Aziz adds one in Models & tiers |
@@ -343,3 +343,55 @@ Uploads, the Report and Animated deck workers, DLQ replay and the Failed message
 
 | # | Change | Who / when |
 |---|---|---|
+| 1 | Spec review by Claude Code before the builders started (38 findings, `reviews/stage-3-spec-review` in the course folder): every finding is resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 11 Nov 19:30 |
+
+## 15. Decisions from the spec review (binding; override anything above that disagrees; numbers = review findings)
+
+**Tool loop and reasoning**
+1. Every follow-up Gateway call inside one tool turn is pinned to the `model_entry_id` of the turn's first `completed` answer. The Gateway puts `model_entry_id` inside `reasoning_state` and refuses a state used with another entry (400 `reasoning_mismatch`). If the pinned entry fails, the turn ends with `failed`; there is no failover inside a tool turn. Tests in A and B.
+2. Forced tools and thinking: when the provider request has thinking switched on (for example Anthropic `thinking`, or a thinking mode the builder finds documented as refusing forced tools), the adapter sends `auto` instead of a forced tool and the answer carries `tool_choice_applied: false` (true otherwise). `tool_choice` also accepts `"none"` (no tool may be called). The builder confirms per provider on the day and reports it.
+19. Item 10 of the check: first call forced (or auto, see 2) with the tool asked for in the user message; second call with the tool result and `tool_choice: "none"` → 200 with non-empty text.
+21. This overrides Stage 2 rows 24 and 27 ("never forwarded"): the Gateway forwards provider reasoning only inside `reasoning_state` to the Harness, which keeps it in memory for the turn only and never sends it to the browser, a log, its database or Kafka. A Part A test checks the browser's `completed` event has no `reasoning_state`.
+22. Correlation ids: chat, title and routing calls send `X-Correlation-Id` = the user message's `id`; the calls of a skill job (worker) use the job id; a tool turn's audit events use the job id.
+
+**Jobs, files and events (Harness, Part A)**
+4. In the tool loop, before `skill.requested` (or `approval.requested`), the Harness publishes `audit.event` `{actor: user_id, action: "rights.check", target: "skill.<name>", outcome: "allowed"}` with the job's `correlation_id`. Test.
+8. `chat.message` text is cut to the first 20 000 characters; empty text is not published. Test.
+9. Downloads are by job: `GET /api/jobs/{job_id}/file` → the file bytes of this user's completed job (404 for any other job or user; the path built from the job's `file_key` must stay under `/files/outputs/`). `GET /api/files/{key}` is removed from the Harness contract. 6.2, 6.7, storage.md and item 11 use the new route. The 200 response is `application/vnd.openxmlformats-officedocument.presentationml.presentation` (`type: string, format: binary`).
+10. Item 11 checks: a job id that does not belong to the check user → 404, and an unknown job id → 404. The owner check on a real job is the browser test 4(c): the second account opens the first account's download → 404. Part A's unit tests are the main proof.
+15. When the job row is stored but publishing to Kafka fails, the job becomes `failed` `{code:"queue_unavailable", message:"The job could not be started. Try again."}`; the tool result is `{"error":"The job could not be started."}`; the chat stream sends a `job` event with status `failed`. Test.
+16. One shape for requestable skills in both the Control Centre and `/api/me`: `[{name, title, description, requested: "pending" | "rejected" | null}]` (as `requestable_tiers`). Skill-request answers: 201; 403 `not_approved`; 400 `skill_not_requestable`; 409 `already_requested`; 409 `too_soon`; 429 `too_many_requests`. The Harness passes them through.
+17. `/api/jobs` rows and the chat `job` event carry `label` = the input's `topic` cut to 80 characters (the skill title when there is none). On every `/api/events` (re)connect the Workspace reloads `/api/jobs`.
+
+**Safety and personal data**
+5. The safety watcher: a classifier answer 404, 429 or 503 → audit outcome `skipped_<code>` with no retry and no DLQ. A `dlq.entry` from the safety watcher for `chat.messages` has `original_message` = `{"event_id":…,"correlation_id":…,"message_id":…}` (ids only, as a JSON string), never the text. Test: no chat text in any DLQ entry.
+6. The Control Centre writes approval audit rows (created, decided) without `details`: ids, action, risk, status, decider and note only. Whether the 300-character excerpt is kept in the approvals table at all: **Aziz decides** (row 2 of section 14 records his answer).
+20. Item 9 PASSes when a `safety.classify` audit row with `scores` exists for its correlation id; a flag at or above the threshold is a separate `INFO` line with the score (not a FAIL).
+31. Safety flag buttons: **Clear** = `approved: false` (no problem, nothing to do), **Confirm problem** = `approved: true`; item 9 clears its own flag.
+
+**Platform, identity and checks**
+11. The order in section 10 becomes: 30 → 35 → 66 → 64 → 72 → 74 → **(Aziz makes the four new GitHub packages public after their first green build)** → 61 → 65 → 67 → 73 → 75 → 68 → 69 → **(Aziz ticks Slides for himself in People & rights)** → (admin adds a classification model) → 77.
+12. `ooh-audit-writer` and `ooh-cost-meter` are custom audiences: mappers with `included.custom.audience` on `ooh-control-centre` (and `ooh-stage-check`); `35`'s expected-mapper list and its verification support custom audiences; the realm file uses the same form.
+13. `ooh-stage-check`: (a) every enable regenerates its client secret and every disable regenerates it again; (b) `40` FAILs when it is enabled while no check holds the lock; (c) lock file `~/.config/ooh/stage-check.lock` (with the running script's pid); a second check prints `STOP: another check is running`; a stale lock (pid gone) is taken over; (d) item 13: the script disables it explicitly, reads it back, prints PASS/FAIL, then `DONE`; the trap is only the fallback. `62`, `73` and `77` all use one shared helper file `install/lib/stage-check.sh` (Part C writes it; A's `73` sources it).
+23. Item 6 sends the value `not json`. The Overview's `dead_letter` attention item counts only the last 24 hours.
+24. A `dlq.entry` envelope uses the input's `correlation_id` and `user_id` when readable, else a new UUID and `system` (as the Control Centre does).
+25. Item 4's file check runs in a pod from the deployed `ooh-slides-worker:<tag>` image with `ooh-files` mounted read-only, using python-pptx.
+26. The check is `77-check-stage-3.sh <tag>`; item 1 checks every Deployment changed in this stage runs `:<tag>`.
+29. People & rights and Approvals hide service accounts (`preferred_username` starting `service-account-`) as `stage-check-` ids are hidden today.
+33. The Keycloak theme ConfigMap holds CSS and messages only (system fonts, or one subset font file when the whole ConfigMap stays under 1 MiB), mounted with `items[].path` for the folders; `30` creates it from `deploy/platform/keycloak/theme/`.
+34. The Control Centre uses one consumer in group `control-centre` subscribed to `approvals.requested` and the six `dlq.*` topics.
+37. Part C rewrites the whole Kafka table in `contracts/identity.md` with columns Write / Read / Group; item 3 compares topics and operations: write → Write, Describe; read → Read, Describe; group → Read.
+38. `64`, `66`, `72`, `74` wait up to 120 s for the KafkaUser to be Ready and its Secret to exist, else `STOP: KafkaUser <name> not ready; re-run 30`.
+
+**Worker, Control Centre, consumers**
+14. The Slides worker sets `max.poll.interval.ms` = 3 900 000 (4 × 910 s + 60 s); test with a fake slow Gateway that the job is handled once.
+18. Test connection for purpose `classification`: the Control Centre calls `/v1/classify` pinned with `user_id` `admin-test-<sub>`, text `This is a connection test.`, question `{"test":"Is this a connection test?"}`; success line `Works · <s> s · score <n>`; failures mapped as Stage 2 section 16. This overrides Stage 2 section 16.1 item 3; the Gateway refuses any other classify call from the Control Centre.
+28. Overview sources: `people_active_today` = distinct `user_id` in today's trail (`/v1/counts` adds `distinct_users`); `people_approved` = the Control Centre's approved access rows; `skill_jobs_today` = `by_action["skill.requested"]`; `model_calls_today` = `model.call` + `model.classify`; `cost_today_usd` from the cost meter.
+30. Routing keys: `wants_` + the skill name with `-` replaced by `_`.
+32. The worker creates `outputs/slides/` itself (0755); its `/health` rewrites one fixed file `/files/checks/slides-worker-health`; no fsGroup claim.
+
+**Contracts and documents (done in this spec's pull request)**
+3. `contracts/check/tests/test_contracts.py` no longer reads the Harness files `url`; Part A's new route has its own examples.
+7. `envelope.schema.json` has the seventh `allOf` branch for `chat.message`; a contract test rejects a `chat.message` envelope with a bad payload.
+35. EKS is Stage 6 (two lines above corrected in place).
+36. `contracts/README.md` updated (seven payload types; storage line; no signed-download url).
