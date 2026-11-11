@@ -344,7 +344,7 @@ Uploads, the Report and Animated deck workers, DLQ replay and the Failed message
 | # | Change | Who / when |
 |---|---|---|
 | 1 | Spec review by Claude Code before the builders started (38 findings, `reviews/stage-3-spec-review` in the course folder): every finding is resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 11 Nov 19:18 |
-| 2 | Spec re-review (37 fixed, 1 left to Aziz, 14 new findings, `reviews/stage-3-spec-rereview`): resolved in section 15 "Re-review additions" (items 39–52) | Spec author, 11 Nov 19:25 |
+| 2 | Spec re-review (37 fixed, 1 left to Aziz, 14 new findings, `reviews/stage-3-spec-rereview`): resolved in section 15 "Re-review additions" (items 39–52) | Spec author, 11 Nov 19:22 |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees; numbers = review findings)
 
