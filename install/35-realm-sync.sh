@@ -229,19 +229,19 @@ while IFS= read -r client <&3; do
       jq -e --argjson enabled "$enabled" '.protocol == "openid-connect" and .enabled == $enabled and .publicClient == false and .serviceAccountsEnabled == true and .standardFlowEnabled == false and .directAccessGrantsEnabled == false' <<< "$client_config" >/dev/null || stop "service client configuration differs; inspect $client privately" ;;
   esac
   if [[ "$client" == ooh-workspace || "$client" == ooh-admin-console ]]; then
-    client_config="$(kcadm get "clients/$id" -r ooh)"
+    client_config="$(kcadm get "clients/$id" -r ooh | jq 'del(.secret)')"
     jq '.attributes = ((.attributes // {}) + {"post.logout.redirect.uris":"+"})' <<< "$client_config" |
       kcadm update "clients/$id" -r ooh -n -f - >/dev/null
-    client_config="$(kcadm get "clients/$id" -r ooh)"
+    client_config="$(kcadm get "clients/$id" -r ooh | jq 'del(.secret)')"
     jq -e '.attributes["post.logout.redirect.uris"] == "+"' <<< "$client_config" >/dev/null ||
       stop "sign-out redirect is not enabled for $client; inspect the existing client"
     unset client_config
   fi
   if [[ "$client" == ooh-admin-console ]]; then
-    client_config="$(kcadm get "clients/$id" -r ooh)"
+    client_config="$(kcadm get "clients/$id" -r ooh | jq 'del(.secret)')"
     printf '%s' "$client_config" | jq '.attributes = ((.attributes // {}) + {"oauth2.device.authorization.grant.enabled":"false"})' |
       kcadm update "clients/$id" -r ooh -n -f - >/dev/null
-    client_config="$(kcadm get "clients/$id" -r ooh)"
+    client_config="$(kcadm get "clients/$id" -r ooh | jq 'del(.secret)')"
     jq -e '.attributes["oauth2.device.authorization.grant.enabled"] == "false"' <<< "$client_config" >/dev/null ||
       stop "device sign-in is not disabled; inspect the existing admin console client"
     unset client_config
@@ -349,7 +349,8 @@ while IFS= read -r client <&3; do
   representation="$(kcadm get clients -r ooh -q "clientId=$client" --fields id,clientId)" || stop "client $client could not be read during final verification"
   jq -e --arg client "$client" 'length == 1 and .[0].clientId == $client' <<< "$representation" >/dev/null || stop "client $client missing or ambiguous after realm sync; re-run 35"
   id="$(jq -er '.[0].id' <<< "$representation")"
-  client_config="$(kcadm get "clients/$id" -r ooh --fields clientId,protocol,enabled,publicClient,serviceAccountsEnabled,standardFlowEnabled,directAccessGrantsEnabled,redirectUris,webOrigins,attributes)" || stop "client $client settings could not be read during final verification"
+  # kcadm --fields loses nested attributes; redact before retaining the full reply.
+  client_config="$(kcadm get "clients/$id" -r ooh | jq 'del(.secret)')" || stop "client $client settings could not be read during final verification"
   expected="$(jq -c --arg client "$client" '.[$client]' <<< "$expected_settings")"
   jq -e --argjson expected "$expected" '
     . as $actual | all($expected | to_entries[]; . as $field |
