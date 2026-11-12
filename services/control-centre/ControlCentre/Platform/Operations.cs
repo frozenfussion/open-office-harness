@@ -19,6 +19,7 @@ public sealed class OperationsClient(HttpClient http, IConfiguration config, Mod
       var token = await connection.Token(timeout.Token);
       if (token is null || string.IsNullOrEmpty(config[setting])) return null;
       using var request = new HttpRequestMessage(HttpMethod.Get, config[setting]!.TrimEnd('/') + path);
+      request.Options.Set(Tracing.InternalRequest, true);
       request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
       using var response = await http.SendAsync(request, timeout.Token);
       return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<JsonNode>(timeout.Token) : null;
@@ -84,11 +85,13 @@ public static class OperationsRoutes
         Api.Require(DateTimeOffset.TryParse(parts[0], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at) && at.Offset == TimeSpan.Zero);
         var id = Api.Id(parts[1]); query = query.Where(x => x.ReceivedAt < at || x.ReceivedAt == at && x.Id.CompareTo(id) < 0);
       }
-      return Results.Ok(await query.OrderByDescending(x => x.ReceivedAt).ThenByDescending(x => x.Id).Take(limit).ToListAsync());
+      var rows = await query.OrderByDescending(x => x.ReceivedAt).ThenByDescending(x => x.Id).Take(limit).ToListAsync();
+      return Results.Ok(await ReplayRoutes.Views(db, rows, c.RequestAborted));
     }).RequireAuthorization();
     app.MapGet("/api/admin/trail", async (HttpContext c, OperationsClient client, CentreDb db) =>
     {
-      Api.Authorize(c); Api.Query(c, "correlation_id", "user_id", "actor", "action", "before_id", "limit"); Api.Limit(c);
+      Api.Authorize(c); Api.Query(c, "correlation_id", "user_id", "actor", "action", "before_id", "limit", "trace_id"); Api.Limit(c);
+      if (c.Request.Query.ContainsKey("trace_id")) Api.Require(TraceClient.ValidId(Api.Q(c, "trace_id")));
       if (c.Request.Query.ContainsKey("correlation_id")) Api.Id(Api.Q(c, "correlation_id"));
       if (c.Request.Query.ContainsKey("before_id")) Api.Require(long.TryParse(Api.Q(c, "before_id"), out var n) && n > 0);
       foreach (var key in new[] { "user_id", "actor", "action" }) if (c.Request.Query.ContainsKey(key)) Api.Q(c, key);
@@ -126,7 +129,7 @@ public static class OperationsRoutes
       foreach (var row in await db.Models.Where(x => x.DeletedAt == null && x.Health == "down").ToListAsync())
         attention.Add(new { kind = "model_down", title = "Model down", detail = row.Title, at = row.HealthChangedAt ?? row.CreatedAt, link = "#models" });
       var since = now.AddHours(-24); var recentDead = db.DeadLetters.Where(x => x.ReceivedAt >= since); var dead = await recentDead.CountAsync();
-      if (dead > 0) attention.Add(new { kind = "dead_letter", title = "Failed messages", detail = dead + " in the last 24 hours", at = await recentDead.MaxAsync(x => x.ReceivedAt), link = "#overview" });
+      if (dead > 0) attention.Add(new { kind = "dead_letter", title = "Failed messages", detail = dead + " in the last 24 hours", at = await recentDead.MaxAsync(x => x.ReceivedAt), link = "#failed-messages" });
       var (start, end) = calendar.Day(now);
       var activePeople = await db.People.CountAsync(x => x.DeletedAt == null && !x.IsServiceAccount && !x.UserId.StartsWith("stage-check-") && !x.UserId.StartsWith("service-account-") && !x.UserId.StartsWith("admin-test-") && !x.UserId.StartsWith("title-") && x.LastSeenAt >= start && x.LastSeenAt < end && db.AccessRequests.Any(a => a.UserId == x.UserId && a.DeletedAt == null && a.Status == "approved"));
       return Results.Ok(new JsonObject

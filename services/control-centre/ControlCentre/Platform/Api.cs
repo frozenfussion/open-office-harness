@@ -106,18 +106,23 @@ public static class Api
     Change(db, Actor(c), typeof(T).Name.ToLowerInvariant() + ".removed", target, Correlation(c), new { before = JsonNode.Parse(before), after = row is ModelEntry entry ? ControlCentre.Registry.RegistryRoutes.View(entry) : (object)row });
     await db.SaveChangesAsync();
   }
-  public static void Change(CentreDb db, string actor, string action, string target, Guid correlation, object detail, string? userId = null)
+  public static void Change(CentreDb db, string actor, string action, string target, Guid correlation, object detail, string? userId = null, string outcome = "success")
   {
-    db.Audit.Add(new AuditRow { Actor = actor, Action = action, Target = target, CorrelationId = correlation, Detail = Encode(detail) });
-    Event(db, "audit.events", "audit.event", correlation, userId ?? actor, new { actor, action, target, outcome = "success" });
+    db.Audit.Add(new AuditRow { Actor = actor, Action = action, Target = target, CorrelationId = correlation, Detail = Encode(detail), Outcome = outcome });
+    Event(db, "audit.events", "audit.event", correlation, userId ?? actor, new { actor, action, target, outcome });
   }
-  public static void Event(CentreDb db, string topic, string type, Guid correlation, string userId, object payload)
+  public static void Event(CentreDb db, string topic, string type, Guid correlation, string userId, object payload, Guid? eventId = null)
   {
+    var payloadNode = JsonSerializer.SerializeToNode(payload, Json)!.AsObject();
+    if (type == "audit.event" && Tracing.TraceId is { } traceId) payloadNode["trace_id"] = traceId;
     db.Outbox.Add(new Outbox
     {
+      Id = eventId ?? Guid.NewGuid(),
+      Traceparent = Tracing.TraceId is null ? null : System.Diagnostics.Activity.Current!.Id,
+      Tracestate = Tracing.TraceId is null ? null : System.Diagnostics.Activity.Current!.TraceStateString,
       Topic = topic,
       Key = correlation.ToString(),
-      Envelope = Encode(new { event_id = Guid.NewGuid(), type, version = 1, occurred_at = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture), correlation_id = correlation, user_id = userId, producer = "control-centre", payload })
+      Envelope = Encode(new { event_id = eventId ?? Guid.NewGuid(), type, version = 1, occurred_at = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture), correlation_id = correlation, user_id = userId, producer = "control-centre", payload = payloadNode })
     });
   }
 }

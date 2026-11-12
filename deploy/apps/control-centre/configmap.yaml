@@ -5,6 +5,11 @@ metadata:
   name: control-centre
   namespace: ${APPS_NAMESPACE}
 data:
+  CC_JAEGER_QUERY_URL: http://jaeger.${PLATFORM_NAMESPACE}.svc:16686
+  OTEL_SERVICE_NAME: control-centre
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.${PLATFORM_NAMESPACE}.svc:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_TRACES_SAMPLER: parentbased_always_on
   CC_DISPLAY_TIME_ZONE: Asia/Kuala_Lumpur
   CC_KAFKA_BOOTSTRAP: ooh-kafka-kafka-bootstrap.${PLATFORM_NAMESPACE}.svc:9092
   CC_KAFKA_USERNAME: control-centre

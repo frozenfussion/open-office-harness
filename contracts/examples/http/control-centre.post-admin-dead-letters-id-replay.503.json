@@ -1,0 +1,4 @@
+{
+  "code": "kafka_unavailable",
+  "message": "Kafka is unavailable; the replay was recorded"
+}

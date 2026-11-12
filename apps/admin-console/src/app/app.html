@@ -14,6 +14,7 @@
     <a class="ooh-nav__item" href="#rights" [attr.aria-current]="screen() === 'rights' ? 'page' : null" (click)="$event.preventDefault(); navigate('rights')">People &amp; rights</a>
     <a class="ooh-nav__item" href="#models" [attr.aria-current]="screen() === 'models' ? 'page' : null" (click)="$event.preventDefault(); navigate('models')">Models &amp; tiers</a>
     <a class="ooh-nav__item" href="#audit" [attr.aria-current]="screen() === 'audit' ? 'page' : null" (click)="$event.preventDefault(); navigate('audit')">Audit</a>
+    <a class="ooh-nav__item" href="#failed-messages" [attr.aria-current]="screen() === 'failed-messages' ? 'page' : null" (click)="$event.preventDefault(); navigate('failed-messages')">Failed messages</a>
     <button class="ooh-btn ooh-btn--ghost" (click)="signOut()">Sign out</button>
   </nav><main>
     @if (screen() === 'models') {

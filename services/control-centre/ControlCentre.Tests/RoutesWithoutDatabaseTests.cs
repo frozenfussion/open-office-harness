@@ -117,7 +117,7 @@ public sealed class RoutesWithoutDatabaseTests
       var name = Path.GetFileName(path);
       var contract = name == "manifest.schema.json" ? "skills/" + name :
           name == "envelope.schema.json" ? "events/" + name : "events/payloads/" + name;
-      Assert.Equal(File.ReadAllText(Path.Combine(folder.FullName, "contracts", contract)), File.ReadAllText(path));
+      Assert.Equal(File.ReadAllBytes(Path.Combine(folder.FullName, "contracts", contract)), File.ReadAllBytes(path));
     }
   }
   [Fact]

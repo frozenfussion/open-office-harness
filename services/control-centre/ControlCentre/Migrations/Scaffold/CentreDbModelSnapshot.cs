@@ -311,6 +311,50 @@ namespace ControlCentre.Migrations.Scaffold
                     b.ToTable("dead_letters", (string)null);
                 });
 
+            modelBuilder.Entity("ControlCentre.Platform.DeadLetterReplay", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("DeadLetterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("dead_letter_id");
+
+                    b.Property<string>("ErrorCode")
+                        .HasColumnType("text")
+                        .HasColumnName("error_code");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("outcome");
+
+                    b.Property<DateTimeOffset>("ReplayedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("replayed_at");
+
+                    b.Property<string>("ReplayedBy")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("replayed_by");
+
+                    b.Property<string>("TargetTopic")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("target_topic");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeadLetterId", "ReplayedAt");
+
+                    b.ToTable("dead_letter_replays", null, t =>
+                        {
+                            t.HasCheckConstraint("dead_letter_replays_outcome_check", "outcome IN ('sent','failed')");
+                        });
+                });
+
             modelBuilder.Entity("ControlCentre.Platform.Grant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -562,6 +606,14 @@ namespace ControlCentre.Migrations.Scaffold
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("topic");
+
+                    b.Property<string>("Traceparent")
+                        .HasColumnType("text")
+                        .HasColumnName("traceparent");
+
+                    b.Property<string>("Tracestate")
+                        .HasColumnType("text")
+                        .HasColumnName("tracestate");
 
                     b.HasKey("Id");
 
@@ -914,6 +966,15 @@ namespace ControlCentre.Migrations.Scaffold
 
                             t.HasCheckConstraint("tier_requests_tier_check", "tier > 0");
                         });
+                });
+
+            modelBuilder.Entity("ControlCentre.Platform.DeadLetterReplay", b =>
+                {
+                    b.HasOne("ControlCentre.Platform.DeadLetter", null)
+                        .WithMany()
+                        .HasForeignKey("DeadLetterId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ControlCentre.Platform.Grant", b =>

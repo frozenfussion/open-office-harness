@@ -62,6 +62,7 @@ public sealed class ModelConnection(HttpClient http, IConfiguration config, Time
         ["questions"] = new JsonObject { ["test"] = "Is this a connection test?" }
       };
       request.Content = JsonContent.Create(body);
+      request.Options.Set(Tracing.InternalRequest, true);
       using var response = await http.SendAsync(request, limit.Token);
       if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
       {
@@ -129,6 +130,7 @@ public sealed class ModelConnection(HttpClient http, IConfiguration config, Time
           Content = new FormUrlEncodedContent(new Dictionary<string, string>
           { ["grant_type"] = "client_credentials", ["client_id"] = "ooh-control-centre", ["client_secret"] = config["CC_CLIENT_SECRET"]! })
         };
+        request.Options.Set(Tracing.InternalRequest, true);
         using var response = await http.SendAsync(request, ct);
         if (response.IsSuccessStatusCode)
         {
