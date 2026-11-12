@@ -1,4 +1,31 @@
-# Stage 3 phase 1 - merged, not yet deployed
+# Stage 3 - accepted (12 Nov 2026)
+
+Aziz accepted Stage 3 on **12 Nov 2026, 15:36 MYT**, at `stage-3` commit
+`554a187f84c0` (all nine images built and deployed with that tag). Merged into
+`main`; tag `spine-v0.3`.
+
+## What was checked
+
+| Check | Result |
+|---|---|
+| Clean-worktree checks (all services, contracts, scripts, manifests) | PASS (independent audit, 12 Nov) |
+| `40`, `62`, `70`, `77 554a187f84c0` after `sudo reboot` | all PASS, 0 FAIL (12 Nov 15:13-15:31) |
+| Aziz in the browser | branded sign-in; Admin Console sign-in with username and with email; Slides deck made and downloaded (11 and 12 Nov, also after the reboot); Auto routing simple question -> tier 1, hard question -> tier 2; Slides right removed -> no Slides tool offered |
+
+## Changes after phase 2 (12 Nov)
+
+- Admin Console sign-in loop fixed: the screen navigation no longer rewrites the address before sign-in finishes (`c379610`, `51c40fc`).
+- Models screen refreshes health after Test, Save and Switch off (`69248ec`).
+- Routing: the tier 2 rule is written down and is the routing question; threshold 0.5 from a 20-question labelled set (`docs/routing/`); Jev main classifier, DeepSeek backup, temperature 0 (spec section 14 row 15; D096, D097).
+
+## Open for later (not in the Stage 3 spec)
+
+- Workspace: a saved chat link opened while signed out lands on a new chat after sign-in (the conversation id is not carried through sign-in).
+- Workspace: tables in chat answers break short words (the design system's `overflow-wrap: anywhere` on message bodies also applies inside tables).
+
+---
+
+# History: Stage 3 phase 1 merge (11 Nov 2026)
 
 The reviewed phase 1 Parts were merged locally on **11 Nov 2026**, in
 `~/projects/worktrees/stage-3`, on branch `stage-3`. All five sources merged in
