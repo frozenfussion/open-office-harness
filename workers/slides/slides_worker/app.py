@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 
 from .config import Settings
 from .diagnostics import JsonFormatter
+from .tracing import annotate_event, instrument, kafka_span
 from .worker import MAX_POLL_INTERVAL_MS, Gateway, Worker
 
 
@@ -42,23 +43,26 @@ class Kafka:
         self.consumer.subscribe(["skill.requests.slides"])
 
     def publish(self, topic: str, event: dict[str, Any]) -> None:
-        deliveries: list[Any] = []
-        delivered = threading.Event()
+        with kafka_span(topic) as headers:
+            annotate_event(event)
+            deliveries: list[Any] = []
+            delivered = threading.Event()
 
-        def on_delivery(error: Any, message: Any) -> None:
-            deliveries.append(error)
-            delivered.set()
+            def on_delivery(error: Any, message: Any) -> None:
+                deliveries.append(error)
+                delivered.set()
 
-        self.producer.produce(
-            topic,
-            key=event["correlation_id"],
-            value=json.dumps(event),
-            on_delivery=on_delivery,
-        )
-        while not delivered.is_set():
-            self.producer.poll(0.1)
-        if deliveries != [None]:
-            raise RuntimeError("queue_unavailable")
+            self.producer.produce(
+                topic,
+                key=event["correlation_id"],
+                value=json.dumps(event),
+                on_delivery=on_delivery,
+                headers=headers,
+            )
+            while not delivered.is_set():
+                self.producer.poll(0.1)
+            if deliveries != [None]:
+                raise RuntimeError("queue_unavailable")
 
 
 class Runtime:
@@ -83,7 +87,10 @@ class Runtime:
                         extra={"event": "consumer_poll_error", "code": "unavailable"},
                     )
                     continue
-                self.worker.process(message.value().decode("utf-8", errors="replace"))
+                with kafka_span(message.topic(), message.headers() or []):
+                    self.worker.process(
+                        message.value().decode("utf-8", errors="replace")
+                    )
                 self.kafka.consumer.commit(message=message, asynchronous=False)
         except Exception:
             self.fatal = True
@@ -140,6 +147,7 @@ def create_app(settings: Settings, runtime: Runtime | None = None) -> FastAPI:
             return JSONResponse({"status": "down"}, status_code=503)
         return JSONResponse({"status": "ok"})
 
+    instrument(app, client)
     return app
 
 
