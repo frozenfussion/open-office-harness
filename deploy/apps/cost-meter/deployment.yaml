@@ -1,0 +1,106 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cost-meter
+  namespace: ${APPS_NAMESPACE}
+  labels:
+    app: cost-meter
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cost-meter
+  template:
+    metadata:
+      annotations:
+        ooh/config-hash: "${CONFIG_HASH}"
+      labels:
+        app: cost-meter
+        ooh/app: real
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: migrate
+        image: ghcr.io/frozenfussion/ooh-cost-meter:${IMAGE_TAG}
+        args: ["migrate"]
+        env:
+        - name: CM_DB_MIGRATE_CONNECTION
+          valueFrom:
+            secretKeyRef:
+              name: cost-meter-db
+              key: migrate-connection
+        resources:
+          requests:
+            cpu: 50m
+            memory: 96Mi
+          limits:
+            cpu: '1'
+            memory: 512Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      containers:
+      - name: cost-meter
+        image: ghcr.io/frozenfussion/ooh-cost-meter:${IMAGE_TAG}
+        ports:
+        - name: http
+          containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: cost-meter-config
+        env:
+        - name: CM_DB_CONNECTION
+          valueFrom:
+            secretKeyRef:
+              name: cost-meter-db
+              key: connection
+        - name: CM_KAFKA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: cost-meter-kafka
+              key: password
+        resources:
+          requests:
+            cpu: 50m
+            memory: 96Mi
+          limits:
+            cpu: '1'
+            memory: 512Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 20
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir:
+          medium: Memory
+          sizeLimit: 64Mi

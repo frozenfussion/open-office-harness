@@ -12,3 +12,11 @@ data:
   HA_GATEWAY_URL: http://model-gateway.${APPS_NAMESPACE}.svc:8080
   HA_SYSTEM_PROMPT: >-
     You are the assistant in Open Office Harness. Always reply in the same language as the user's latest message.
+  HA_KAFKA_BOOTSTRAP: ooh-kafka-kafka-bootstrap.${PLATFORM_NAMESPACE}.svc:9092
+  HA_KAFKA_USERNAME: harness-api
+  HA_FILES_ROOT: /files
+  HA_ROUTE_TIER_QUESTION: Is this a request that needs careful multi-step reasoning, such as a rigorous proof or hard maths, complex code, debugging or architecture design, or a deep expert analysis or comparison with trade-offs, rather than a fact, short writing, a translation, a summary or an everyday question?
+  HA_ROUTE_TIER_THRESHOLD: "0.5"
+  HA_ROUTE_UP_TIER: "2"
+  HA_ROUTE_SKILL_THRESHOLD: "0.8"
+  HA_ROUTE_TIMEOUT_SECONDS: "30"

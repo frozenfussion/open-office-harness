@@ -3,6 +3,7 @@ import builtins
 import json
 import logging
 import re
+from uuid import UUID
 
 BUILTIN_EXCEPTIONS = frozenset(
     name
@@ -20,10 +21,15 @@ EVENTS = frozenset(
         "token_error",
         "request_error",
         "title_failed",
+        "kafka_error",
     }
 )
 CODES = frozenset(
     {
+        "audit_publish_failed",
+        "chat_publish_failed",
+        "consumer_stopped",
+        "consumer_poll_error",
         "unauthorized",
         "rights_unavailable",
         "tier_not_allowed",
@@ -46,13 +52,16 @@ CODES = frozenset(
 )
 
 
-def failure(event: str, code: str, tier: int | None = None) -> None:
+def failure(
+    event: str, code: str, tier: int | None = None, correlation_id: str | None = None
+) -> None:
     logging.getLogger("harness_api").warning(
         "service_failure",
         extra={
             "event": event,
             "code": code if code in CODES else "unavailable",
             "tier": tier,
+            "correlation_id": correlation_id,
         },
     )
 
@@ -107,4 +116,10 @@ class JsonFormatter(logging.Formatter):
                 message_class=message_class,
                 exception_type=exception,
             )
+        correlation = getattr(record, "correlation_id", None)
+        if isinstance(correlation, str):
+            try:
+                body["correlation_id"] = str(UUID(correlation))
+            except ValueError:
+                pass
         return json.dumps(body)

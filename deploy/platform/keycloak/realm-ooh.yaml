@@ -7,6 +7,8 @@ metadata:
 spec:
   keycloakCRName: ooh-keycloak
   realm:
+    displayName: Open Office Harness
+    loginTheme: ooh
     realm: ooh
     enabled: true
     registrationAllowed: true
@@ -241,7 +243,7 @@ spec:
       attributes:
         pkce.code.challenge.method: S256
         post.logout.redirect.uris: "+"
-        oauth2.device.authorization.grant.enabled: 'true'
+        oauth2.device.authorization.grant.enabled: 'false'
       protocolMappers:
       - name: audience-ooh-control-centre
         protocol: openid-connect
@@ -289,6 +291,22 @@ spec:
           included.client.audience: ooh-model-gateway
           access.token.claim: 'true'
           id.token.claim: 'false'
+      - name: audience-ooh-audit-writer
+        protocol: openid-connect
+        protocolMapper: oidc-audience-mapper
+        consentRequired: false
+        config:
+          included.custom.audience: ooh-audit-writer
+          access.token.claim: 'true'
+          id.token.claim: 'false'
+      - name: audience-ooh-cost-meter
+        protocol: openid-connect
+        protocolMapper: oidc-audience-mapper
+        consentRequired: false
+        config:
+          included.custom.audience: ooh-cost-meter
+          access.token.claim: 'true'
+          id.token.claim: 'false'
     - clientId: ooh-model-gateway
       enabled: true
       publicClient: false
@@ -305,3 +323,62 @@ spec:
           included.client.audience: ooh-control-centre
           access.token.claim: 'true'
           id.token.claim: 'false'
+    - clientId: ooh-slides-worker
+      enabled: true
+      publicClient: false
+      serviceAccountsEnabled: true
+      standardFlowEnabled: false
+      directAccessGrantsEnabled: false
+      protocolMappers:
+      - name: audience-ooh-model-gateway
+        protocol: openid-connect
+        protocolMapper: oidc-audience-mapper
+        consentRequired: false
+        config:
+          included.client.audience: ooh-model-gateway
+          access.token.claim: 'true'
+          id.token.claim: 'false'
+    - clientId: ooh-safety-watcher
+      enabled: true
+      publicClient: false
+      serviceAccountsEnabled: true
+      standardFlowEnabled: false
+      directAccessGrantsEnabled: false
+      protocolMappers:
+      - name: audience-ooh-model-gateway
+        protocol: openid-connect
+        protocolMapper: oidc-audience-mapper
+        consentRequired: false
+        config:
+          included.client.audience: ooh-model-gateway
+          access.token.claim: 'true'
+          id.token.claim: 'false'
+    - clientId: ooh-stage-check
+      enabled: false
+      publicClient: false
+      serviceAccountsEnabled: true
+      standardFlowEnabled: false
+      directAccessGrantsEnabled: false
+      protocolMappers:
+      - name: audience-ooh-control-centre
+        protocol: openid-connect
+        protocolMapper: oidc-audience-mapper
+        consentRequired: false
+        config:
+          included.client.audience: ooh-control-centre
+          access.token.claim: 'true'
+          id.token.claim: 'false'
+      - name: audience-ooh-harness-api
+        protocol: openid-connect
+        protocolMapper: oidc-audience-mapper
+        consentRequired: false
+        config:
+          included.client.audience: ooh-harness-api
+          access.token.claim: 'true'
+          id.token.claim: 'false'
+    users:
+    - username: service-account-ooh-stage-check
+      enabled: true
+      serviceAccountClientId: ooh-stage-check
+      realmRoles:
+      - ooh-admin

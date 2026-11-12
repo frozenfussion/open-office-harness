@@ -39,6 +39,9 @@ spec:
       memory: 2Gi
   unsupported:
     podTemplate:
+      metadata:
+        annotations:
+          ooh/theme-sha256: ${KEYCLOAK_THEME_SHA256}
       spec:
         securityContext:
           runAsNonRoot: true
@@ -59,8 +62,21 @@ spec:
           volumeMounts:
           - name: keycloak-tmp
             mountPath: /tmp
+          - name: ooh-theme
+            mountPath: /opt/keycloak/themes/ooh
+            readOnly: true
         volumes:
         - name: keycloak-tmp
           emptyDir:
             medium: Memory
             sizeLimit: 256Mi
+        - name: ooh-theme
+          configMap:
+            name: ooh-keycloak-theme
+            items:
+            - key: theme.properties
+              path: login/theme.properties
+            - key: ooh.css
+              path: login/resources/css/ooh.css
+            - key: messages_en.properties
+              path: login/messages/messages_en.properties

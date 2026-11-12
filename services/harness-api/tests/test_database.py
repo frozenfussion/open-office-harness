@@ -2,7 +2,7 @@
 import os
 from collections.abc import AsyncIterator
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import psycopg
 import pytest
@@ -49,6 +49,11 @@ def db_settings() -> tuple[str, str]:
         "TRUNCATE messages",
         "DELETE FROM conversations WHERE id=%s",
         "TRUNCATE conversations CASCADE",
+        "DELETE FROM jobs",
+        "TRUNCATE jobs",
+        "UPDATE processed_events SET topic=topic",
+        "DELETE FROM processed_events",
+        "TRUNCATE processed_events",
         "UPDATE schema_migrations SET name=name",
         "DELETE FROM schema_migrations",
         "TRUNCATE schema_migrations",
@@ -307,3 +312,248 @@ async def test_database_thinking_is_bounded_for_every_outcome(
     row = await store.conversation(identifier, db_user)
     assert row["messages"][-1]["thinking"] == "思" * 100_000
     assert row["messages"][-1]["outcome"] == outcome
+
+
+@pytest.mark.anyio
+async def test_private_reasoning_round_trip(store: Store, db_user: str) -> None:
+    identifier = await store.create(db_user)
+    await store.append(identifier, db_user, "user", "Question", "completed", 1)
+    state = {"model_entry_id": str(uuid4()), "opaque": "PRIVATE_REASONING"}
+    await store.append(
+        identifier,
+        db_user,
+        "assistant",
+        "Answer",
+        "completed",
+        1,
+        {"reasoning_state": state, "model_entry_id": state["model_entry_id"]},
+    )
+    assert (await store.history(identifier))[-1]["reasoning_state"] == state
+    assert (
+        "reasoning_state"
+        not in (await store.conversation(identifier, db_user))["messages"][-1]
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("decision", ["approved", "rejected", "removed", "unavailable"])
+async def test_jobs_approval_results_and_protections(
+    store: Store,
+    db_user: str,
+    h: Any,
+    decision: str,
+) -> None:
+    from harness_api.errors import ApiError
+    from harness_api.events import JobEvents, envelope
+    from harness_api.jobs import Jobs
+
+    notifications = JobEvents()
+    jobs = Jobs(store.connection, h.app.state.upstream, h.publisher, notifications)
+    identifier = await store.create(db_user)
+    h.skills.respond(
+        json=[
+            {
+                "name": "slides",
+                "title": "Example skill",
+                "description": "Example tool",
+                "input_schema": "contracts/skills/slides/input.schema.json",
+                "needs_approval": True,
+                "topic": "skill.requests.slides",
+                "version": "1.0.0",
+            }
+        ]
+    )
+    result, card = await jobs.start(
+        db_user, identifier, {"name": "slides", "arguments": {"topic": "Example"}}
+    )
+    job_id = result["job_id"]
+    assert card["status"] == "awaiting_approval" and card["label"] == "Example"
+    assert [
+        event[1]["payload"]["action"]
+        for event in h.publisher.events
+        if event[0] == "audit.events"
+    ] == ["rights.check", "skill.awaiting_approval"]
+    if decision == "removed":
+        h.rights.respond(json={"chat_tiers": [1], "skills": []})
+    elif decision == "unavailable":
+        h.rights.respond(503)
+    event = envelope(
+        "approval.decided",
+        job_id,
+        db_user,
+        {"approved": decision != "rejected", "decided_by": "test-admin", "note": ""},
+    )
+    await jobs.handle("approvals.decided", event)
+    row = await jobs.get(UUID(job_id), db_user)
+    expected = {
+        "approved": "queued",
+        "rejected": "rejected",
+        "removed": "failed",
+        "unavailable": "failed",
+    }[decision]
+    assert row["status"] == expected
+    published = len(h.publisher.events)
+    await jobs.handle("approvals.decided", event)
+    assert len(h.publisher.events) == published
+    if decision == "approved":
+        output = {
+            "file_key": "outputs/slides/example.pptx",
+            "mime": "application/octet-stream",
+            "summary": "Example",
+        }
+        completed = envelope(
+            "skill.result",
+            job_id,
+            db_user,
+            {"skill": "slides", "status": "completed", "output": output, "error": None},
+        )
+        await jobs.handle("skill.results", completed)
+        await jobs.handle("skill.results", completed)
+        failed = envelope(
+            "skill.result",
+            job_id,
+            db_user,
+            {
+                "skill": "slides",
+                "status": "failed",
+                "output": None,
+                "error": {"code": "example", "message": "Example"},
+            },
+        )
+        await jobs.handle("skill.results", failed)
+        assert (await jobs.get(UUID(job_id), db_user))["output"] == output
+    with pytest.raises(ApiError):
+        await jobs.get(UUID(job_id), "other-user")
+    with pytest.raises(ApiError):
+        await jobs.listing("other-user", 20, UUID(job_id))
+    assert [row["job_id"] for row in await jobs.listing(db_user, 1, None)] == [job_id]
+    assert await jobs.listing(db_user, 20, UUID(job_id)) == []
+    await jobs.handle(
+        "skill.results",
+        envelope(
+            "skill.result",
+            str(uuid4()),
+            db_user,
+            {
+                "skill": "slides",
+                "status": "failed",
+                "output": None,
+                "error": {"code": "example", "message": "Example"},
+            },
+        ),
+    )
+    async with await psycopg.AsyncConnection.connect(store.connection) as db:
+        for statement in (
+            "DELETE FROM jobs",
+            "TRUNCATE jobs",
+            "UPDATE processed_events SET topic=topic",
+            "DELETE FROM processed_events",
+            "TRUNCATE processed_events",
+        ):
+            with pytest.raises(psycopg.Error):
+                async with db.transaction():
+                    await db.execute(statement)
+
+
+@pytest.mark.anyio
+async def test_jobs_refusal_queue_failure_and_paging(
+    store: Store, db_user: str, h: Any
+) -> None:
+    from harness_api.events import JobEvents
+    from harness_api.jobs import Jobs
+
+    jobs = Jobs(store.connection, h.app.state.upstream, h.publisher, JobEvents())
+    conversation = await store.create(db_user)
+    for tool in (
+        {"name": "other", "arguments": {}},
+        {"name": "slides", "arguments": {}},
+    ):
+        result, event = await jobs.start(db_user, conversation, tool)
+        assert "error" in result and event is None
+    h.publisher.fail = True
+    result, event = await jobs.start(
+        db_user, conversation, {"name": "slides", "arguments": {"topic": "Example"}}
+    )
+    assert result == {"error": "The job could not be started."}
+    assert event["status"] == "failed"
+    assert (await jobs.listing(db_user, 20, None))[0]["error"][
+        "code"
+    ] == "queue_unavailable"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failed_audit", ["rights.check", "skill.requested"])
+async def test_audit_failure_keeps_queued_job_completable(
+    store: Store,
+    db_user: str,
+    h: Any,
+    failed_audit: str,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from harness_api.events import JobEvents, envelope
+    from harness_api.jobs import Jobs
+
+    published = []
+
+    async def publish(topic: str, event: dict[str, Any]) -> None:
+        if topic == "audit.events" and event["payload"]["action"] == failed_audit:
+            raise RuntimeError("synthetic audit outage")
+        published.append((topic, event))
+
+    monkeypatch.setattr(h.publisher, "publish", publish)
+    jobs = Jobs(store.connection, h.app.state.upstream, h.publisher, JobEvents())
+    conversation = await store.create(db_user)
+    result, card = await jobs.start(
+        db_user, conversation, {"name": "slides", "arguments": {"topic": "Example"}}
+    )
+    assert result["status"] == card["status"] == "queued"
+    assert any(topic == "skill.requests.slides" for topic, _ in published)
+    output = {
+        "file_key": "outputs/slides/example.pptx",
+        "mime": "application/octet-stream",
+        "summary": "Example",
+    }
+    await jobs.handle(
+        "skill.results",
+        envelope(
+            "skill.result",
+            result["job_id"],
+            db_user,
+            {"skill": "slides", "status": "completed", "output": output, "error": None},
+        ),
+    )
+    assert (await jobs.get(UUID(result["job_id"]), db_user))["status"] == "completed"
+    assert any(
+        getattr(record, "code", "") == "audit_publish_failed"
+        for record in caplog.records
+    )
+
+
+@pytest.mark.anyio
+async def test_routing_persisted_without_entering_model_history(
+    store: Store, db_user: str
+) -> None:
+    identifier = await store.create(db_user)
+    await store.append(identifier, db_user, "user", "Question", "completed", 1)
+    routing = {"tier": 1, "scores": {"needs_tier2": 0.9}, "note": "Access note"}
+    state = {"model_entry_id": str(uuid4()), "opaque": "PRIVATE_REASONING"}
+    await store.append(
+        identifier,
+        db_user,
+        "assistant",
+        "Answer",
+        "completed",
+        1,
+        {
+            "routing": routing,
+            "reasoning_state": state,
+            "model_entry_id": state["model_entry_id"],
+        },
+    )
+    answer = (await store.conversation(identifier, db_user))["messages"][-1]
+    assert answer["routing"] == routing
+    assert "reasoning_state" not in answer
+    history = await store.history(identifier)
+    assert history[-1]["reasoning_state"] == state
+    assert "routing" not in history[-1]

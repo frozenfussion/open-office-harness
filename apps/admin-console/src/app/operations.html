@@ -1,0 +1,44 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+@if (screen() === 'overview') {
+  <header><span class="ooh-label">Admin Console · Today</span><h1>{{ overviewGreeting() }}</h1><p>See what needs your attention.</p><button class="ooh-btn ooh-btn--secondary" (click)="load()">Refresh</button></header>
+  @if (overview(); as data) {
+    <div class="figures">
+      <section class="card"><span class="ooh-label">People active today</span><strong>{{ figure(data.people_active_today) }}</strong><span>of {{ figure(data.people_approved) }} approved</span></section>
+      <section class="card"><span class="ooh-label">Skill jobs today</span><strong>{{ figure(data.skill_jobs_today) }}</strong></section>
+      <section class="card"><span class="ooh-label">Model calls today</span><strong>{{ figure(data.model_calls_today) }}</strong></section>
+      <section class="card"><span class="ooh-label">Cost today USD</span><strong>{{ figure(data.cost_today_usd) }}</strong></section>
+    </div>
+    <div class="split"><section class="attention"><h2>Needs your attention</h2>@for (item of data.needs_attention; track $index) {
+      <div class="card attention-row"><span class="ooh-chip ooh-chip--approval">{{ item.title }}</span><p>{{ item.detail }}</p><time [attr.datetime]="item.at">{{ formatTime(item.at) }}</time><a class="ooh-btn ooh-btn--secondary" [href]="item.link" (click)="$event.preventDefault(); navigate.emit(item.link.slice(1))">Open</a></div>
+    } @empty { <p>Nothing waiting.</p> }</section>
+    <section class="health"><h2>System health</h2>@for (row of data.health; track row.name) {<div class="health-row"><span>{{ row.name }}</span><span class="ooh-chip" [class.ooh-chip--done]="row.status === 'ok'" [class.ooh-chip--failed]="row.status === 'down'">{{ row.status === 'ok' ? 'OK' : row.status === 'down' ? 'Down' : 'Unknown' }}</span><time [attr.datetime]="row.checked_at">{{ formatTime(row.checked_at) }}</time></div>}</section></div>
+  }
+}
+@if (screen() === 'approvals') {
+  <header><span class="ooh-label">Human decisions</span><h1>Approvals</h1><p>Review waiting sign-ups, model and skill requests, job approvals and safety flags. Email addresses are not verified.</p><button class="ooh-btn ooh-btn--secondary" (click)="load()" [disabled]="busy()">Refresh</button></header>
+  <div class="split"><div class="ooh-table-wrap"><table class="ooh-table"><thead><tr><th>Requested at</th><th>Person</th><th>Action</th><th>Status</th></tr></thead><tbody>
+    @for (row of decisions(); track row.kind + row.id) {<tr><td>{{ formatTime(row.requested_at || row.created_at) }}</td><td>{{ row.name || row.user_id || row.requester_user_id }}</td><td><button class="ooh-btn ooh-btn--ghost" (click)="select(row)">{{ title(row) }}</button></td><td><span class="ooh-chip ooh-chip--approval">Waiting</span></td></tr>}
+  </tbody></table>@if (!decisions().length) {<p>No waiting decisions.</p>}</div>
+  @if (selected(); as row) {<section class="card detail" aria-label="Selected approval"><span class="ooh-label">Selected</span><h2>{{ title(row) }}</h2><p>{{ row.name || row.user_id || row.requester_user_id }} · {{ row.email || '—' }}</p><p class="ooh-mono">{{ row.id }}</p><p>{{ row.reason }}</p>@if (row.details) {<pre>{{ json(row.details) }}</pre>}@if (row.risk) {<p>Risk: {{ row.risk }}</p>}
+    @if (row.kind === 'access') {<label class="ooh-field"><span class="ooh-label">Chat tier</span><select class="ooh-select" aria-label="Chat tier" [(ngModel)]="tier"><option [ngValue]="undefined">Choose a tier</option>@for (n of tiers(); track n) {<option [ngValue]="n">Tier {{ n }}</option>}</select></label>}
+    @if (row.kind === 'approval') {<label class="ooh-field"><span class="ooh-label">Note (saved to audit)</span><textarea class="ooh-textarea" [(ngModel)]="note" rows="3"></textarea></label>}
+    <div class="actions"><button class="ooh-btn ooh-btn--primary" [disabled]="busy() || row.kind === 'access' && !tier" (click)="decide(true)">{{ row.action === 'safety.flag' ? 'Confirm problem' : 'Approve' }}</button><button class="ooh-btn ooh-btn--danger" [disabled]="busy()" (click)="decide(false)">{{ row.action === 'safety.flag' ? 'Clear' : row.kind === 'approval' ? 'Deny' : 'Reject' }}</button></div>
+  </section>}</div>
+}
+@if (screen() === 'rights') {
+  <header><span class="ooh-label">Deterministic access</span><h1>People &amp; rights</h1><p>Choose each person's grants. Everyone grants apply to every approved person.</p></header>
+  <div class="ooh-table-wrap"><table class="ooh-table"><thead><tr><th>Person</th>@for (col of columns(); track col.key) {<th>{{ col.title }}</th>}</tr></thead><tbody>
+    <tr><td>Everyone</td>@for (col of columns(); track col.key) {<td><input type="checkbox" [attr.aria-label]="'Everyone ' + col.title" [checked]="checked('', col.key)" [disabled]="busy()" (change)="toggle('', col.key, $any($event.target).checked)"></td>}</tr>
+    @for (row of persons(); track row.user_id) {<tr><td>{{ row.name || row.user_id }}<p>{{ row.email || '—' }}</p><span class="ooh-mono">{{ row.user_id }}</span></td>@for (col of columns(); track col.key) {<td><input type="checkbox" [attr.aria-label]="(row.name || row.user_id) + ' ' + col.title" [checked]="checked(row.user_id, col.key)" [disabled]="busy()" (change)="toggle(row.user_id, col.key, $any($event.target).checked)">@if (checked('', col.key)) {<span class="ooh-help">Everyone also has this</span>}</td>}</tr>}
+  </tbody></table></div>
+  <div class="actions"><button class="ooh-btn ooh-btn--ghost" [disabled]="busy()" (click)="changes.set({})">Discard</button><button class="ooh-btn ooh-btn--primary" [disabled]="busy() || !changeCount()" (click)="saveRights()">Save {{ changeCount() }} changes</button></div>
+}
+@if (screen() === 'audit') {
+  <header><span class="ooh-label">Follow a request</span><h1>Audit</h1><p>Every decision, model call, skill job and approval, newest first. Open a request ID to see it in time order.</p></header>
+  <form class="actions" (ngSubmit)="inTrace.set(false); filter()"><label class="ooh-field"><span class="ooh-label">Request ID (full ID)</span><input class="ooh-input" name="requestId" [(ngModel)]="requestId"></label><label class="ooh-field"><span class="ooh-label">Person (user ID)</span><input class="ooh-input" name="person" [(ngModel)]="person"></label><label class="ooh-field"><span class="ooh-label">Action</span><input class="ooh-input" name="action" [(ngModel)]="action"></label><button class="ooh-btn ooh-btn--secondary">Filter</button></form>
+  @if (inTrace()) {<h2>Request {{ requestId }} · Time order</h2>}
+  <div class="ooh-table-wrap"><table class="ooh-table"><thead><tr><th>Time</th><th>Producer</th><th>Person</th><th>Action</th><th>Detail</th><th>Outcome</th><th>Request ID</th></tr></thead><tbody>@for (row of trail(); track row.id) {<tr><td>{{ formatTime(row.occurred_at, true) }}</td><td>{{ row.producer }}</td><td [attr.title]="row.user_id">{{ row.person || row.user_id }}</td><td>{{ row.action }}</td><td>{{ row.target }} @if (row.scores) {<pre>{{ json(row.scores) }}</pre>} {{ row.model || '' }} {{ row.tokens ?? '' }} {{ row.cost_usd ?? '' }}</td><td>{{ row.outcome }}</td><td><button class="ooh-btn ooh-btn--ghost" (click)="trace(row.correlation_id)">{{ row.correlation_id }}</button></td></tr>}</tbody></table></div>
+  @if (more() && !inTrace()) {<button class="ooh-btn ooh-btn--secondary" (click)="filter(true)">Load more</button>}
+}
+<p class="ooh-help">Times in {{ timeZone() }}</p>
+@if (error()) {<p class="error" role="alert">{{ error() }}</p>}

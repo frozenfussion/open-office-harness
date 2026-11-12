@@ -2,19 +2,20 @@
 
 ![Modules and synchronous/asynchronous flows](images/architecture-v0.2.png)
 
-Stage 2 implements direct streamed chat: the Workspace, Harness API and Model
-Gateway, plus Models & tiers in the Admin Console and the Control Centre registry.
-The skill workers and read-only consumers below arrive in Stage 3.
+Stage 3 adds asynchronous Slides jobs, the audit writer, cost meter and safety
+watcher, plus Overview, Approvals, People & rights and Audit in the Admin Console.
+The Workspace keeps direct streamed chat and adds live job cards and skill requests.
+Classifier routing is added separately in phase 2 after the pre-routing tag.
 The fixed stage specifications and global rules take precedence over the planning
 image: deployment uses plain Kubernetes manifests, and each service has its own
 database rather than shared tables.
 
 | Module | Owns | Never does |
 |---|---|---|
-| Workspace (Angular 22) | Sign-in, access-state screens, allowed tiers, conversations and streamed chat; uploads and approvals later | Contact Kafka, models or the Control Centre database |
-| Admin Console (Angular 22) | Models & tiers, access requests, encrypted key entry and tier grants; other screens later | Contact the Harness directly |
+| Workspace (Angular 22) | Sign-in, access-state screens, allowed tiers, conversations, streamed chat, Jobs, authenticated downloads and skill requests | Contact Kafka, models or the Control Centre database |
+| Admin Console (Angular 22) | Overview, Approvals, People & rights, Models & tiers, Audit and encrypted key entry | Contact the Harness directly |
 | Control Centre (.NET 10 modular monolith) | Deterministic rights, access approvals, model and skill registries, encrypted provider keys, approval rules, its own append-only change log and audit query | Call AI outside the Gateway's pinned test call |
-| Harness API (Python 3.14) | Conversations, last 20 completed messages, rights checks, allowed tools and streaming; classifier later | Decide rights or store secrets |
+| Harness API (Python 3.14) | Conversations, last 20 completed messages, rights checks, allowed tools and streaming, job ownership and tool loop; routing in phase 2 | Decide rights or store secrets |
 | Model Gateway (Python 3.14) | Purpose/tier routing, rate limits, cost and failover; uses per-call keys read from the Control Centre, which holds them encrypted | Know who the user is beyond user_id for cost |
 | Skill workers (Python 3.14) | One skill each; requests, files and results | Check rights after a job is published |
 | Audit writer | Append-only audit store | Change upstream business state or publish jobs |
@@ -36,7 +37,7 @@ database rather than shared tables.
   A tier is a positive integer field on a chat registry entry; creating one also
   creates its right. Registry assignments and credentials are runtime data.
 - [Harness HTTP](../contracts/http/harness-api.openapi.yaml): conversations,
-  message streaming, uploads, job updates and signed downloads.
+  message streaming, job updates and downloads by job ID. Uploads stay unavailable.
 - [Events](../contracts/events/envelope.schema.json): all business-event records
   share an envelope; the Kafka key is correlation_id. Consumers ignore duplicate event_id
   values, retry a fixed configured number of times, then publish to dlq.<topic>.
@@ -47,17 +48,20 @@ database rather than shared tables.
 - [Skills](../contracts/skills/manifest.schema.json): a manifest declares the
   permission, approval need and input/output shapes. Only allowed skills appear
   as model tools. Slides produces a PowerPoint file.
-- [Storage](../contracts/storage.md): files use private object keys and
-  short-lived signed download links.
+- [Storage](../contracts/storage.md): the retained ooh-files volume holds private file keys;
+  downloads use a bearer token and the Harness job ownership check.
 
 ## Flows
 
-**Normal skill (Stage 3):** Workspace sends a request to the Harness. The Harness asks the
-classifier for suggestions, checks rights with the Control Centre, publishes to
-skill.requests.slides, and shows queued. The worker writes an output to storage
+**Normal skill (Stage 3):** Workspace sends a message to the Harness; the chat model calls an allowed
+skill tool. The Harness checks the skill right with the Control Centre, validates
+arguments, records a job, audits the right check and publishes skill.requested
+to skill.requests.slides. The chat shows a Queued card and continues immediately.
+The tool result goes back to the same pinned model entry with its reasoning
+state unchanged, for at most two tool rounds. The worker writes an output to storage
 and publishes skill.result. The Harness sends job.completed to the Workspace.
 
-**Approval (Stage 3):** before publishing a job, the Harness publishes approval.requested.
+**Approval (Stage 3):** when a skill manifest needs per-job approval, the Harness publishes approval.requested first. Slides does not need per-job approval.
 The Control Centre handles the admin's decision through the Admin Console and
 publishes approval.decided. Only an approved request with valid rights proceeds;
 a rejected request never becomes a skill job. The UI shows awaiting approval.
@@ -143,8 +147,9 @@ answering tier and its own system message, with a 20-second limit. Completed
 enables the Workspace composer immediately; an optional later title event
 updates only its conversation's heading/list without changing updated_at.
 Failure keeps the default title and completed answer.
-Only allowed skills are offered as tools. A tool request produces a fixed
-sentence saying skills arrive in the next stage; it runs no job. Conversations
+Only allowed skills are offered as tools. A tool call starts an asynchronous
+job and returns its ID to the model. If the queue fails, the job is failed and
+the person sees a plain message. A later model failure leaves the job card visible. Conversations
 belong to the Harness database, and messages cannot be updated or deleted.
 
 The Gateway resolves purpose and tier from the Control Centre registry on
@@ -154,14 +159,17 @@ after output ends the stream. Per-entry, per-user rate limits use the last 60
 seconds of completed/failed usage. Per-entry budgets use the UTC day's cost.
 When every entry is over budget, the Harness can fall back to the lowest allowed
 tier and includes a note. Usage and calculated cost live in the Gateway's own
-append-only database; no Kafka messages are produced for chat in Stage 2.
+append-only database. In Stage 3 the Gateway publishes model.call/model.classify
+audit events including tokens and cost, without text. It reports model health
+changes to the Control Centre on internal port 8081.
 
 **Test connection (Stage 2):** the Control Centre calls AI only through the
 Gateway's pinned test call. An admin presses Test beside a model entry with a
 saved key. The public admin route sends that entry's purpose, tier and ID to
 `/v1/call` with `stream: false`, no tools, a user ID starting `admin-test-` and
 exactly one user message: `Reply with the single word OK.` The Gateway refuses
-any other Control Centre call, including classification. The Control Centre's
+any other Control Centre call. Stage 3 adds its pinned /v1/classify test with
+text "This is a connection test." and question {"test":"Is this a connection test?"}. The Control Centre's
 service token carries the Gateway audience through an access-token-only realm
 mapper. Ordinary Harness calls keep their existing rules.
 
@@ -196,13 +204,16 @@ Stage 0 creates Keycloak's database; Stage 1 adds the Control Centre database,
 and Stage 2 adds separate Harness and Gateway databases. All stored times are UTC; the initial
 display setting is Asia/Kuala_Lumpur. User-facing text is English.
 
-The Stage 2 services and both apps run in ooh-apps. The following storage
-paragraph is retained pending the Stage 3 storage contract rewrite.
+Services, consumers, the Slides worker and both apps run in ooh-apps.
 
 The rehearsal runs on the DigitalOcean Droplet harness: single-server k3s,
 Traefik ingress, cert-manager, Strimzi Kafka, CloudNativePG PostgreSQL and
-Keycloak in ooh-platform. Services later run in ooh-apps. Spaces stores private
-files. Workspace and its /api share harness.faysalaziz.com; Admin Console and
+Keycloak in ooh-platform. The ooh-files PVC (20Gi, local-path, PV Retain) holds private
+files. The worker mounts /files read-write and atomically renames completed
+outputs/slides/<job-id>/<safe-title>.pptx files; the Harness mounts /files
+read-only. Downloads use GET /api/jobs/{job_id}/file with a bearer token, check
+the completed job belongs to that user and resolve the path under /files/outputs/.
+There are no signed links or file deletions. Workspace and its /api share harness.faysalaziz.com; Admin Console and
 its /api share admin.faysalaziz.com; Keycloak uses auth.faysalaziz.com. Gateway,
 Kafka and PostgreSQL have no public hostname.
 
@@ -221,3 +232,47 @@ provider addresses, models and prices are registry data, never compiled settings
 Kafka is used for slow work, fan-out, outage survival and replay; chat and policy
 checks use direct HTTP. Stage 2 deploy/check scripts run in Claude's shell tile while Aziz watches;
 Aziz retains sudo, browser sign-ins, package visibility switches and acceptance.
+
+## Stage 3 events, identity and operational checks
+
+After storing each nonempty user/completed assistant message, the Harness
+publishes chat.message (first 20,000 characters) to chat.messages. Correlation
+is the user message ID for that turn. Skill jobs get their own request ID,
+used by worker Gateway calls, rights audits and results. Jobs and chat cards
+show the first eight characters and copy the complete ID. GET /api/events
+supplies the user's job changes; a reconnect reloads GET /api/jobs.
+
+The audit writer owns auditwriter.trail; the cost meter owns costmeter.model_costs.
+Both enforce append-only rows and unique event IDs. The safety watcher has no
+database: it classifies chat text and completed skill summaries through the
+Gateway. Every score is audited. A configured threshold may raise a safety.flag
+approval with a 300-character excerpt in the approvals table, never in audit
+rows or logs. Clear rejects the flag; Confirm problem approves it. Classifier
+404/429/503 outcomes are audited without retry or DLQ. Chat DLQs contain IDs
+only. Other processing failures retry three times with waits 1, 5, 15 seconds;
+schema failures go straight to the relevant DLQ. The Control Centre consumes
+approvals.requested and all six DLQs in its one control-centre group.
+
+Overview obtains distinct active people and action counts from the audit writer,
+cost from the cost meter and admission counts from its own access rows. Missing
+remote figures are null. Service health refreshes every 30 seconds. Skill rights
+are requested once and granted by an admin; job approval remains a separate
+manifest switch. Service accounts stay out of People & rights and Approvals.
+
+The login theme ooh extends keycloak.v2 using CSS, messages and theme.properties
+in a ConfigMap mounted at /opt/keycloak/themes/ooh through the operator's
+unsupported.podTemplate. It uses design tokens and system fonts, with no custom
+image. Realm display name is Open Office Harness. Admin device sign-in is off.
+The new worker/watcher clients have Gateway audiences; only the Control Centre
+has the custom audit-writer/cost-meter audiences.
+
+Checks 62, 73 and 77 share one PID lock and temporary ooh-stage-check admin
+client. Each enable/disable rotates its secret, every exit tries to disable it,
+and normal completion verifies disabled status before releasing the lock.
+Check 40 catches an enabled client without a live check. Secrets/tokens reach
+HTTP tools through standard input; they are never stored or printed. Check 77
+uses short-lived pods for Kafka, read-only PowerPoint inspection and a
+harness_app query returning one other-user job ID. Its tool check makes a
+first call, a pinned reasoning/tool-result follow-up, then a new user question
+with the earlier tool turn still in history. Paid live checks belong to the
+merged-stage deployment, not the builders' local verification.

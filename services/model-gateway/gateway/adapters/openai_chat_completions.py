@@ -7,7 +7,16 @@ import httpx
 
 from gateway.models import Call, Entry
 
-from .common import ProviderError, check_response, request_body, sse, tool_event
+from .common import (
+    ProviderError,
+    check_response,
+    forced_choice,
+    matching_state,
+    request_body,
+    sse,
+    state_event,
+    tool_event,
+)
 
 
 def reasoning_text(message: dict[str, Any]) -> str | None:
@@ -18,12 +27,43 @@ def reasoning_text(message: dict[str, Any]) -> str | None:
     return None
 
 
+def messages(call: Call, entry: Entry) -> list[dict[str, Any]]:
+    result = []
+    for message in call.messages:
+        item: dict[str, Any] = {"role": message.role, "content": message.content}
+        if message.role == "assistant":
+            state = matching_state(message, entry)
+            if "reasoning_content" in state:
+                item["reasoning_content"] = state["reasoning_content"]
+            if message.tool_calls:
+                item["tool_calls"] = [
+                    {
+                        "id": t.id,
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "arguments": json.dumps(t.arguments),
+                        },
+                    }
+                    for t in message.tool_calls
+                ]
+        elif message.role == "tool":
+            item["tool_call_id"] = message.tool_call_id
+        result.append(item)
+    return result
+
+
 async def run(
-    client: httpx.AsyncClient, entry: Entry, key: str, call: Call
+    client: httpx.AsyncClient,
+    entry: Entry,
+    key: str,
+    call: Call,
+    *,
+    auto_tool_choice: bool = False,
 ) -> AsyncIterator[dict[str, Any]]:
     body = {
         "model": entry.model_id,
-        "messages": [m.model_dump() for m in call.messages],
+        "messages": messages(call, entry),
         "stream": call.stream,
     }
     if call.tools:
@@ -41,6 +81,8 @@ async def run(
     if call.stream:
         body["stream_options"] = {"include_usage": True}
     body = request_body(body, entry, call)
+    applied = forced_choice(body, call, entry.api_type, auto=auto_tool_choice)
+    yield {"type": "tool_choice_applied", "applied": applied}
     async with client.stream(
         "POST",
         entry.endpoint_url.rstrip("/") + "/chat/completions",
@@ -58,6 +100,12 @@ async def run(
                 yield {"type": "delta", "text": message["content"]}
             for tool in message.get("tool_calls", []):
                 yield tool_event({"id": tool["id"], **tool["function"]})
+            state = (
+                {"reasoning_content": message["reasoning_content"]}
+                if isinstance(message.get("reasoning_content"), str)
+                else {}
+            )
+            yield state_event(entry, **state)
             usage = result.get("usage") or {}
             yield {
                 "type": "usage",
@@ -68,6 +116,8 @@ async def run(
         tools: dict[int, dict[str, str]] = {}
         usage = {}
         finished = False
+        reasoning = ""
+        reasoning_returned = False
         async for chunk in sse(response):
             if chunk.get("error"):
                 raise ProviderError()
@@ -80,6 +130,9 @@ async def run(
                 if choice.get("finish_reason") is not None:
                     finished = True
                 delta = choice.get("delta", {})
+                if isinstance(delta.get("reasoning_content"), str):
+                    reasoning += delta["reasoning_content"]
+                    reasoning_returned = True
                 if text := reasoning_text(delta):
                     yield {"type": "thinking", "text": text}
                 if delta.get("content"):
@@ -95,6 +148,9 @@ async def run(
                     ) or ""
         if not finished:
             raise ProviderError()
+        yield state_event(
+            entry, **({"reasoning_content": reasoning} if reasoning_returned else {})
+        )
         for tool in tools.values():
             yield tool_event(tool)
         yield {

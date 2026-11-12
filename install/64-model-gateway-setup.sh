@@ -122,4 +122,25 @@ else
     kubectl create -f - >/dev/null
 fi
 unset client_secret stored current existing
-printf 'DONE\n' 
+name=model-gateway
+  deadline=$((SECONDS + 120))
+  while :; do
+    ready="$(kubectl -n "$PLATFORM_NAMESPACE" get kafkauser "$name" -o json 2>/dev/null || true)"
+    kafka_secret="$(kubectl -n "$PLATFORM_NAMESPACE" get secret "$name" -o json 2>/dev/null || true)"
+    if jq -e 'any(.status.conditions[]?; .type == "Ready" and .status == "True")' <<< "$ready" >/dev/null 2>&1 &&
+       jq -e '.data.password | type == "string" and length > 0' <<< "$kafka_secret" >/dev/null 2>&1; then break; fi
+    (( SECONDS < deadline )) || stop "KafkaUser $name not ready; re-run 30"
+    sleep 2
+  done
+  password="$(jq -r '.data.password' <<< "$kafka_secret")"
+  existing="$(kubectl -n "$APPS_NAMESPACE" get secret "$name-kafka" --ignore-not-found -o json)"
+  if [[ -n "$existing" ]]; then
+    stored="$(jq -r '.data.password // ""' <<< "$existing")"
+    [[ "$stored" == "$password" ]] || stop "Kafka password changed for $name; inspect the Secret privately before replacing it"
+  else
+    printf '%s' "$password" | jq -Rs --arg name "$name-kafka" --arg namespace "$APPS_NAMESPACE" \
+      '{apiVersion:"v1",kind:"Secret",metadata:{name:$name,namespace:$namespace},type:"Opaque",data:{password:.}}' |
+      kubectl create -f - >/dev/null
+  fi
+  unset password stored kafka_secret existing ready
+printf 'DONE\n'

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { TestBed } from '@angular/core/testing';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
-import { of } from 'rxjs';
+import { of, Subject } from 'rxjs';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { App } from './app';
 import { ConnectionResult, ModelEntry, modelPayload, settingsObject, tierRows } from './models';
 const model: ModelEntry = { model_entry_id: 'synthetic', title: 'Synthetic', purpose: 'chat', tier: 1, role: 'main', location: 'cloud', api_type: 'openai_responses', endpoint_url: 'https://synthetic.invalid', model_id: 'synthetic', has_key: true, priority: 100, rate_limit_per_minute: 10, daily_budget: 0, input_price_per_million: 0, output_price_per_million: 0, timeout_seconds: 120, request_settings: {} };
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); sessionStorage.removeItem('ooh-admin-signin-screen'); window.history.replaceState(null, '', '/'); });
 describe('Model settings and rights', () => {
   it('rejects arrays, null and scalar request settings', () => {
     for (const value of ['[]', 'null', 'true', '1', '"text"', '{']) expect(() => settingsObject(value)).toThrow();
@@ -35,7 +35,7 @@ describe('Admin console', () => {
     window.oohConfig = { apiBase: '/api', issuer, clientId: 'ooh-admin-console' };
     vi.spyOn(App.prototype, 'load').mockResolvedValue();
     await TestBed.configureTestingModule({ imports: [App], providers: [{ provide: OidcSecurityService, useValue: auth }] }).compileComponents();
-    const fixture = TestBed.createComponent(App); fixture.detectChanges(); return { fixture, auth };
+    const fixture = TestBed.createComponent(App); fixture.componentInstance.screen.set('models'); fixture.detectChanges(); return { fixture, auth };
   }
   it('opens the console for an access-token administrator without userinfo roles', async () => {
     const { fixture, auth } = await create(true);
@@ -74,7 +74,7 @@ describe('Admin console', () => {
     vi.mocked(App.prototype.load).mockRestore();
     const first = Array.from({ length: 200 }, (_, i) => ({ ...model, model_entry_id: 'synthetic-' + i, purpose: 'z-purpose' }));
     const request = vi.spyOn(app, 'request').mockResolvedValueOnce(first)
-      .mockResolvedValueOnce([{ ...model, purpose: 'a-purpose' }]).mockResolvedValueOnce([]).mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 0 });
+      .mockResolvedValueOnce([{ ...model, purpose: 'a-purpose' }]).mockResolvedValueOnce([]).mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce([]);
     await app.load();
     expect(request).toHaveBeenNthCalledWith(2, '/admin/models?limit=200&after=synthetic-199');
     expect(app.models()).toHaveLength(201); expect(app.models()[0].purpose).toBe('a-purpose');
@@ -94,7 +94,7 @@ describe('Admin console', () => {
     app.models.set([model]);
     let finish!: (result: ConnectionResult) => void;
     const pending = new Promise<ConnectionResult>(resolve => { finish = resolve; });
-    const request = vi.spyOn(app, 'request').mockReturnValueOnce(pending);
+    const request = vi.spyOn(app, 'request').mockReturnValueOnce(pending).mockResolvedValueOnce([{ ...model, health: 'ok' }]);
     const test = app.testConnection(model); fixture.detectChanges();
     const button = fixture.nativeElement.querySelector('button[title="One short paid call to this model only"]') as HTMLButtonElement;
     expect(button.disabled).toBe(true); expect(button.textContent).toContain('Testing…');
@@ -107,7 +107,7 @@ describe('Admin console', () => {
   it('shows the failure and provider detail as plain text', async () => {
     const { fixture } = await create(true); const app = fixture.componentInstance;
     app.models.set([model]);
-    vi.spyOn(app, 'request').mockResolvedValueOnce({ ok: false, reason: 'key refused', provider_status: 401, provider_message: '<img src=x onerror=alert(1)>' });
+    vi.spyOn(app, 'request').mockResolvedValueOnce({ ok: false, reason: 'key refused', provider_status: 401, provider_message: '<img src=x onerror=alert(1)>' }).mockResolvedValueOnce([{ ...model, health: 'down' }]);
     await app.testConnection(model); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[role=status]').textContent).toBe('Failed · key refused (provider answered 401) · <img src=x onerror=alert(1)>');
     expect(fixture.nativeElement.querySelector('img')).toBeNull();
@@ -115,9 +115,9 @@ describe('Admin console', () => {
   it('aborts the browser wait at the entry timeout plus fifteen seconds', async () => {
     const { fixture } = await create(true); const app = fixture.componentInstance;
     vi.useFakeTimers();
-    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+    vi.stubGlobal('fetch', vi.fn((url: string, init: RequestInit) => url.includes('/test') ? new Promise((_resolve, reject) => {
       init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
-    })));
+    }) : Promise.resolve({ ok: true, json: async () => [{ ...model, health: 'down' }] })));
     const test = app.testConnection({ ...model, timeout_seconds: 10 });
     await vi.advanceTimersByTimeAsync(24999); expect(app.testing().has(model.model_entry_id)).toBe(true);
     await vi.advanceTimersByTimeAsync(1); await test;
@@ -125,42 +125,46 @@ describe('Admin console', () => {
     expect(app.testing().size).toBe(0);
   });
 
+  it.each([true, false])('refreshes the row health after a connection test (works: %s) and preserves its result', async ok => {
+    const { fixture } = await create(true); const app = fixture.componentInstance;
+    const entry: ModelEntry = { ...model, purpose: 'classification', tier: undefined, health: 'unknown' };
+    app.models.set([entry]); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.ooh-chip').textContent).toBe('Unknown');
+    const result: ConnectionResult = ok
+      ? { ok: true, model_title: 'Synthetic', reply: '', duration_ms: 400, usage: { input_tokens: 0, output_tokens: 0 }, cost_usd: 0, score: 1 }
+      : { ok: false, reason: 'unavailable', provider_status: 503, provider_message: null };
+    const request = vi.spyOn(app, 'request').mockResolvedValueOnce(result).mockResolvedValueOnce([{ ...entry, health: ok ? 'ok' : 'down' }]);
+    await app.testConnection(entry); fixture.detectChanges();
+    expect(request).toHaveBeenNthCalledWith(2, '/admin/models?limit=200');
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(fixture.nativeElement.querySelector('.ooh-chip').textContent).toBe(ok ? 'OK' : 'Down');
+    expect(fixture.nativeElement.querySelector('[role=status]').textContent).toContain(ok ? 'Works · 0.4 s · score 1' : 'Failed · unavailable');
+  });
+  it.each(['ok', 'unknown'] as const)('retries unchanged health once after two seconds, ending at %s without polling', async health => {
+    const { fixture } = await create(true); const app = fixture.componentInstance;
+    vi.useFakeTimers();
+    const entry: ModelEntry = { ...model, health: 'unknown' }; app.models.set([entry]);
+    const result: ConnectionResult = { ok: true, model_title: 'Synthetic', reply: 'yes', duration_ms: 400, usage: { input_tokens: 1, output_tokens: 1 }, cost_usd: 0 };
+    const request = vi.spyOn(app, 'request').mockResolvedValueOnce(result).mockResolvedValueOnce([entry]).mockResolvedValueOnce([{ ...entry, health }]);
+    const test = app.testConnection(entry);
+    await vi.advanceTimersByTimeAsync(0); fixture.detectChanges();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(fixture.nativeElement.querySelector('[role=status]').textContent).toContain('Works');
+    await vi.advanceTimersByTimeAsync(1999); expect(request).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1); await test; fixture.detectChanges();
+    expect(request).toHaveBeenNthCalledWith(3, '/admin/models?limit=200');
+    expect(fixture.nativeElement.querySelector('.ooh-chip').textContent).toBe(health === 'ok' ? 'OK' : 'Unknown');
+    expect(fixture.nativeElement.querySelector('[role=status]').textContent).toContain('Works');
+    await vi.advanceTimersByTimeAsync(10000); expect(request).toHaveBeenCalledTimes(3);
+  });
+
   const accessRow = { id: 'request-synthetic', user_id: 'user-synthetic', name: '<img src=x>', email: 'synthetic@example.invalid', organisation: 'Synthetic team', reason: '<script>test</script>', status: 'pending' as const, requested_at: '2026-11-10T00:00:00Z' };
   it('links non-admins to the configured Workspace', async () => {
     const { fixture } = await create(false, true, {}, 'https://auth.synthetic.invalid/realms/ooh');
     expect(fixture.nativeElement.querySelector('a').href).toBe('https://harness.synthetic.invalid/');
   });
-  it('loads each access filter and hides the zero count badge', async () => {
-    const { fixture } = await create(true); const app = fixture.componentInstance;
-    const request = vi.spyOn(app, 'request');
-    for (const status of ['pending', 'approved', 'rejected'] as const) {
-      app.accessFilter.set(status); request.mockResolvedValueOnce([{ ...accessRow, status }]).mockResolvedValueOnce([]).mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 0 });
-      await app.openAccessRequests(); fixture.detectChanges();
-      expect(request).toHaveBeenCalledWith('/admin/access-requests?status=' + status + '&limit=200');
-      expect(fixture.nativeElement.querySelector('.ooh-nav__count')).toBeNull();
-      expect(fixture.nativeElement.textContent).toContain('not verified');
-      expect(fixture.nativeElement.textContent).toContain('<img src=x>');
-      expect(fixture.nativeElement.querySelector('img')).toBeNull();
-    }
-    app.pendingCount.set(3); fixture.detectChanges(); expect(fixture.nativeElement.querySelector('.ooh-nav__count').textContent).toBe('3');
-  });
-  it('requires a tier and sends approve, reject and revoke actions', async () => {
-    const { fixture } = await create(true); const app = fixture.componentInstance;
-    app.screen.set('access'); app.models.set([model, { ...model, tier: 99 }]); app.grants.set([{ id: 'grant', right_key: 'chat.tier.4', subject_type: 'everyone' }]); app.accessRequests.set([accessRow]); fixture.detectChanges();
-    const approve = [...fixture.nativeElement.querySelectorAll('button')].find((b: unknown) => (b as HTMLButtonElement).textContent?.trim() === 'Approve') as HTMLButtonElement;
-    expect(approve.disabled).toBe(true);
-    const options = fixture.nativeElement.querySelectorAll('select[aria-label="Chat tier"] option');
-    expect([...options].map((o: unknown) => (o as HTMLOptionElement).textContent)).toEqual(['Choose a tier', 'Tier 1', 'Tier 4']);
-    vi.spyOn(app, 'loadAccessRequests').mockResolvedValue();
-    const request = vi.spyOn(app, 'request');
-    for (const action of ['approve', 'reject', 'revoke'] as const) {
-      app.accessRequests.set([accessRow]); app.selectedTiers[accessRow.id] = 4;
-      request.mockResolvedValueOnce({ ...accessRow, status: action === 'approve' ? 'approved' : 'rejected' });
-      await app.decideAccess(accessRow, action);
-      expect(request).toHaveBeenLastCalledWith('/admin/access-requests/' + accessRow.id + '/' + action, 'POST', action === 'approve' ? { tier: 4 } : {});
-      expect(app.accessRequests()).toEqual([]);
-    }
-  });
+
+
 
   it('restores thinking-off JSON for editing and clears it for a new model', async () => {
     const { fixture } = await create(true); const app = fixture.componentInstance;
@@ -171,31 +175,128 @@ describe('Admin console', () => {
     app.edit(); expect(app.thinkingOff).toBe('');
     app.edit({ ...model, request_settings_thinking_off: null }); expect(app.thinkingOff).toBe('');
   });
-  it('reads all model request pages and adds both pending counts', async () => {
+
+
+
+  it('starts on Overview and offers Jev only for classification, with model health', async () => {
     const { fixture } = await create(true); const app = fixture.componentInstance;
-    const row = { ...accessRow, tier: 4, title: '<script>Synthetic model</script>' };
-    const first = Array.from({ length: 200 }, (_, i) => ({ ...row, id: 'tier-' + i }));
-    const request = vi.spyOn(app, 'request').mockResolvedValueOnce([]).mockResolvedValueOnce(first).mockResolvedValueOnce([{ ...row, id: 'last' }]).mockResolvedValueOnce({ count: 2 }).mockResolvedValueOnce({ count: 3 });
-    await app.openAccessRequests(); fixture.detectChanges();
-    expect(request).toHaveBeenNthCalledWith(3, '/admin/tier-requests?status=pending&limit=200&after=tier-199');
-    expect(app.tierRequests()).toHaveLength(201); expect(app.pendingCount()).toBe(5);
-    expect(fixture.nativeElement.textContent).toContain('Model requests');
-    expect(fixture.nativeElement.textContent).toContain('<script>Synthetic model</script> - Tier 4');
-    expect(fixture.nativeElement.textContent).toContain('<script>test</script>');
-    expect(fixture.nativeElement.querySelector('script, img')).toBeNull();
+    expect(TestBed.createComponent(App).componentInstance.screen()).toBe('overview');
+    expect(app.availableTypes('chat').some(x => x.value === 'jev_systemone')).toBe(false);
+    expect(app.availableTypes('classification').some(x => x.value === 'jev_systemone')).toBe(true);
+    app.models.set([{ ...model, health: 'down', health_reason: 'http_503', health_changed_at: '2026-11-11T00:00:00Z' }]);
+    app.edit({ ...model, purpose: 'classification', tier: undefined, api_type: 'jev_systemone' }); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('input[name=tier]')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Jev System One'); expect(fixture.nativeElement.textContent).toContain('http_503');
   });
-  it('decides model requests and keeps a failed decision visible', async () => {
+
+  it('counts approvals in the badge using only the normal pending list', async () => {
     const { fixture } = await create(true); const app = fixture.componentInstance;
-    const row = { ...accessRow, tier: 4, title: 'Synthetic model' };
-    vi.spyOn(app, 'loadAccessRequests').mockResolvedValue(); const request = vi.spyOn(app, 'request');
-    for (const action of ['approve', 'reject'] as const) {
-      app.tierRequests.set([row]); request.mockResolvedValueOnce({ ...row, status: action === 'approve' ? 'approved' : 'rejected' });
-      await app.decideTier(row, action);
-      expect(request).toHaveBeenLastCalledWith('/admin/tier-requests/' + row.id + '/' + action, 'POST', {});
-      expect(app.tierRequests()).toEqual([]); expect(app.accessBusy()).toBe(false);
-    }
-    app.tierRequests.set([row]); request.mockRejectedValueOnce(new Error("This person's access is no longer approved"));
-    await app.decideTier(row, 'approve'); expect(app.tierRequests()).toEqual([row]); expect(app.error()).toContain('no longer approved');
+    const request = vi.spyOn(app, 'request').mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce([{ id: 'synthetic-visible-approval', created_at: '2026-11-11T00:00:00Z' }]);
+    await app.loadAccessCount(); fixture.detectChanges();
+    expect(app.pendingCount()).toBe(1);
+    expect(request).toHaveBeenCalledWith('/admin/approvals?status=pending&limit=200');
+    expect(fixture.nativeElement.querySelector('.ooh-nav__count').textContent).toBe('1');
+  });
+
+  it.each([
+    [0, 0, 'Good morning.'], [11, 59, 'Good morning.'],
+    [12, 0, 'Good afternoon.'], [17, 59, 'Good afternoon.'],
+    [18, 0, 'Good evening.'], [21, 46, 'Good evening.']
+  ])('greets signed-out users at browser-local %i:%i', async (hour, minute, expected) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 11, hour, minute));
+    const { fixture } = await create(false, false);
+    expect(fixture.nativeElement.querySelector('.signin h1').textContent).toBe(expected);
+  });
+
+  it('renders stored health for classification without a tier after loading the admin list', async () => {
+    const { fixture } = await create(true); const app = fixture.componentInstance;
+    vi.mocked(App.prototype.load).mockRestore();
+    const classifier = { ...model, model_entry_id: 'synthetic-classifier', title: 'Synthetic classifier', purpose: 'classification', tier: undefined, health: 'ok', health_changed_at: '2026-11-11T12:00:00Z' };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(
+      url.startsWith('/api/admin/models?') ? [{ ...model, health: 'ok' }, classifier] : url.includes('/count?') ? { count: 0 } : []
+    ), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+    await app.load(); fixture.detectChanges();
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('.ooh-table tbody tr')) as HTMLTableRowElement[];
+    const classification = rows.find(row => row.cells[0]?.textContent === 'classification');
+    expect(classification).toBeDefined();
+    expect(classification!.cells[6].textContent).toBe('OK');
+    expect(classification!.querySelector('.ooh-chip--done')).not.toBeNull();
+  });
+
+  it('leaves callback parameters untouched until checkAuth answers, then sets the hash', async () => {
+    const { fixture, auth } = await create(false, false); fixture.destroy();
+    window.history.replaceState(null, '', '/?code=abc&state=xyz');
+    const result = new Subject<{ isAuthenticated: boolean; userData: object }>();
+    let checkedAddress = '';
+    const checkAuth = vi.spyOn(auth, 'checkAuth').mockImplementation(() => {
+      checkedAddress = window.location.pathname + window.location.search + window.location.hash;
+      return result.asObservable();
+    });
+    const replace = vi.spyOn(window.history, 'replaceState');
+    const push = vi.spyOn(window.history, 'pushState');
+    const returned = TestBed.createComponent(App).componentInstance;
+    expect(checkAuth).toHaveBeenCalledTimes(1);
+    expect(checkedAddress).toBe('/?code=abc&state=xyz');
+    expect(window.location.hash).toBe('');
+    expect(replace).not.toHaveBeenCalled(); expect(push).not.toHaveBeenCalled();
+    returned.navigate('overview');
+    expect(replace).not.toHaveBeenCalled(); expect(push).not.toHaveBeenCalled();
+    result.next({ isAuthenticated: false, userData: {} }); result.complete();
+    expect(window.location.search).toBe('?code=abc&state=xyz');
+    expect(window.location.hash).toBe('#overview');
+    expect(replace).toHaveBeenCalledWith(null, '', '/?code=abc&state=xyz#overview');
+    expect(push).not.toHaveBeenCalled();
+  });
+  it('keeps the path and query when navigating or correcting an unknown hash', async () => {
+    const { fixture } = await create(false, false); const app = fixture.componentInstance;
+    window.history.replaceState(null, '', '/console?probe=1#models');
+    const push = vi.spyOn(window.history, 'pushState');
+    app.navigate('audit');
+    expect(push).toHaveBeenCalledWith(null, '', '/console?probe=1#audit');
+    window.history.replaceState(null, '', '/console?probe=1#unrecognised');
+    const replace = vi.spyOn(window.history, 'replaceState');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(replace).toHaveBeenCalledWith(null, '', '/console?probe=1#overview');
+    expect(window.location.pathname).toBe('/console'); expect(window.location.search).toBe('?probe=1');
+  });
+
+  it('opens a direct hash link and keeps navigation, hash changes and history in agreement', async () => {
+    window.history.replaceState(null, '', '#approvals');
+    await create(true);
+    const fixture = TestBed.createComponent(App); const app = fixture.componentInstance;
+    vi.spyOn(app, 'request').mockResolvedValue([]); fixture.detectChanges(); await fixture.whenStable();
+    expect(app.screen()).toBe('approvals'); expect(fixture.nativeElement.textContent).toContain('Human decisions');
+    fixture.nativeElement.querySelector('a[href="#audit"]').click();
+    expect(app.screen()).toBe('audit'); expect(window.location.hash).toBe('#audit');
+    window.history.replaceState(null, '', '#rights'); window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(app.screen()).toBe('rights');
+    window.history.replaceState(null, '', '#models'); window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(app.screen()).toBe('models');
+    window.history.replaceState(null, '', '#unrecognised'); window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(app.screen()).toBe('overview'); expect(window.location.hash).toBe('#overview');
+  });
+  it('uses the given name for Overview and accepts the Control Centre display-zone setting', async () => {
+    const { fixture } = await create(true, true, { given_name: 'Synthetic' }); const app = fixture.componentInstance;
+    expect(app.givenName()).toBe('Synthetic');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('[]', { headers: { 'Content-Type': 'application/json', 'X-Display-Time-Zone': 'UTC' } })));
+    await app.request('/admin/models?limit=200'); expect(app.displayTimeZone()).toBe('UTC');
+    expect(app.formatTime('2026-11-11T13:55:46Z')).toBe('11 Nov 13:55:46');
+  });
+
+  it('restores the intended screen after sign-in removes the callback hash', async () => {
+    window.history.replaceState(null, '', '#approvals');
+    const { fixture, auth } = await create(false, false); fixture.componentInstance.screen.set('approvals'); fixture.componentInstance.signIn();
+    expect(sessionStorage.getItem('ooh-admin-signin-screen')).toBe('approvals');
+    vi.spyOn(auth, 'checkAuth').mockImplementation(() => {
+      window.history.replaceState(null, '', window.location.pathname);
+      return of({ isAuthenticated: true, userData: {} });
+    });
+    auth.getPayloadFromAccessToken.mockReturnValue(of({ realm_access: { roles: ['ooh-admin'] } }));
+    const returned = TestBed.createComponent(App).componentInstance;
+    expect(returned.screen()).toBe('approvals'); expect(window.location.hash).toBe('#approvals');
+    expect(sessionStorage.getItem('ooh-admin-signin-screen')).toBeNull();
   });
 
 });

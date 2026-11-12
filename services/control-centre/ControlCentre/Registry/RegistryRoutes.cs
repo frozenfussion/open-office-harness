@@ -9,9 +9,21 @@ namespace ControlCentre.Registry;
 public static class RegistryRoutes
 {
   public static readonly string[] ModelFields = ["purpose", "role", "location", "api_type", "endpoint_url", "model_id", "rate_limit_per_minute", "daily_budget"];
-  public static object View(ModelEntry m) => new { model_entry_id = m.Id, m.Purpose, m.Tier, m.Role, m.Location, m.ApiType, m.EndpointUrl, m.ModelId, m.SecretRef, m.RateLimitPerMinute, m.DailyBudget, m.Health, m.Title, has_key = m.ApiKeyEncrypted is not null, m.Priority, m.CreatedAt, m.InputPricePerMillion, m.OutputPricePerMillion, m.TimeoutSeconds, request_settings = JsonNode.Parse(m.RequestSettings), request_settings_thinking_off = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(m.RequestSettingsThinkingOff ?? "null") };
+  public static object View(ModelEntry m) => new { model_entry_id = m.Id, m.Purpose, m.Tier, m.Role, m.Location, m.ApiType, m.EndpointUrl, m.ModelId, m.SecretRef, m.RateLimitPerMinute, m.DailyBudget, m.Health, health_reason = (object?)m.HealthReason ?? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>("null"), health_changed_at = (object?)m.HealthChangedAt ?? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>("null"), m.Title, has_key = m.ApiKeyEncrypted is not null, m.Priority, m.CreatedAt, m.InputPricePerMillion, m.OutputPricePerMillion, m.TimeoutSeconds, request_settings = JsonNode.Parse(m.RequestSettings), request_settings_thinking_off = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(m.RequestSettingsThinkingOff ?? "null") };
   public static void Map(WebApplication app)
   {
+    app.MapPost("/api/models/{id}/health", async (string id, HttpContext c, CentreDb db, TimeProvider clock) =>
+    {
+      Api.Authorize(c, gateway: true); Api.Query(c);
+      var key = Api.Id(id); var body = await Api.Body(c, ["status"], "reason");
+      var status = Api.String(body, "status"); Api.Require(status is "ok" or "down");
+      var reason = body["reason"] is null ? null : Api.String(body, "reason");
+      Api.Require(reason is null or "timeout" or "connection" || System.Text.RegularExpressions.Regex.IsMatch(reason, "^http_[1-5][0-9]{2}$"), "Unknown health reason");
+      var row = await db.Models.FindAsync(key); Api.Found(row is { DeletedAt: null });
+      if (row!.Health != status || row.HealthReason != reason)
+      { row.Health = status; row.HealthReason = reason; row.HealthChangedAt = clock.GetUtcNow(); await db.SaveChangesAsync(); }
+      return Results.Ok(new { status = "recorded" });
+    }).RequireAuthorization();
     app.MapGet("/api/models/{id}/key", async (string id, HttpContext c, CentreDb db, ModelKeys keys) =>
     {
       Api.Authorize(c, gateway: true); Api.Query(c);
@@ -116,6 +128,7 @@ public static class RegistryRoutes
     var oldType = m.ApiType; var oldEndpoint = m.EndpointUrl;
     var hadKey = m.ApiKeyEncrypted is not null;
     m.ApiType = Api.String(b, "api_type");
+    Api.Require(m.ApiType != "jev_systemone" || m.Purpose == "classification", "Jev System One requires classification");
     m.EndpointUrl = Api.String(b, "endpoint_url");
     Api.Require(Uri.TryCreate(m.EndpointUrl, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" && !string.IsNullOrEmpty(uri.Host) && string.IsNullOrEmpty(uri.UserInfo) && !m.EndpointUrl.Any(char.IsWhiteSpace));
     m.ModelId = Api.String(b, "model_id");

@@ -30,11 +30,14 @@ if (exec 3<>/dev/tcp/127.0.0.1/18081) 2>/dev/null; then
 fi
 issuer="https://auth.$DOMAIN/realms/ooh"
 base="https://admin.$DOMAIN"
+# shellcheck source=install/lib/stage-check.sh
+source "$ROOT/install/lib/stage-check.sh"
 config_dir=''
 check_pod=''
 forward_pid=''
 forward_dir=''
 cleanup() {
+  stage_check_end || true;
   if [[ -n "$forward_pid" ]]; then kill "$forward_pid" 2>/dev/null || true; wait "$forward_pid" 2>/dev/null || true; fi
   if [[ -n "$forward_dir" ]]; then rm -rf -- "$forward_dir"; fi
   if [[ -n "$check_pod" ]]; then kubectl -n "$PLATFORM_NAMESPACE" delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true; fi
@@ -43,6 +46,8 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 forward_dir="$(mktemp -d)"
 kubectl -n "$APPS_NAMESPACE" port-forward service/control-centre 18081:8081 >"$forward_dir/log" 2>&1 &
 forward_pid=$!
@@ -53,27 +58,6 @@ for ((attempt=0; attempt<30; attempt++)); do
 done
 curl -s --max-time 2 http://127.0.0.1:18081/health >/dev/null || stop "internal port-forward not ready; check Control Centre readiness"
 form_encode() { jq -sRr @uri; }
-generate_pkce() {
-  code_verifier="$(openssl rand -hex 32)"
-  code_challenge="$(printf '%s' "$code_verifier" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
-}
-keycloak_error() {
-  local detail sensitive
-  detail="$(jq -r '
-    [.error, .error_description] |
-    map(if type == "string" then gsub("[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]+"; "[REDACTED TOKEN]") else "(not provided)" end) |
-    "Keycloak error=\(.[0] | @json); error_description=\(.[1] | @json)"
-  ' 2>/dev/null)" || detail='Keycloak returned an invalid error response'
-  [[ -n "$detail" ]] || detail='Keycloak did not answer'
-  for sensitive in "${code_verifier:-}" "${code_challenge:-}" "${device_code:-}" "${code:-}" "${admin_token:-}" "${refresh_token:-}"; do
-    [[ -z "$sensitive" ]] || detail="${detail//"$sensitive"/[REDACTED]}"
-  done
-  printf '%s' "$detail"
-}
-is_admin_token() {
-  jq -Re 'split(".") | select(length == 3) | .[1] | gsub("-"; "+") | gsub("_"; "/") |
-    @base64d | fromjson | (.realm_access.roles // []) | index("ooh-admin") != null' >/dev/null 2>&1
-}
 token_request() {
   curl --connect-timeout 10 --max-time 30 -sS -H 'Content-Type: application/x-www-form-urlencoded' \
     --data-binary @- "$issuer/protocol/openid-connect/token" 2>/dev/null
@@ -101,12 +85,7 @@ service_token() {
   fi
   printf '%s' "$token"
 }
-refresh_admin() {
-  local reply
-  reply="$(printf 'grant_type=refresh_token&client_id=ooh-admin-console&refresh_token=%s' "$(printf '%s' "$refresh_token" | form_encode)" | token_request)" || return 1
-  admin_token="$(printf '%s' "$reply" | jq -er '.access_token | select(type == "string" and length > 0)')" || return 1
-  refresh_token="$(printf '%s' "$reply" | jq -er '.refresh_token | select(type == "string" and length > 0)')" || return 1
-}
+refresh_admin() { admin_token="$(stage_check_token ooh-control-centre)"; }
 request() {
   local principal="$1" method="$2" path="$3" data="${4:-}" token='' reply
   case "$principal" in
@@ -178,43 +157,9 @@ rc=0
 request ooh-harness-api GET '/api/models?purpose=classification' && [[ "$status" == 403 ]] || rc=1
 require "$rc" 'Harness registry access refused' 'expected HTTP 403'
 
-generate_pkce
-device_reply="$(printf 'client_id=ooh-admin-console&code_challenge=%s&code_challenge_method=S256' "$code_challenge" |
-  curl --connect-timeout 10 --max-time 30 -sS -H 'Content-Type: application/x-www-form-urlencoded' --data-binary @- \
-    "$issuer/protocol/openid-connect/auth/device" 2>/dev/null)"
-rc=0
-jq -e '.device_code and .user_code and .verification_uri and (.expires_in > 0)' <<< "$device_reply" >/dev/null || rc=1
-require "$rc" 'device sign-in available' "$(printf '%s' "$device_reply" | keycloak_error); run install/35-realm-sync.sh, then re-run this check"
-device_code="$(jq -r '.device_code' <<< "$device_reply")"
-link="$(jq -r '.verification_uri' <<< "$device_reply")"
-complete_link="$(jq -r '.verification_uri_complete // .verification_uri' <<< "$device_reply")"
-code="$(jq -r '.user_code' <<< "$device_reply")"
-[[ "$link" == "$issuer/"* && "$code" =~ ^[a-zA-Z0-9-]+$ ]] || stop "unexpected device sign-in link or code; inspect Keycloak configuration"
-[[ ( "$complete_link" == "$link" || "$complete_link" == "$link?"* ) && "$complete_link" != *[[:space:]]* ]] || stop "unexpected complete device sign-in link; inspect Keycloak configuration"
-printf 'Open: %s\n' "$complete_link"
-printf 'Fallback: %s\nUser code: %s\nSign in as an administrator.\n' "$link" "$code"
-interval="$(jq -r '.interval // 5' <<< "$device_reply")"
-expires="$(jq -r '.expires_in' <<< "$device_reply")"
-[[ "$interval" =~ ^[0-9]+$ && "$expires" =~ ^[0-9]+$ ]] || stop "invalid device sign-in timing; inspect Keycloak"
-((interval >= 1 && interval <= 30)) || stop "unsupported device sign-in interval; inspect Keycloak"
-deadline=$((SECONDS + expires))
-while ((SECONDS < deadline)); do
-  sleep "$interval"
-  reply="$(printf 'grant_type=urn:ietf:params:oauth:grant-type:device_code&client_id=ooh-admin-console&device_code=%s&code_verifier=%s' "$(printf '%s' "$device_code" | form_encode)" "$code_verifier" | token_request)"
-  error="$(jq -r '.error // empty' <<< "$reply")"
-  case "$error" in
-    authorization_pending) continue ;;
-    slow_down) interval=$((interval + 5)); ((interval <= 30)) || interval=30; continue ;;
-    '') break ;;
-    *) result 1 'device sign-in' "$(printf '%s' "$reply" | keycloak_error); re-run and sign in as an administrator"; stop "device sign-in failed" ;;
-  esac
-done
-admin_token="$(jq -er '.access_token | select(type == "string" and length > 0)' <<< "$reply")" || stop "device sign-in timed out; re-run the check"
-refresh_token="$(jq -er '.refresh_token | select(type == "string" and length > 0)' <<< "$reply")" || stop "device sign-in returned no refresh token; inspect Keycloak"
-unset device_reply device_code reply code_verifier code_challenge
-rc=0
-printf '%s' "$admin_token" | is_admin_token || rc=1
-require "$rc" 'device sign-in' 'the account is not an administrator; sign in with the ooh-admin account'
+stage_check_begin || stop "check client could not start"
+admin_token="$(stage_check_token ooh-control-centre)" || stop "check token unavailable"
+printf 'PASS temporary admin client ready\n'
 
 kafka() (
   local mode="$1" event="${2:-}" script manifest phase='' output rc=0
@@ -330,11 +275,11 @@ kafka start >/dev/null || rc=1
 require "$rc" 'start Kafka check at newest offsets' 'check Kafka access and ensure no other ooh-stage-check consumer is running; retry this check'
 expect_request admin GET '/api/admin/models?limit=200' 200 'read check model entries'
 old_models="$(jq -er '[.[] | select(.model_id == "stage-check") | .model_entry_id] | .[]' <<< "$body")" || old_models=''
-while IFS= read -r old_id; do
+while IFS= read -r old_id <&3; do
   [[ -n "$old_id" ]] || continue
   uuid "$old_id" || stop "model response has an invalid id; inspect the API contract"
   expect_request admin DELETE "/api/admin/models/$old_id" 200 'remove earlier check model entry'
-done <<< "$old_models"
+done 3<<< "$old_models"
 model_payload='{"purpose":"chat","tier":99,"role":"backup","location":"cloud","api_type":"stage-check","endpoint_url":"https://stage-check.invalid","model_id":"stage-check","secret_ref":"stage-check-none","rate_limit_per_minute":1,"daily_budget":0}'
 expect_request admin POST /api/admin/models 201 'create tier 99 check model entry' "$model_payload"
 model_entry_id="$(jq -er '.model_entry_id' <<< "$body")"
@@ -415,11 +360,11 @@ while :; do
   pending_page="$body"
   jq -e 'type == "array"' <<< "$pending_page" >/dev/null || stop "approval list is not an array; inspect the API contract"
   stale_ids="$(jq -r '.[] | select(.action == "stage.check") | .id' <<< "$pending_page")"
-  while IFS= read -r stale_id; do
+  while IFS= read -r stale_id <&3; do
     [[ -n "$stale_id" ]] || continue
     uuid "$stale_id" || stop "approval response has an invalid id; inspect the API contract"
     expect_request admin POST "/api/admin/approvals/$stale_id/decision" 200 'reject stale stage check' '{"approved":false,"note":"stale stage check"}'
-  done <<< "$stale_ids"
+  done 3<<< "$stale_ids"
   [[ "$(jq 'length' <<< "$pending_page")" == 200 ]] || break
   cursor="$(jq -er 'last | .created_at + "," + .id' <<< "$pending_page")"
   next_before="&before=$(printf '%s' "$cursor" | form_encode)"
@@ -508,4 +453,5 @@ rc=0
 audit_protection || rc=1
 require "$rc" 'audit protection checks completed with rollback' 'check PostgreSQL pod access and audit rows, then review migration protections'
 ((failed == 0)) || stop "Control Centre checks failed; fix every FAIL line before repeating"
+stage_check_end || stop "check client did not disable"
 printf 'DONE\n'

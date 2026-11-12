@@ -1,4 +1,13 @@
 {
-  "needs_tier2": 0.81,
-  "wants_slides": 0.93
+  "scores": {
+    "needs_tier2": 0.81,
+    "wants_slides": 0.93
+  },
+  "model_entry_id": "00000000-0000-4000-8000-000000000001",
+  "model_title": "Fake classifier",
+  "usage": {
+    "input_tokens": 8,
+    "output_tokens": 3
+  },
+  "cost_usd": 2.8e-05
 }

@@ -31,6 +31,7 @@
       <div class="ooh-nav__brand">Open Office Harness<span>Workspace</span></div>
       <span class="ooh-nav__item" aria-current="page">Chat</span>
       <button class="ooh-btn ooh-btn--secondary" [disabled]="streaming() || loading()" (click)="newChat()">New chat</button>
+      <button class="ooh-btn ooh-btn--ghost" (click)="showJobs.set(!showJobs())">Jobs</button>
       <div class="ooh-nav__section">Recent</div>
       <div class="recent">
         @for (conversation of conversations(); track conversation.id) {
@@ -53,6 +54,13 @@
       <header><h1>{{ title() }}</h1>
         <app-chat-models [me]="me()!" [tier]="tier" [busy]="streaming() || loading()" (tierChange)="tier = $event" />
       </header>
+      @if (showJobs()) {
+        <section class="jobs-panel" aria-label="Jobs"><h2>Jobs</h2>
+          @if (jobs.notice()) { <p role="status">{{ jobs.notice() }}</p> }
+          @for (job of jobs.rows(); track job.job_id) { <app-job-card [job]="job" /> } @empty { <p>No jobs yet.</p> }
+          @if (jobs.more()) { <button class="ooh-btn ooh-btn--ghost" (click)="jobs.loadMore()">More jobs</button> }
+        </section>
+      }
       @if (loading()) { <p class="startup" role="status">Loading…</p> }
       @if (notice()) { <p class="notice" [class.forbidden]="forbidden()" role="alert">{{ notice() }}</p> }
       @if (me() && !me()!.chat_tiers.length) {
@@ -66,6 +74,9 @@
           <article class="ooh-msg" [class.ooh-msg--user]="message.role === 'user'" [class.ooh-msg--assistant]="message.role === 'assistant'">
             <app-message-content [content]="message.content" [thinking]="message.thinking ?? null" [role]="message.role" [createdAt]="message.created_at"
               [streaming]="streaming() && $last && message.role === 'assistant'" (rendered)="scrollMessages()" />
+            @for (job of message.jobs ?? []; track job.job_id) {
+              <app-job-card [job]="liveJob(job)" />
+            }
             @if (message.role === 'assistant') {
               <div class="ooh-msg__meta">{{ metaLine(message) }}@if (message.outcome === 'failed') { · Answer interrupted }</div>
             }

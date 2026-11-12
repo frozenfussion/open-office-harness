@@ -23,6 +23,21 @@ describe('Chat models', () => {
     view.detectChanges(); await view.whenStable(); view.detectChanges();
     return {view, controls: view.componentInstance, request};
   }
+  it('offers Auto and retains it when opening Skills or model requests', async () => {
+    const {view, controls} = await fixture();
+    const emit = vi.spyOn(controls.tierChange, 'emit');
+    const select = view.nativeElement.querySelector('select') as HTMLSelectElement;
+    expect(select.options[0].textContent).toBe('Auto');
+    select.selectedIndex = 0; select.dispatchEvent(new Event('change'));
+    expect(emit).toHaveBeenCalledWith('auto');
+    view.componentRef.setInput('tier', 'auto'); view.detectChanges();
+    expect(controls.thinking()).toBe(true);
+    expect(view.nativeElement.querySelector('[role="switch"]')).toBeNull();
+    controls.choose('skills', select);
+    expect(select.selectedIndex).toBe(0);
+    controls.choose('request', select);
+    expect(select.selectedIndex).toBe(0);
+  });
   it('shows thinking only for a supported selected tier and remembers each tier across reloads', async () => {
     const {view, controls} = await fixture();
     const toggle = view.nativeElement.querySelector('[role="switch"]') as HTMLButtonElement;
@@ -61,7 +76,7 @@ describe('Chat models', () => {
     expect(controls.panel()).toBe(true);
     expect(controls.tier()).toBe(1);
     expect(emit).not.toHaveBeenCalled();
-    expect(select.selectedIndex).toBe(0);
+    expect(select.selectedIndex).toBe(1);
     expect(view.nativeElement.querySelector('[aria-label="Request another model"]')).not.toBeNull();
     const choices = view.nativeElement.querySelector('[aria-label="Model to request"]');
     expect(choices.textContent).toContain('<b>Another model</b> - Tier 2');
@@ -124,5 +139,35 @@ describe('Chat models', () => {
     view.componentRef.setInput('me', {...me, requestable_tiers: []}); controls.panel.set(true); view.detectChanges();
     expect(view.nativeElement.textContent).toContain('There are no other models to request.');
     expect(view.nativeElement.querySelector('[aria-label="Model to request"]')).toBeNull();
+  });
+});
+
+describe('Skill requests',()=>{
+  afterEach(()=>{TestBed.resetTestingModule();vi.restoreAllMocks();});
+  async function fixture(request=vi.fn().mockResolvedValue({id:'request',status:'pending'})) {
+    TestBed.configureTestingModule({imports:[ChatModels],providers:[{provide:Api,useValue:{requestSkill:request}}]});
+    const view=TestBed.createComponent(ChatModels);
+    view.componentRef.setInput('me',{access:'approved',user_id:'test',name:'Test',chat_tiers:[1],chat_tier_titles:{},chat_tier_thinking_switch:{},requestable_tiers:[],skills:[{name:'test',title:'Your test skill'}],requestable_skills:[
+      {name:'slides',title:'Slides',description:'Creates a deck',requested:null},
+      {name:'pending',title:'Pending skill',description:'Waiting',requested:'pending'},
+      {name:'rejected',title:'Rejected skill',description:'Declined',requested:'rejected'},
+    ]});
+    view.componentRef.setInput('tier',1);view.detectChanges();
+    const app=view.componentInstance;app.skillsPanel.set(true);app.skillPanel.set(true);view.detectChanges();
+    return {view,app,request};
+  }
+  it('shows allowed skills, descriptions and pending/rejected states, and marks a sent request',async()=>{
+    const {view,app,request}=await fixture();app.requestSkill.set('slides');view.detectChanges();
+    expect(view.nativeElement.textContent).toContain('Your test skill');expect(view.nativeElement.textContent).toContain('Creates a deck');
+    expect(view.nativeElement.textContent).toContain('Pending skill · Requested');expect(view.nativeElement.textContent).toContain('Rejected skill · Not approved');
+    app.skillReason='  A reason  ';await app.sendSkillRequest();view.detectChanges();
+    expect(request).toHaveBeenCalledWith('slides','A reason');expect(app.selectedSkill()?.requested).toBe('pending');
+    await app.sendSkillRequest();expect(request).toHaveBeenCalledOnce();
+  });
+  it('shows conflict messages and refuses oversized reasons',async()=>{
+    const request=vi.fn().mockRejectedValue(new ApiError(409,'Ask again after seven days.','too_soon'));
+    const {app,view}=await fixture(request);app.requestSkill.set('rejected');app.skillReason='x'.repeat(301);
+    await app.sendSkillRequest();expect(request).not.toHaveBeenCalled();app.skillReason='';await app.sendSkillRequest();view.detectChanges();
+    expect(view.nativeElement.querySelector('[role="alert"]').textContent).toBe('Ask again after seven days.');
   });
 });

@@ -1,0 +1,50 @@
+{
+  "$comment": "SPDX-License-Identifier: AGPL-3.0-only",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "conversation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "message_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "user",
+        "assistant"
+      ]
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    },
+    "tier": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "model_title": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    }
+  },
+  "required": [
+    "conversation_id",
+    "message_id",
+    "role",
+    "text",
+    "tier",
+    "model_title"
+  ],
+  "additionalProperties": false
+}

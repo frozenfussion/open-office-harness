@@ -68,16 +68,22 @@ builder.Services.AddAuthorization();
 builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
 builder.Services.AddSingleton<SchemaChecks>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton(new DisplayCalendar(builder.Configuration["CC_DISPLAY_TIME_ZONE"] ?? "Asia/Kuala_Lumpur"));
 builder.Services.AddSingleton(_ => new HttpClient(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) }) { Timeout = Timeout.InfiniteTimeSpan });
 builder.Services.AddSingleton<ModelConnection>();
 builder.Services.AddSingleton<IKafka, KafkaClient>();
 builder.Services.AddSingleton<IRetryDelay, RetryDelay>();
+builder.Services.AddScoped<DeadLetterConsumer>();
+builder.Services.AddSingleton<OperationsClient>();
+builder.Services.AddSingleton<ServiceHealth>();
+builder.Services.AddHostedService<HealthPoller>();
 builder.Services.AddScoped<ApprovalConsumer>();
 builder.Services.AddScoped<OutboxPublisher>();
 builder.Services.AddHostedService<KafkaWorker>();
 var app = builder.Build();
 app.Use(async (c, next) =>
 {
+  if (c.Request.Path.StartsWithSegments("/api/admin")) c.Response.Headers["X-Display-Time-Zone"] = c.RequestServices.GetRequiredService<DisplayCalendar>().Zone.Id;
   try { await next(c); }
   catch (ApiException e) { await Api.Error(e.Status, e.Code, e.Message).ExecuteAsync(c); }
   catch (Exception e) when (e is JsonException or BadHttpRequestException)
@@ -101,10 +107,10 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.Use(async (c, next) =>
 {
-  if (c.User.Identity?.IsAuthenticated == true && !Api.IsService(c.User))
+  if (c.User.Identity?.IsAuthenticated == true && c.User.FindFirst("azp")?.Value is not ("ooh-harness-api" or "ooh-model-gateway" or "ooh-control-centre"))
   {
     var db = c.RequestServices.GetRequiredService<CentreDb>();
-    await People.Observe(c, db);
+    await People.Observe(c, db, c.RequestServices.GetRequiredService<DisplayCalendar>(), c.RequestServices.GetRequiredService<TimeProvider>());
   }
   await next(c);
 });
@@ -113,6 +119,8 @@ app.MapGet("/health", async (HttpContext c, CentreDb db) =>
   Api.Query(c);
   return await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok" }) : Api.Error(503, "unavailable", "Database unavailable");
 });
+SkillRequestRoutes.Map(app);
+OperationsRoutes.Map(app);
 TierRequestRoutes.Map(app);
 AccessRoutes.Map(app);
 RightsRoutes.Map(app);

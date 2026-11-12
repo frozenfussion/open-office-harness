@@ -1,51 +1,85 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Component, DestroyRef, ElementRef, afterNextRender, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, afterNextRender, computed, inject, signal } from '@angular/core';
+import { Operations, Request } from './operations';
+import { defaultTimeZone, displayTime, validTimeZone } from './display-time';
 import { FormsModule } from '@angular/forms';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { firstValueFrom, of, switchMap } from 'rxjs';
-import { AccessRequest, AccessStatus, ConnectionResult, connectionSummary, Grant, ModelEntry, TierRequest, modelPayload, tierRows } from './models';
+import { ConnectionResult, connectionSummary, Grant, ModelEntry, modelPayload, tierRows } from './models';
+
+export function greeting(date = new Date()): string {
+  const hour = date.getHours();
+  return hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
+}
 
 export interface AppConfig { issuer: string; clientId: string; apiBase: string; }
 declare global { interface Window { oohConfig: AppConfig; OpenOfficeHarness?: { WordRain: { mount(el: HTMLCanvasElement): { stop(): void } } }; } }
-@Component({ selector: 'app-root', imports: [FormsModule], templateUrl: './app.html', styleUrl: './app.css' })
+@Component({ selector: 'app-root', imports: [FormsModule, Operations], templateUrl: './app.html', styleUrl: './app.css' })
 export class App {
   private auth = inject(OidcSecurityService);
   private element = inject(ElementRef<HTMLElement>);
   private destroy = inject(DestroyRef);
   signedIn = signal(false); admin = signal(false); ready = signal(false);
   models = signal<ModelEntry[]>([]); grants = signal<Grant[]>([]);
-  screen = signal<'models' | 'access'>('models');
-  accessFilter = signal<AccessStatus>('pending');
-  accessRequests = signal<AccessRequest[]>([]);
-  tierRequests = signal<TierRequest[]>([]);
-  pendingCount = signal(0); accessBusy = signal(false);
-  selectedTiers: Record<string, number | undefined> = {};
+  readonly greeting = computed(() => {
+    this.ready(); this.signedIn();
+    return greeting();
+  });
+  givenName = signal(''); displayTimeZone = signal(defaultTimeZone);
+  private screens = ['overview', 'approvals', 'rights', 'models', 'audit'];
+  private screenFromHash(): string { const value = window.location.hash.slice(1); return this.screens.includes(value) ? value : 'overview'; }
+  screen = signal(this.screenFromHash());
+  operationRequest: Request = <T>(path: string, method?: string, body?: unknown) => this.request<T>(path, method, body);
+  navigate(screen: string, replace = false): void {
+    if (!this.screens.includes(screen)) return;
+    this.screen.set(screen);
+    if (this.ready() && window.location.hash !== '#' + screen) {
+      const url = window.location.pathname + window.location.search + '#' + screen;
+      if (replace) window.history.replaceState(null, '', url);
+      else window.history.pushState(null, '', url);
+    }
+  }
+  formatTime(value: string | null | undefined): string { return displayTime(value, this.displayTimeZone()); }
+  pendingCount = signal(0);
   error = signal(''); busy = signal(false); editing = signal<ModelEntry | null>(null);
   testing = signal<Set<string>>(new Set());
   testResults = signal<Record<string, ConnectionResult>>({});
   connectionSummary = connectionSummary;
   key = ''; removeKey = false; settings = '{}'; thinkingOff = ''; people: Record<number, string> = {};
   types = [
-    { value: 'openai_chat_completions', title: 'OpenAI-compatible', help: 'Chat completions: https://api.deepseek.com or http://<host>:8000/v1' },
-    { value: 'openai_responses', title: 'OpenAI Responses', help: 'Responses API: https://api.openai.com/v1' },
-    { value: 'anthropic_messages', title: 'Anthropic Messages', help: 'Messages API: https://api.anthropic.com or https://api.deepseek.com/anthropic' }
+    { value: 'openai_chat_completions', title: 'OpenAI-compatible', help: 'Enter the chat completions endpoint.' },
+    { value: 'openai_responses', title: 'OpenAI Responses', help: 'Enter the Responses endpoint.' },
+    { value: 'anthropic_messages', title: 'Anthropic Messages', help: 'Enter the Messages endpoint.' }
   ];
+  availableTypes(purpose: string): typeof this.types { return purpose === 'classification' ? [...this.types, { value: 'jev_systemone', title: 'Jev System One', help: 'Enter the Jev service endpoint.' }] : this.types; }
   constructor() {
+    const syncHash = (): void => {
+      const screen = this.screenFromHash(); this.screen.set(screen);
+      if (this.ready() && window.location.hash !== '#' + screen) window.history.replaceState(null, '', window.location.pathname + window.location.search + '#' + screen);
+    };
+    window.addEventListener('hashchange', syncHash); window.addEventListener('popstate', syncHash);
+    this.destroy.onDestroy(() => { window.removeEventListener('hashchange', syncHash); window.removeEventListener('popstate', syncHash); });
     afterNextRender(() => {
       const canvas = this.element.nativeElement.querySelector('canvas');
       if (canvas) { const rain = window.OpenOfficeHarness?.WordRain.mount(canvas); this.destroy.onDestroy(() => rain?.stop()); }
     });
     this.auth.checkAuth().pipe(switchMap(result => {
       this.signedIn.set(result.isAuthenticated);
+      const givenName: unknown = result.userData?.given_name;
+      this.givenName.set(typeof givenName === 'string' ? givenName.trim() : '');
       return result.isAuthenticated ? this.auth.getPayloadFromAccessToken() : of(null);
     })).subscribe({ next: payload => {
       const roles: unknown = payload?.realm_access?.roles;
+      if (!this.givenName() && typeof payload?.given_name === 'string') this.givenName.set(payload.given_name.trim());
       this.admin.set(Array.isArray(roles) && roles.includes('ooh-admin'));
       this.ready.set(true);
+      const intended = this.signedIn() ? sessionStorage.getItem('ooh-admin-signin-screen') : null;
+      if (this.signedIn()) sessionStorage.removeItem('ooh-admin-signin-screen');
+      this.navigate(intended && this.screens.includes(intended) ? intended : this.screen(), true);
       if (this.admin()) void this.load();
     }, error: () => { this.ready.set(true); this.error.set('Sign-in could not finish. Try signing in again.'); } });
   }
-  signIn(): void { this.auth.authorize(); }
+  signIn(): void { sessionStorage.setItem('ooh-admin-signin-screen', this.screen()); this.auth.authorize(); }
   signOut(): void { this.auth.logoff().subscribe({ error: () => this.error.set('Sign-out failed. Try again.') }); }
   tiers(): number[] { return tierRows(this.models(), this.grants()); }
   groups(): string[] { return [...new Set(this.models().map(m => this.label(m)))]; }
@@ -57,76 +91,52 @@ export class App {
   async request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
     const token = await firstValueFrom(this.auth.getAccessToken());
     const response = await fetch(window.oohConfig.apiBase + path, { method, signal, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const zone = response.headers?.get('X-Display-Time-Zone');
+    if (zone && validTimeZone(zone)) this.displayTimeZone.set(zone);
     const result = await response.json();
     if (!response.ok) throw new Error(result.message || 'The request failed. Try again.');
     return result as T;
   }
   async load(): Promise<void> {
     try {
-      // The registry is intentionally private; the console uses the admin list.
-      const models: ModelEntry[] = [];
-      let modelAfter = '';
-      do {
-        const page = await this.request<ModelEntry[]>('/admin/models?limit=200' + (modelAfter ? '&after=' + encodeURIComponent(modelAfter) : ''));
-        models.push(...page); modelAfter = page.length === 200 ? page[page.length - 1].model_entry_id : '';
-      } while (modelAfter);
-      models.sort((a, b) => a.purpose.localeCompare(b.purpose) || (a.tier ?? 0) - (b.tier ?? 0)
-        || (a.role === b.role ? 0 : a.role === 'main' ? -1 : 1) || a.priority - b.priority);
+      await this.loadModels();
       const grants: Grant[] = [];
       let after = '';
       do {
         const page = await this.request<Grant[]>('/admin/grants?limit=200' + (after ? '&after=' + encodeURIComponent(after) : ''));
         grants.push(...page); after = page.length === 200 ? page[page.length - 1].id : '';
       } while (after);
-      this.models.set(models); this.grants.set(grants);
+      this.grants.set(grants);
       await this.loadAccessCount();
     } catch (e) { this.failure(e); }
   }
+  private async loadModels(): Promise<void> {
+    // The registry is intentionally private; the console uses the admin list.
+    const models: ModelEntry[] = [];
+    let modelAfter = '';
+    do {
+      const page = await this.request<ModelEntry[]>('/admin/models?limit=200' + (modelAfter ? '&after=' + encodeURIComponent(modelAfter) : ''));
+      models.push(...page); modelAfter = page.length === 200 ? page[page.length - 1].model_entry_id : '';
+    } while (modelAfter);
+    models.sort((a, b) => a.purpose.localeCompare(b.purpose) || (a.tier ?? 0) - (b.tier ?? 0)
+      || (a.role === b.role ? 0 : a.role === 'main' ? -1 : 1) || a.priority - b.priority);
+    this.models.set(models);
+  }
   workspaceUrl(): string { return 'https://harness.' + new URL(window.oohConfig.issuer).hostname.replace(/^auth\./, ''); }
+  async pendingApprovals(): Promise<number> {
+    let before = ''; let count = 0;
+    do {
+      const page = await this.request<{ id: string; created_at: string }[]>('/admin/approvals?status=pending&limit=200' + (before ? '&before=' + encodeURIComponent(before) : ''));
+      count += page.length; before = page.length === 200 ? page[199].created_at + ',' + page[199].id : '';
+    } while (before);
+    return count;
+  }
   async loadAccessCount(): Promise<void> {
     try {
-      const [access, models] = await Promise.all([this.request<{ count: number }>('/admin/access-requests/count?status=pending'), this.request<{ count: number }>('/admin/tier-requests/count?status=pending')]);
-      this.pendingCount.set(access.count + models.count);
+      const [access, models, skills, approvals] = await Promise.all([this.request<{ count: number }>('/admin/access-requests/count?status=pending'), this.request<{ count: number }>('/admin/tier-requests/count?status=pending'), this.request<{ count: number }>('/admin/skill-requests/count?status=pending'), this.pendingApprovals()]);
+      this.pendingCount.set(access.count + models.count + skills.count + approvals);
     }
     catch (error) { this.failure(error); }
-  }
-  async openAccessRequests(): Promise<void> { this.screen.set('access'); await this.loadAccessRequests(); }
-  async loadAccessRequests(): Promise<void> {
-    this.error.set(''); this.selectedTiers = {}; this.accessRequests.set([]); this.tierRequests.set([]);
-    const filter = this.accessFilter();
-    try {
-      const rows: AccessRequest[] = []; let after = '';
-      do {
-        const page = await this.request<AccessRequest[]>('/admin/access-requests?status=' + filter + '&limit=200' + (after ? '&after=' + encodeURIComponent(after) : ''));
-        rows.push(...page); after = page.length === 200 ? page[page.length - 1].id : '';
-      } while (after);
-      const models: TierRequest[] = []; after = '';
-      do {
-        const page = await this.request<TierRequest[]>('/admin/tier-requests?status=' + filter + '&limit=200' + (after ? '&after=' + encodeURIComponent(after) : ''));
-        models.push(...page); after = page.length === 200 ? page[page.length - 1].id : '';
-      } while (after);
-      if (filter === this.accessFilter()) { this.accessRequests.set(rows); this.tierRequests.set(models); }
-      await this.loadAccessCount();
-    } catch (error) { this.failure(error); }
-  }
-  async decideAccess(row: AccessRequest, action: 'approve' | 'reject' | 'revoke'): Promise<void> {
-    const tier = this.selectedTiers[row.id];
-    if (this.accessBusy() || action === 'approve' && !tier) return;
-    this.accessBusy.set(true); this.error.set('');
-    try {
-      const updated = await this.request<AccessRequest>('/admin/access-requests/' + encodeURIComponent(row.id) + '/' + action, 'POST', action === 'approve' ? { tier } : {});
-      this.accessRequests.update(rows => rows.flatMap(item => item.id !== row.id ? [item] : updated.status === this.accessFilter() ? [updated] : []));
-      await this.load(); await this.loadAccessRequests();
-    } catch (error) { this.failure(error); } finally { this.accessBusy.set(false); }
-  }
-  async decideTier(row: TierRequest, action: 'approve' | 'reject'): Promise<void> {
-    if (this.accessBusy()) return;
-    this.accessBusy.set(true); this.error.set('');
-    try {
-      const updated = await this.request<TierRequest>('/admin/tier-requests/' + encodeURIComponent(row.id) + '/' + action, 'POST', {});
-      this.tierRequests.update(rows => rows.flatMap(item => item.id !== row.id ? [item] : updated.status === this.accessFilter() ? [updated] : []));
-      await this.load(); await this.loadAccessRequests();
-    } catch (error) { this.failure(error); } finally { this.accessBusy.set(false); }
   }
   edit(model?: ModelEntry): void {
     this.error.set(''); this.key = ''; this.removeKey = false;
@@ -160,6 +170,15 @@ export class App {
       clearTimeout(timer);
       this.testing.update(ids => { const next = new Set(ids); next.delete(id); return next; });
     }
+    try {
+      if (this.destroy.destroyed) return;
+      await this.loadModels();
+      const refreshed = this.models().find(entry => entry.model_entry_id === id);
+      if (refreshed && refreshed.health === model.health) {
+        await new Promise<void>(resolve => setTimeout(resolve, 2000));
+        if (!this.destroy.destroyed) await this.loadModels();
+      }
+    } catch (error) { this.failure(error); }
   }
   async switchOff(m: ModelEntry): Promise<void> {
     if (!confirm(`Switch off ${m.title || m.model_id}?`)) return;

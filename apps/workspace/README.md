@@ -6,7 +6,7 @@
    Good result: build finishes and all tests pass.
 
    ```bash
-   cd ~/projects/worktrees/stage-2-part-c/apps/workspace
+   cd ~/projects/worktrees/stage-3-part-c/apps/workspace
    npm ci
    npx ng build
    npx ng test --watch=false
@@ -20,7 +20,7 @@
    Good result: `Running image: ...`, then `DONE`.
 
    ```bash
-   cd ~/projects/worktrees/stage-2
+   cd ~/projects/worktrees/stage-3
    install/68-workspace-deploy.sh MERGED_IMAGE_TAG
    ```
 
@@ -78,7 +78,7 @@
    is `1/1` Ready and the intended image tag.
 
    ```bash
-   cd ~/projects/worktrees/stage-2
+   cd ~/projects/worktrees/stage-3
    kubectl -n ooh-apps get deployment workspace
    kubectl -n ooh-apps get deployment workspace -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
    ```
@@ -88,7 +88,7 @@
    tokens or chat text.
 
    ```bash
-   cd ~/projects/worktrees/stage-2
+   cd ~/projects/worktrees/stage-3
    kubectl -n ooh-apps logs deployment/workspace --tail=50
    ```
 
@@ -97,7 +97,7 @@
    Workspace; good result: `successfully rolled out`.
 
    ```bash
-   cd ~/projects/worktrees/stage-2
+   cd ~/projects/worktrees/stage-3
    kubectl -n ooh-apps rollout restart deployment/workspace
    kubectl -n ooh-apps rollout status deployment/workspace --timeout=300s
    ```
@@ -107,7 +107,7 @@
    conversations stay in the Harness database. Good result: `scaled`.
 
    ```bash
-   cd ~/projects/worktrees/stage-2
+   cd ~/projects/worktrees/stage-3
    kubectl -n ooh-apps scale deployment/workspace --replicas=0
    ```
 
@@ -116,7 +116,7 @@
    good result: `successfully rolled out`.
 
    ```bash
-   cd ~/projects/worktrees/stage-2
+   cd ~/projects/worktrees/stage-3
    kubectl -n ooh-apps scale deployment/workspace --replicas=1
    kubectl -n ooh-apps rollout status deployment/workspace --timeout=300s
    ```
@@ -131,7 +131,7 @@
    the Control Centre.** It tests chat tiers 1–20.
 
    ```bash
-   cd ~/projects/worktrees/stage-2
+   cd ~/projects/worktrees/stage-3
    install/40-check-platform.sh
    install/62-check-control-centre.sh
    install/70-check-stage-2.sh
@@ -277,3 +277,18 @@ with only its endpoint changed to
 `/realms/ooh/protocol/openid-connect/registrations`. Keep all query parameters,
 especially state, nonce, redirect URI and PKCE challenge; do not construct a
 bare registration URL that discards them. No extra fallback link is shown.
+
+## Stage 3 jobs and skills
+
+Open Jobs in the navigation to see job topics and Waiting for approval, Queued,
+Ready, Failed or Not approved. A live chat tool call also adds a job card. Copy
+copies its full Request ID for the admin Audit filter. Download fetches a blob
+through the authenticated job-file route; the server checks ownership.
+The Jobs stream reconnects after 1, 2, 5 and then 10 seconds and reloads jobs
+on every connection. Sign-out cancels it and clears its data.
+
+Chat model → Skills lists Your skills and Request a skill…. Choose a skill,
+read its description, optionally enter up to 300 characters, then Send request.
+Pending requests show Requested; rejected ones show Not approved. Server
+conflicts appear in the panel. Refresh the page after an admin changes rights.
+No new browser libraries are used.

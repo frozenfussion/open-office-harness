@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit-writer
+  namespace: ${APPS_NAMESPACE}
+  labels:
+    app: audit-writer
+spec:
+  selector:
+    app: audit-writer
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http

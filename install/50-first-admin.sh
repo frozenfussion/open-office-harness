@@ -37,7 +37,7 @@ if [[ "$count" != 0 ]]; then
   printf 'Completing role assignment for the first admin created by this script; password unchanged\n'
 else
 # Curl's config holds only the token; the JSON body arrives on a separate descriptor.
-payload="$(jq -n --arg u "$username" --arg e "$email" --arg p "$password" '{username:$u,email:$e,enabled:true,attributes:{"ooh-first-admin":["true"]},requiredActions:["UPDATE_PASSWORD"],credentials:[{type:"password",value:$p,temporary:true}]}')"
+payload="$(jq -n --arg u "$username" --arg e "$email" --arg p "$password" '{username:$u,email:$e,enabled:true,attributes:{"ooh-first-admin":["true"]},requiredActions:[],credentials:[{type:"password",value:$p,temporary:false}]}')"
 curl --config /dev/fd/3 --connect-timeout 10 --max-time 30 -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$base/admin/realms/ooh/users" 3< <(printf 'header = "Authorization: Bearer %s"\n' "$token") <<< "$payload" >/dev/null 2>&1
 fi
 unset password confirmation payload
@@ -46,4 +46,4 @@ id="$(jq -er 'if length == 1 then .[0].id else error("user lookup failed") end' 
 role="$(api "$base/admin/realms/ooh/roles/ooh-admin" | jq -c '[{id:.id,name:.name}]')"
 curl --config /dev/fd/3 --connect-timeout 10 --max-time 30 -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$base/admin/realms/ooh/users/$id/role-mappings/realm" 3< <(printf 'header = "Authorization: Bearer %s"\n' "$token") <<< "$role" >/dev/null 2>&1
 unset token users username email id role
-printf 'First admin created with ooh-admin; sign in at %s/realms/ooh/account and change the password\nDONE\n' "$base"
+printf 'First admin created with ooh-admin; sign in at %s/realms/ooh/account\nDONE\n' "$base"

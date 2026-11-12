@@ -127,4 +127,21 @@ else
     kubectl create -f - >/dev/null
 fi
 unset client_secret stored existing
+name=harness-api
+ deadline=$((SECONDS + 120))
+ while :; do
+   ready="$(kubectl -n "$PLATFORM_NAMESPACE" get kafkauser "$name" --ignore-not-found -o json 2>/dev/null)" || ready=''
+   current="$(kubectl -n "$PLATFORM_NAMESPACE" get secret "$name" --ignore-not-found -o jsonpath='{.data.password}' 2>/dev/null)" || current=''
+   if [[ -n "$ready" && -n "$current" ]] && jq -e 'any(.status.conditions[]?; .type == "Ready" and .status == "True")' <<< "$ready" >/dev/null; then break; fi
+   ((SECONDS < deadline)) || stop "KafkaUser $name not ready; re-run 30"
+   sleep 2
+ done
+ existing="$(kubectl -n "$APPS_NAMESPACE" get secret "$name-kafka" --ignore-not-found -o json)"
+ if [[ -n "$existing" ]]; then
+   stored="$(jq -er '.data.password' <<< "$existing")"
+   [[ "$stored" == "$current" ]] || stop "Kafka password changed in Strimzi; ask the maintainer before replacing $name-kafka"
+ else
+   printf '%s' "$current" | jq -Rs --arg namespace "$APPS_NAMESPACE" --arg name "$name-kafka" '{apiVersion:"v1",kind:"Secret",metadata:{name:$name,namespace:$namespace},type:"Opaque",data:{password:.}}' | kubectl create -f - >/dev/null
+ fi
+ unset ready current stored existing
 printf 'DONE\n'

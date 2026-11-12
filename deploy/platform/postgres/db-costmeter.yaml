@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: costmeter
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: costmeter
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: costmeter-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: costmeter-app
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: costmeter_app
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: costmeter-app-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: costmeter-test
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: costmeter_test
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: costmeter-test-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: costmeter-test-app
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: costmeter_test_app
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  passwordSecret:
+    name: costmeter-test-app-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: costmeter
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: costmeter
+  owner: costmeter
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: costmeter-test
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  cluster:
+    name: ooh-pg
+  name: costmeter_test
+  owner: costmeter_test
+  databaseReclaimPolicy: retain

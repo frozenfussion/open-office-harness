@@ -1,0 +1,36 @@
+{
+  "purpose": "chat",
+  "tier": 1,
+  "user_id": "u-123",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Example"
+    },
+    {
+      "role": "assistant",
+      "content": "Started.",
+      "tool_calls": [
+        {
+          "id": "fake-call",
+          "name": "slides",
+          "arguments": {
+            "topic": "Synthetic topic"
+          }
+        }
+      ],
+      "reasoning_state": {
+        "model_entry_id": "00000000-0000-4000-8000-000000000001",
+        "reasoning_content": "Synthetic reasoning"
+      }
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "fake-call",
+      "content": "{\"job_id\":\"00000000-0000-4000-8000-000000000002\"}"
+    }
+  ],
+  "stream": false,
+  "model_entry_id": "00000000-0000-4000-8000-000000000001",
+  "tool_choice": "none"
+}

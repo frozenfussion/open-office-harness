@@ -97,6 +97,17 @@ paths:
                     minLength: 1
                     description: Concatenated visible thinking text, separate from
                       content; null when no non-empty thinking was returned.
+                  reasoning_state:
+                    type:
+                    - object
+                    - 'null'
+                    description: Opaque provider state with model_entry_id. Private
+                      to the cluster and the matching provider; never in logs, Kafka
+                      or browser responses. The Harness stores it privately for replay
+                      across turns.
+                    additionalProperties: true
+                  tool_choice_applied:
+                    type: boolean
                 required:
                 - content
                 - tool_calls
@@ -107,6 +118,8 @@ paths:
                 - cost_usd
                 - thinking_applied
                 - thinking
+                - reasoning_state
+                - tool_choice_applied
                 additionalProperties: false
             text/event-stream:
               schema:
@@ -174,6 +187,17 @@ paths:
                         True when thinking is true or absent; when false, true only
                         if the answering entry has a request_settings_thinking_off
                         object.
+                    reasoning_state:
+                      type:
+                      - object
+                      - 'null'
+                      description: Opaque provider state with model_entry_id. Private
+                        to the cluster and the matching provider; never in logs, Kafka
+                        or browser responses. The Harness stores it privately for
+                        replay across turns.
+                      additionalProperties: true
+                    tool_choice_applied:
+                      type: boolean
                   required:
                   - type
                   - model_entry_id
@@ -182,6 +206,8 @@ paths:
                   - usage
                   - cost_usd
                   - thinking_applied
+                  - reasoning_state
+                  - tool_choice_applied
                   additionalProperties: false
                 - type: object
                   properties:
@@ -274,12 +300,88 @@ paths:
                         - system
                         - user
                         - assistant
+                        - tool
                       content:
-                        type: string
+                        type:
+                        - string
+                        - 'null'
+                      reasoning_state:
+                        type:
+                        - object
+                        - 'null'
+                        description: Opaque provider state with model_entry_id. Private
+                          to the cluster and the matching provider; never in logs,
+                          Kafka or browser responses. The Harness stores it privately
+                          for replay across turns.
+                        additionalProperties: true
+                      tool_call_id:
+                        type:
+                        - string
+                        - 'null'
+                        minLength: 1
+                      tool_calls:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            arguments:
+                              type: object
+                              additionalProperties: true
+                          required:
+                          - id
+                          - name
+                          - arguments
+                          additionalProperties: false
                     required:
                     - role
-                    - content
                     additionalProperties: false
+                    anyOf:
+                    - required:
+                      - content
+                      properties:
+                        content:
+                          type: string
+                    - required:
+                      - tool_calls
+                      properties:
+                        tool_calls:
+                          type: array
+                          minItems: 1
+                    allOf:
+                    - if:
+                        properties:
+                          role:
+                            const: tool
+                      then:
+                        required:
+                        - tool_call_id
+                        - content
+                        properties:
+                          tool_call_id:
+                            type: string
+                            minLength: 1
+                          content:
+                            type: string
+                      else:
+                        properties:
+                          tool_call_id:
+                            type: 'null'
+                    - if:
+                        properties:
+                          role:
+                            not:
+                              const: assistant
+                      then:
+                        properties:
+                          reasoning_state:
+                            type: 'null'
+                          tool_calls:
+                            type: array
+                            maxItems: 0
                 tools:
                   type: array
                   items:
@@ -312,6 +414,18 @@ paths:
                     object is merged after request_settings using top-level replacement
                     and null removal. Ignored when the entry has no off-settings object.
                     The Control Centre test caller must omit this field.
+                tool_choice:
+                  oneOf:
+                  - const: none
+                  - type: 'null'
+                  - type: object
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                    required:
+                    - name
+                    additionalProperties: false
               required:
               - purpose
               - user_id
@@ -334,30 +448,33 @@ paths:
                   properties:
                     tier:
                       type: 'null'
-      description: 'Audience ooh-model-gateway. The Harness service account may make
-        purpose calls. The Control Centre service account may only make a pinned non-streamed
-        test: messages exactly [{"role":"user","content":"Reply with the single word
-        OK."}], no tools, user_id starting admin-test-. Every other caller or Control
-        Centre request is forbidden. Active entries: main before backup, then priority,
-        then created_at. model_entry_id pins one matching entry; rate and budget still
-        apply. Before first output failures may fail over; after output, emit failed.
-        Registry cache 30 seconds; key cache 60 seconds. Only the Control Centre test
-        receives provider_status and scrubbed provider_message on 503. Provider error
-        reads are bounded to 4 KiB and messages to 300 characters. Keys, their substrings
-        of at least eight characters, and sk- tokens are replaced with [removed].
-        Thinking defaults to true. The Control Centre test rejects all extra fields,
-        including thinking. thinking_applied reports whether the caller choice was
-        honoured: true when thinking is true or omitted; otherwise true only when
-        the answering entry has an off-settings object. It reflects the actual answering
-        entry after failover. Visible thinking is emitted as thinking/text SSE events
-        before or between answer deltas, never after completed; empty strings are
-        dropped. Non-streamed thinking is a separate string or null. Signatures, encrypted
-        reasoning and redacted blocks are never forwarded. openai_responses forwards
-        visible reasoning summaries only when effective request settings ask for reasoning.summary;
-        encrypted_content is never forwarded. Chat-completions prefers reasoning_content,
-        then string reasoning, and ignores reasoning_details/object forms. Unknown
-        event types are ignored. Thinking is never logged; token usage remains as
-        reported by the provider.'
+      description: 'Audience ooh-model-gateway. Callers: Harness (any purpose); Slides
+        worker (non-pinned, non-streamed); Control Centre (the existing pinned non-streamed
+        connection test only). Others receive 403. Main entries precede backups, then
+        priority and created_at. model_entry_id pins an entry with no failover. Follow-ups
+        inside a tool turn stay pinned. Every completed answer includes reasoning_state
+        with its model_entry_id, also when no tool was called. Each history message
+        state is replayed only for its matching entry; foreign states are dropped
+        without error. Chat Completions replays reasoning_content and function tool
+        calls; Messages replays complete ordered content blocks with thinking signatures
+        and redacted thinking; Responses requests reasoning.encrypted_content with
+        store:false and replays output items before function_call_output. Forced tools
+        use auto only for explicit non-disabled thinking in Messages or Chat Completions,
+        with tool_choice_applied:false; absent thinking and Responses permit forcing;
+        none disables tools. Provider details are scrubbed and returned only for Control
+        Centre tests. Visible thinking remains separate from answer text. Opaque reasoning
+        is never logged or published on Kafka. Audit events contain only IDs, model
+        title, usage, cost and classification scores. Health changes and audit publishes dispatch from iterator cleanup,
+        including client disconnect, as retained background tasks with two-second limits. A forced-tool HTTP 400 before output retries once
+        on the same entry with auto, without a health report for the initial 400.'
+      parameters:
+      - name: X-Correlation-Id
+        in: header
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Caller correlation UUID; generated when omitted.
   /v1/classify:
     post:
       operationId: post_v1_classify
@@ -370,11 +487,42 @@ paths:
             application/json:
               schema:
                 type: object
-                minProperties: 1
-                additionalProperties:
-                  type: number
-                  minimum: 0
-                  maximum: 1
+                properties:
+                  scores:
+                    type: object
+                    minProperties: 1
+                    additionalProperties:
+                      type: number
+                      minimum: 0
+                      maximum: 1
+                  model_entry_id:
+                    type: string
+                    format: uuid
+                  model_title:
+                    type: string
+                  usage:
+                    type: object
+                    properties:
+                      input_tokens:
+                        type: integer
+                        minimum: 0
+                      output_tokens:
+                        type: integer
+                        minimum: 0
+                    required:
+                    - input_tokens
+                    - output_tokens
+                    additionalProperties: false
+                  cost_usd:
+                    type: number
+                    minimum: 0
+                required:
+                - scores
+                - model_entry_id
+                - model_title
+                - usage
+                - cost_usd
+                additionalProperties: false
         '400':
           description: Invalid input
           content:
@@ -394,7 +542,21 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '503':
-          description: 'not_built_yet: Classification arrives in Stage 3'
+          description: unavailable, budget_exceeded or registry_unavailable
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/Error'
+                - $ref: '#/components/schemas/PinnedError'
+        '404':
+          description: 'no_model: no active classification entry'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 'rate_limited: no available entry under its rate'
           content:
             application/json:
               schema:
@@ -409,16 +571,45 @@ paths:
                 text:
                   type: string
                   minLength: 1
+                  maxLength: 20000
                 questions:
                   type: object
                   minProperties: 1
+                  maxProperties: 10
+                  propertyNames:
+                    pattern: ^[a-z][a-z0-9_]{0,39}$
                   additionalProperties:
                     type: string
                     minLength: 1
+                user_id:
+                  type: string
+                  minLength: 1
+                model_entry_id:
+                  type:
+                  - string
+                  - 'null'
+                  format: uuid
               required:
               - text
               - questions
+              - user_id
               additionalProperties: false
+      parameters:
+      - name: X-Correlation-Id
+        in: header
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Caller correlation UUID; generated when omitted.
+      description: Audience ooh-model-gateway. Harness and safety watcher may classify.
+        Control Centre may only test a pinned classification entry with user_id starting
+        admin-test-, text This is a connection test. and questions {"test":"Is this a connection
+        test?"}. Active classification entries have no tier, use main before backup,
+        and obey the same rates, budgets and cost rules as calls. jev_systemone uses
+        state and typed noul questions. Chat adapters request a JSON object of scores.
+        Missing, nonnumeric or out-of-range scores fail the entry; extra keys are
+        ignored. Audit contains scores and usage, never text.
 components:
   securitySchemes:
     bearerAuth:

@@ -3,5 +3,6 @@
   "questions": {
     "needs_tier2": "Does this need deep reasoning?",
     "wants_slides": "Is a presentation requested?"
-  }
+  },
+  "user_id": "fake-user"
 }

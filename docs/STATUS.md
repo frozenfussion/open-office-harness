@@ -1,3 +1,146 @@
+# Stage 3 - accepted (12 Nov 2026)
+
+Aziz accepted Stage 3 on **12 Nov 2026, 15:36 MYT**, at `stage-3` commit
+`554a187f84c0` (all nine images built and deployed with that tag). Merged into
+`main`; tag `spine-v0.3`.
+
+## What was checked
+
+| Check | Result |
+|---|---|
+| Clean-worktree checks (all services, contracts, scripts, manifests) | PASS (independent audit, 12 Nov) |
+| `40`, `62`, `70`, `77 554a187f84c0` after `sudo reboot` | all PASS, 0 FAIL (12 Nov 15:13-15:31) |
+| Aziz in the browser | branded sign-in; Admin Console sign-in with username and with email; Slides deck made and downloaded (11 and 12 Nov, also after the reboot); Auto routing simple question -> tier 1, hard question -> tier 2; Slides right removed -> no Slides tool offered |
+
+## Changes after phase 2 (12 Nov)
+
+- Admin Console sign-in loop fixed: the screen navigation no longer rewrites the address before sign-in finishes (`c379610`, `51c40fc`).
+- Models screen refreshes health after Test, Save and Switch off (`69248ec`).
+- Routing: the tier 2 rule is written down and is the routing question; threshold 0.5 from a 20-question labelled set (`docs/routing/`); Jev main classifier, DeepSeek backup, temperature 0 (spec section 14 row 15; D096, D097).
+
+## Open for later (not in the Stage 3 spec)
+
+- Workspace: a saved chat link opened while signed out lands on a new chat after sign-in (the conversation id is not carried through sign-in).
+- Workspace: tables in chat answers break short words (the design system's `overflow-wrap: anywhere` on message bodies also applies inside tables).
+
+---
+
+# History: Stage 3 phase 1 merge (11 Nov 2026)
+
+The reviewed phase 1 Parts were merged locally on **11 Nov 2026**, in
+`~/projects/worktrees/stage-3`, on branch `stage-3`. All five sources merged in
+the requested order without conflicts. The branch has **not been pushed**;
+Aziz's approval is required before that step. Nothing was deployed and Stage 3
+has not been accepted.
+
+## Merged sources
+
+| Source | Commit |
+|---|---|
+| Base tag `stage-3-base` | `00207e7932e4` |
+| Spec decisions, section 14 rows 5–11, `origin/stage-3-spec-rows` | `163fb1ab5342` |
+| Reviewed Part A, `origin/stage-3-part-a` | `12d413e882f4` |
+| Reviewed Part B, `origin/stage-3-part-b` | `f31937e213a0` |
+| Reviewed Part C, `origin/stage-3-part-c` | `f2f110184d60` |
+| Reviewed Part D, `origin/stage-3-part-d` | `d310e9d008a9` |
+| Combined source commit checked before this status-only update | `373b0b930064` |
+
+## What was built
+
+- **Part A — Harness API and Slides worker:** tool rounds with pinned follow-up
+  calls and private reasoning history; durable jobs and approval decisions,
+  Kafka events, user-scoped SSE, owned file downloads and skill requests. The
+  worker builds PowerPoint files on the retained volume, reuses finished files,
+  retries and sends dead letters. Consumer recovery, bounded background chat
+  publishing and individual delivery callbacks keep Kafka failures from taking
+  chat down. Packages, tests, images, manifests, setup/deploy scripts and storage
+  contract are included.
+- **Part B — Model Gateway and consumers:** tool/reasoning support, classification
+  connections, model health reports and background audit publication. The audit
+  writer, cost meter and safety watcher validate events, handle duplicates and
+  retries, and expose the specified internal views or safety approvals. Their
+  packages, protected databases, tests, images, manifests and scripts are included.
+- **Part C — Workspace and platform:** Jobs panel/cards, authenticated downloads,
+  requestable skills and SSE reconnect/reload; branded sign-in; new Kafka topics
+  and principals, service clients and audiences; temporary check-client helper
+  and stage check. Root Quick Guide and architecture/identity documents describe
+  the merged phase 1 flow.
+- **Part D — Control Centre and Admin Console:** skill requests and grants,
+  approval handling, model/service health, dead letters, overview figures and
+  audit proxy, plus the Overview, Approvals, People & rights and Audit screens.
+  Service-account filtering, contracts, migrations, tests and deployment settings
+  are included.
+
+## Checks on the clean merged worktree
+
+Every Python package ran `uv sync --frozen`, `ruff check`,
+`ruff format --check` and `pytest`. The private test settings were loaded for
+Harness, Gateway, audit writer and cost meter; Control Centre tests read their
+existing private test settings. No settings or credentials were printed.
+Database tests used only the isolated test databases. Protection assertions
+that attempt forbidden changes run in rolled-back transactions. All final test suites have zero failures
+and zero skips: **1,121 tests passed** (753 Python/contract, 123 Angular and
+245 Control Centre).
+
+| Check | Result |
+|---|---|
+| Harness API | 312 tests passed; frozen sync and both Ruff checks passed |
+| Model Gateway | 321 tests passed; frozen sync and both Ruff checks passed |
+| Slides worker | 18 tests passed; frozen sync and both Ruff checks passed |
+| Audit writer | 24 tests passed; database included; frozen sync and both Ruff checks passed |
+| Cost meter | 29 tests passed; database included; frozen sync and both Ruff checks passed |
+| Safety watcher | 31 tests passed; frozen sync and both Ruff checks passed |
+| Contract checker | 18 tests passed; frozen sync and both Ruff checks passed; 487 indexed examples |
+| Workspace | `npm ci`, `npx ng build`, `npx ng test --watch=false` passed; 95 tests in 6 files |
+| Admin Console | `npm ci`, `npx ng build`, `npx ng test --watch=false` passed; 28 tests in 2 files |
+| Control Centre formatting | `dotnet format --verify-no-changes --no-restore` passed |
+| Control Centre build | `dotnet build -warnaserror` with build servers disabled passed; 0 warnings, 0 errors |
+| Control Centre tests | 245 passed, 0 failed, 0 skipped; database tests included |
+| EF migration/model check | `dotnet ef migrations has-pending-model-changes` passed; no pending model changes |
+| Shell syntax | `bash -n` passed for all 27 `install/*.sh` and `install/lib/*.sh` files |
+| ShellCheck | `shellcheck -x install/*.sh install/lib/*.sh` passed with the merged helper present |
+| Kubernetes manifests | `kubeconform -strict`: 108 valid resources in 71 files; 0 invalid, 0 errors, 0 skipped |
+| Git | Clean merged source worktree before this status update; whitespace check passed |
+
+Manifest validation used locally rendered deployment values, the checked merge
+commit's image tag and the same configuration/theme checksum substitutions as
+the deploy scripts. The certificate contact was a synthetic validation address;
+the admin issuer was read from the existing Ingress. The theme ConfigMap was
+rendered with the platform script's client-only dry run. Installed CRD schemas
+were obtained through read-only `kubectl get`; conversion supplied the standard
+resource envelope fields omitted by the Keycloak schemas and applied strict
+object-property checks. No custom resource kind was skipped. This was schema
+validation only, not an apply, readiness check or real provider test.
+
+Non-failing notices: the pinned Python test-client stack emits an
+httpx/Starlette deprecation warning in five packages. Both `npm ci` runs report
+zero vulnerabilities and notices about four dependency install scripts not
+covered by npm's allowScripts setting; the builds and tests still pass. No
+package versions or approval settings were changed. .NET checks used disabled
+build servers and end with build-server shutdown.
+
+## Open items before deployment and phase 2
+
+- Await Aziz's approval before pushing `stage-3`. No merge image workflow has
+  been started; build all required images for the final pushed commit before
+  deployment, and confirm the four new packages are public as the Quick Guide
+  describes.
+- Claude deploys in the root README order while Aziz watches. The Slides grant
+  and classification model must be configured through the Admin Console at the
+  specified points. The live platform, Control Centre, Stage 2 and Stage 3
+  checks have not been run for this merge.
+- Aziz's browser checks, download/open/ownership checks and reboot checks remain
+  outstanding. These local results do not claim any live acceptance result.
+- Create and push `pre-routing` only after phase 1 has been deployed and checked.
+  Part E's classifier routing starts from that tag; it is not part of this merge.
+
+The status update is the only newly authored repository file in this merge
+step. Product code and the reviewed Parts were not changed. No sudo, Kubernetes
+resource change, background service/server/watcher launch, live AI call, push or stage
+acceptance/tag was performed during the merge checks.
+
+---
+
 # Stage 2 — Talk to AI: accepted
 
 Stage 2 accepted by Aziz on **10 Nov 2026 20:44 MYT** ("So far, it looks good. I'd say it's accepted."). Merged into `main` and tagged `spine-v0.2`.

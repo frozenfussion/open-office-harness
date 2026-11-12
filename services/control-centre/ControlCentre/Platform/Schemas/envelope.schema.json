@@ -15,7 +15,8 @@
         "approval.requested",
         "approval.decided",
         "audit.event",
-        "dlq.entry"
+        "dlq.entry",
+        "chat.message"
       ]
     },
     "version": {
@@ -146,6 +147,22 @@
         "properties": {
           "payload": {
             "$ref": "payloads/dlq.entry.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "chat.message"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "payloads/chat.message.schema.json"
           }
         }
       }

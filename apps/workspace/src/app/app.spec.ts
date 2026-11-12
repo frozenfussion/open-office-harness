@@ -3,11 +3,24 @@ import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Jobs } from './jobs';
+import { signal } from '@angular/core';
 import { App, greeting, metaLine } from './app';
-import { Api, ApiError } from './api';
-import { ChatEvent, readStream, SseParser } from './sse';
+import { Message, Api, ApiError } from './api';
+import { ChatEvent, JobEvent, readStream, SseParser } from './sse';
 import { CONFIG, readConfig } from './config';
 import { appConfig } from './app.config';
+
+describe('Auto routing metadata', () => {
+  it('shows routing and a declined skill note for streamed and reloaded answers', () => {
+    const note = 'The model chose not to use Slides.';
+    const message: Message = {role: 'assistant', content: 'Answer', created_at: '', tier: 1, model_title: 'Example',
+      routing: {tier: 1, scores: {needs_tier2: 0.1}, skill: 'slides', note}};
+    expect(metaLine(message)).toContain('auto → tier 1');
+    expect(metaLine(message)).toContain(note);
+    expect(metaLine(JSON.parse(JSON.stringify(message)))).toBe(metaLine(message));
+  });
+});
 
 describe('Workspace', () => {
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); TestBed.resetTestingModule(); window.history.replaceState(null, '', '/'); localStorage.clear(); });
@@ -25,7 +38,7 @@ describe('Workspace', () => {
     expect(events.at(-1)).toEqual({type: 'delta', text: 'end'});
   });
   it('parses a late title after completed across split SSE chunks', async () => {
-    const events: ChatEvent[] = [];
+    const events: (ChatEvent | JobEvent)[] = [];
     const wire = 'data: {"type":"completed","message_id":"m","tier":1,"model_title":"Test entry","usage":{"input_tokens":2,"output_tokens":4},"note":null,"thinking_applied":true}\n\n' +
       'data: {"type":"title","conversation_id":"test-conversation","title":"A short conversation title"}\n\n';
     const bytes = new TextEncoder().encode(wire);
@@ -48,7 +61,7 @@ describe('Workspace', () => {
     [17, 59, 'Good afternoon.'], [18, 0, 'Good evening.'],
   ])('captures the greeting when sign-in is shown at %s:%s without live updates', (hour, minute, expected) => {
     vi.useFakeTimers({toFake: ['Date']}); vi.setSystemTime(new Date(2026, 10, 10, hour, minute));
-    TestBed.configureTestingModule({imports: [App], providers: [
+    TestBed.configureTestingModule({imports: [App], providers: [{provide: Jobs, useValue: {start: vi.fn(), stop: vi.fn(), rows: signal([]), notice: signal(''), more: signal(false)}},
       {provide: OidcSecurityService, useValue: {checkAuth: () => of({isAuthenticated: false}), isAuthenticated$: of({isAuthenticated: false})}},
       {provide: Api, useValue: {}},
     ]});
@@ -59,7 +72,7 @@ describe('Workspace', () => {
     expect(view.nativeElement.querySelector('h1').textContent).toBe(expected);
   });
   it('ignores unknown SSE event types between known events', () => {
-    const events: ChatEvent[] = [];
+    const events: (ChatEvent | JobEvent)[] = [];
     const parser = new SseParser(event => events.push(event));
     parser.push('data: {"type":"future","text":"Ignore"}\n\ndata: {"type":"thinking","text":"Thought"}\n\n');
     parser.push('data: {"type":"future_final"}\n\ndata: {"type":"delta","text":"Answer"}\n\n', true);
@@ -67,7 +80,7 @@ describe('Workspace', () => {
   });
   it('starts direct Workspace registration with prompt=create and preserves ordinary sign-in', async () => {
     const authorize = vi.fn();
-    TestBed.configureTestingModule({imports: [App], providers: [
+    TestBed.configureTestingModule({imports: [App], providers: [{provide: Jobs, useValue: {start: vi.fn(), stop: vi.fn(), rows: signal([]), notice: signal(''), more: signal(false)}},
       {provide: OidcSecurityService, useValue: {authorize, checkAuth: () => of({isAuthenticated: false}), isAuthenticated$: of({isAuthenticated: false})}},
       {provide: Api, useValue: {}},
     ]});
@@ -87,7 +100,7 @@ describe('Workspace', () => {
       .toContain(' · tier 2 is over its daily budget; answered with tier 1');
   });
   async function fixture(send = vi.fn().mockRejectedValue(new ApiError(403, "You don't have tier 3. An admin can grant it."))) {
-    TestBed.configureTestingModule({imports: [App], providers: [
+    TestBed.configureTestingModule({imports: [App], providers: [{provide: Jobs, useValue: {start: vi.fn(), stop: vi.fn(), rows: signal([]), notice: signal(''), more: signal(false)}},
       {provide: OidcSecurityService, useValue: {checkAuth: () => of({isAuthenticated: false}), isAuthenticated$: of({isAuthenticated: false})}},
       {provide: Api, useValue: {create: async () => ({id: 'test-conversation'}), list: async () => [], send}},
     ]});
@@ -103,7 +116,7 @@ describe('Workspace', () => {
   it('offers only allowed tiers', async () => {
     const view = await fixture();
     const options = [...view.nativeElement.querySelectorAll('select option')] as HTMLOptionElement[];
-    expect(options.map(option => option.textContent?.trim())).toEqual(['Tier 1', 'Tier 3', 'Request another model…']);
+    expect(options.map(option => option.textContent?.trim())).toEqual(['Auto', 'Tier 1', 'Tier 3', 'Skills', 'Request another model…']);
   });
   it('labels allowed chat models with their titles and falls back to the tier', async () => {
     const view = await fixture();
@@ -114,9 +127,26 @@ describe('Workspace', () => {
     const select = view.nativeElement.querySelector('select[aria-label="Chat model"]');
     expect(select).not.toBeNull();
     const options = [...select.querySelectorAll('option')] as HTMLOptionElement[];
-    expect(options.map(option => option.textContent?.trim())).toEqual(['Test main entry - Tier 1', 'Tier 3', 'Request another model…']);
+    expect(options.map(option => option.textContent?.trim())).toEqual(['Auto', 'Test main entry - Tier 1', 'Tier 3', 'Skills', 'Request another model…']);
     expect(view.nativeElement.querySelector('.ooh-label').textContent).toBe('Chat model');
     expect(select.textContent).not.toContain('Hidden entry');
+  });
+  it('sends Auto and shows routing from the completed stream', async () => {
+    const note = 'This question may need tier 2. An admin can give you tier 2.';
+    const send = vi.fn(async (_id, _text, tier, _signal, receive) => {
+      expect(tier).toBe('auto');
+      receive({type: 'delta', text: 'Answer'});
+      receive({type: 'completed', message_id: 'message', tier: 1, model_title: 'Example',
+        usage: {input_tokens: 2, output_tokens: 4}, note, thinking_applied: true,
+        routing: {tier: 1, scores: {needs_tier2: 0.9}, note}});
+    });
+    const view = await fixture(send);
+    view.componentInstance.tier = 'auto';
+    view.componentInstance.draft = 'Question';
+    await view.componentInstance.send(); view.detectChanges();
+    expect(view.nativeElement.querySelector('.messages').textContent).toContain('auto → tier 1');
+    expect(view.nativeElement.querySelector('.messages').textContent).toContain(note);
+    expect(view.componentInstance.messages().at(-1)?.routing?.scores).toEqual({needs_tier2: 0.9});
   });
   it('shows a 403 message in an amber notice', async () => {
     const view = await fixture();
@@ -269,6 +299,19 @@ describe('Workspace', () => {
     finishes.forEach(finish => finish());
     await Promise.all([first, second]);
   });
+  it('keeps the job card when the model follow-up fails after starting the job', async () => {
+    const job = {job_id:'12345678-1234-1234-1234-123456789012',skill:'slides',title:'Presentation (.pptx)',label:'Water cycle',status:'queued' as const};
+    const view = await fixture(vi.fn(async (_id, _content, _tier, _signal, receive) => {
+      receive({type:'job',...job});
+      receive({type:'failed',error:{code:'unavailable',message:'The job has started, but the model could not finish its answer.'}});
+    }));
+    const jobs = TestBed.inject(Jobs);
+    Object.assign(jobs, {add: vi.fn()});
+    view.componentInstance.draft='Make slides';await view.componentInstance.send();view.detectChanges();
+    expect(jobs.add).toHaveBeenCalledWith({type:'job',...job});
+    expect(view.nativeElement.querySelector('.messages app-job-card').textContent).toContain('Water cycle');
+    expect(view.nativeElement.querySelector('[role="alert"]').textContent).toBe('The job has started, but the model could not finish its answer.');
+  });
   it('keeps a completed answer when the optional title stream breaks', async () => {
     const view = await fixture(vi.fn(async (_id, _content, _tier, _signal, receive) => {
       receive({type: 'delta', text: 'Answer'});
@@ -336,7 +379,7 @@ describe('Workspace', () => {
       conversation: vi.fn(), create: vi.fn(), send: vi.fn(),
     };
     const logoff = vi.fn(() => of(undefined));
-    TestBed.configureTestingModule({imports: [App], providers: [
+    TestBed.configureTestingModule({imports: [App], providers: [{provide: Jobs, useValue: {start: vi.fn(), stop: vi.fn(), rows: signal([]), notice: signal(''), more: signal(false)}},
       {provide: OidcSecurityService, useValue: {
         checkAuth: () => of({isAuthenticated: true, userData: {given_name: 'Given'}}),
         isAuthenticated$: of({isAuthenticated: true}), logoff,
@@ -390,7 +433,7 @@ describe('Workspace', () => {
     const fetchRequest = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({id: 'test-conversation'}), {
       status: 201, headers: {'Content-Type': 'application/json'},
     }));
-    TestBed.configureTestingModule({providers: [
+    TestBed.configureTestingModule({providers: [{provide: Jobs, useValue: {start: vi.fn(), stop: vi.fn(), rows: signal([]), notice: signal(''), more: signal(false)}},
       {provide: CONFIG, useValue: {apiBase: '/api'}},
       {provide: OidcSecurityService, useValue: {getAccessToken: () => of('test-token')}},
     ]});

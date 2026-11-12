@@ -120,3 +120,46 @@ async def sse(response: httpx.Response) -> AsyncIterator[dict[str, Any]]:
     if data:
         raw = "\n".join(data)
         yield {"type": "done"} if raw == "[DONE]" else json.loads(raw)
+
+
+def matching_state(message: Any, entry: Entry) -> dict[str, Any]:
+    state = message.reasoning_state or {}
+    return state if state.get("model_entry_id") == str(entry.id) else {}
+
+
+def forced_choice(
+    body: dict[str, Any], call: Call, kind: str, *, auto: bool = False
+) -> bool:
+    if call.tool_choice is None:
+        return True
+    if call.tool_choice == "none":
+        body["tool_choice"] = (
+            {"type": "none"} if kind == "anthropic_messages" else "none"
+        )
+        return True
+    thinking_on = (
+        kind in {"anthropic_messages", "openai_chat_completions"}
+        and "thinking" in body
+        and body["thinking"] != {"type": "disabled"}
+    )
+    if auto or thinking_on:
+        body["tool_choice"] = (
+            {"type": "auto"} if kind == "anthropic_messages" else "auto"
+        )
+        return False
+    name = call.tool_choice.name
+    body["tool_choice"] = (
+        {"type": "tool", "name": name}
+        if kind == "anthropic_messages"
+        else {"type": "function", "function": {"name": name}}
+        if kind == "openai_chat_completions"
+        else {"type": "function", "name": name}
+    )
+    return True
+
+
+def state_event(entry: Entry, **state: Any) -> dict[str, Any]:
+    return {
+        "type": "reasoning_state",
+        "state": {"model_entry_id": str(entry.id), **state},
+    }

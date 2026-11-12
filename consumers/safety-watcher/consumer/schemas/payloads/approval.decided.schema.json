@@ -1,0 +1,23 @@
+{
+  "$comment": "SPDX-License-Identifier: AGPL-3.0-only",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "approved": {
+      "type": "boolean"
+    },
+    "decided_by": {
+      "type": "string",
+      "minLength": 1
+    },
+    "note": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "approved",
+    "decided_by",
+    "note"
+  ],
+  "additionalProperties": false
+}

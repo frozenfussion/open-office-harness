@@ -39,3 +39,5 @@ textarea { resize: vertical; max-height: 35dvh; }
   .messages { max-height: 65dvh; }
   header { align-items: flex-start; }
 }
+
+.jobs-panel{padding:var(--space-4);max-height:50vh;overflow:auto;border-bottom:1px solid var(--line)}
