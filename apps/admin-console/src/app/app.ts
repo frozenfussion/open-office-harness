@@ -33,7 +33,7 @@ export class App {
   navigate(screen: string): void {
     if (!this.screens.includes(screen)) return;
     this.screen.set(screen);
-    if (window.location.hash !== '#' + screen) window.history.pushState(null, '', '#' + screen);
+    if (this.ready() && window.location.hash !== '#' + screen) window.history.pushState(null, '', window.location.pathname + window.location.search + '#' + screen);
   }
   formatTime(value: string | null | undefined): string { return displayTime(value, this.displayTimeZone()); }
   pendingCount = signal(0);
@@ -51,9 +51,9 @@ export class App {
   constructor() {
     const syncHash = (): void => {
       const screen = this.screenFromHash(); this.screen.set(screen);
-      if (window.location.hash !== '#' + screen) window.history.replaceState(null, '', '#' + screen);
+      if (this.ready() && window.location.hash !== '#' + screen) window.history.replaceState(null, '', window.location.pathname + window.location.search + '#' + screen);
     };
-    syncHash(); window.addEventListener('hashchange', syncHash); window.addEventListener('popstate', syncHash);
+    window.addEventListener('hashchange', syncHash); window.addEventListener('popstate', syncHash);
     this.destroy.onDestroy(() => { window.removeEventListener('hashchange', syncHash); window.removeEventListener('popstate', syncHash); });
     afterNextRender(() => {
       const canvas = this.element.nativeElement.querySelector('canvas');

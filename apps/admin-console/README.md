@@ -183,3 +183,5 @@ The console learns the zone from `X-Display-Time-Zone` on admin responses;
 changing zones does not require a separate browser configuration.
 Screen links keep their hash (`#overview`, `#approvals`, `#rights`, `#models`,
 `#audit`), so direct links and browser history open the corresponding screen.
+Address updates wait until the authentication check finishes and preserve the
+current path and query. The sign-in library handles callback parameters.

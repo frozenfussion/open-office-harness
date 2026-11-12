@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { TestBed } from '@angular/core/testing';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
-import { of } from 'rxjs';
+import { of, Subject } from 'rxjs';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { App } from './app';
 import { ConnectionResult, ModelEntry, modelPayload, settingsObject, tierRows } from './models';
 const model: ModelEntry = { model_entry_id: 'synthetic', title: 'Synthetic', purpose: 'chat', tier: 1, role: 'main', location: 'cloud', api_type: 'openai_responses', endpoint_url: 'https://synthetic.invalid', model_id: 'synthetic', has_key: true, priority: 100, rate_limit_per_minute: 10, daily_budget: 0, input_price_per_million: 0, output_price_per_million: 0, timeout_seconds: 120, request_settings: {} };
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); sessionStorage.removeItem('ooh-admin-signin-screen'); window.history.replaceState(null, '', window.location.pathname + window.location.search); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); sessionStorage.removeItem('ooh-admin-signin-screen'); window.history.replaceState(null, '', '/'); });
 describe('Model settings and rights', () => {
   it('rejects arrays, null and scalar request settings', () => {
     for (const value of ['[]', 'null', 'true', '1', '"text"', '{']) expect(() => settingsObject(value)).toThrow();
@@ -223,6 +223,42 @@ describe('Admin console', () => {
     expect(classification).toBeDefined();
     expect(classification!.cells[6].textContent).toBe('OK');
     expect(classification!.querySelector('.ooh-chip--done')).not.toBeNull();
+  });
+
+  it('leaves callback parameters untouched until checkAuth answers, then sets the hash', async () => {
+    const { fixture, auth } = await create(false, false); fixture.destroy();
+    window.history.replaceState(null, '', '/?code=abc&state=xyz');
+    const result = new Subject<{ isAuthenticated: boolean; userData: object }>();
+    let checkedAddress = '';
+    const checkAuth = vi.spyOn(auth, 'checkAuth').mockImplementation(() => {
+      checkedAddress = window.location.pathname + window.location.search + window.location.hash;
+      return result.asObservable();
+    });
+    const replace = vi.spyOn(window.history, 'replaceState');
+    const push = vi.spyOn(window.history, 'pushState');
+    const returned = TestBed.createComponent(App).componentInstance;
+    expect(checkAuth).toHaveBeenCalledTimes(1);
+    expect(checkedAddress).toBe('/?code=abc&state=xyz');
+    expect(window.location.hash).toBe('');
+    expect(replace).not.toHaveBeenCalled(); expect(push).not.toHaveBeenCalled();
+    returned.navigate('overview');
+    expect(replace).not.toHaveBeenCalled(); expect(push).not.toHaveBeenCalled();
+    result.next({ isAuthenticated: false, userData: {} }); result.complete();
+    expect(window.location.search).toBe('?code=abc&state=xyz');
+    expect(window.location.hash).toBe('#overview');
+    expect(push).toHaveBeenCalledWith(null, '', '/?code=abc&state=xyz#overview');
+  });
+  it('keeps the path and query when navigating or correcting an unknown hash', async () => {
+    const { fixture } = await create(false, false); const app = fixture.componentInstance;
+    window.history.replaceState(null, '', '/console?probe=1#models');
+    const push = vi.spyOn(window.history, 'pushState');
+    app.navigate('audit');
+    expect(push).toHaveBeenCalledWith(null, '', '/console?probe=1#audit');
+    window.history.replaceState(null, '', '/console?probe=1#unrecognised');
+    const replace = vi.spyOn(window.history, 'replaceState');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(replace).toHaveBeenCalledWith(null, '', '/console?probe=1#overview');
+    expect(window.location.pathname).toBe('/console'); expect(window.location.search).toBe('?probe=1');
   });
 
   it('opens a direct hash link and keeps navigation, hash changes and history in agreement', async () => {
