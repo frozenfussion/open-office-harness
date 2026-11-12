@@ -6,7 +6,6 @@ using System.Net;
 using System.Text;
 using ControlCentre.Platform;
 using OpenTelemetry;
-using OpenTelemetry.Exporter;
 using OpenTelemetry.Trace;
 using Xunit;
 
@@ -67,7 +66,7 @@ public sealed class PrivateSpanExporterTests
   {
     using var transport = new Transport();
     var endpoint = new Uri("http://127.0.0.1:1/v1/traces");
-    var sink = new OtlpHttpSpanExporter(new OtlpExporterOptions { Endpoint = endpoint, Protocol = OtlpExportProtocol.HttpProtobuf, TimeoutMilliseconds = 5000 }, "control-centre", new HttpClient(transport));
+    var sink = new OtlpHttpSpanExporter(new OtlpHttpSettings(endpoint, "http/protobuf", 5000), "control-centre", new HttpClient(transport));
     using var provider = Tracing.Configure(Sdk.CreateTracerProviderBuilder()).AddProcessor(new SimpleActivityExportProcessor(new PrivateSpanExporter(sink))).Build();
     using var parent = Tracing.Source.StartActivity("synthetic parent"); Assert.NotNull(parent);
     string id; string trace; DateTime start; TimeSpan duration;
@@ -104,7 +103,7 @@ public sealed class PrivateSpanExporterTests
   public void ExportFailureDoesNotThrowFromActivityStop()
   {
     using var transport = new Transport { Failure = new HttpRequestException("private-marker") };
-    var sink = new OtlpHttpSpanExporter(new OtlpExporterOptions { Endpoint = new Uri("http://127.0.0.1:1/v1/traces"), Protocol = OtlpExportProtocol.HttpProtobuf, TimeoutMilliseconds = 5000 }, "control-centre", new HttpClient(transport));
+    var sink = new OtlpHttpSpanExporter(new OtlpHttpSettings(new Uri("http://127.0.0.1:1/v1/traces"), "http/protobuf", 5000), "control-centre", new HttpClient(transport));
     using var provider = Tracing.Configure(Sdk.CreateTracerProviderBuilder()).AddProcessor(new SimpleActivityExportProcessor(new PrivateSpanExporter(sink))).Build();
     using var span = Tracing.Source.StartActivity("synthetic"); Assert.NotNull(span); Assert.Null(Record.Exception(span.Stop));
   }

@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
 using OpenTelemetry;
-using OpenTelemetry.Exporter;
 
 namespace ControlCentre.Platform;
 
@@ -35,12 +34,14 @@ public sealed class PrivateSpanExporter(BaseExporter<ExportedSpan> inner) : Base
   protected override void Dispose(bool disposing) { if (disposing) inner.Dispose(); }
 }
 
+public sealed record OtlpHttpSettings(Uri Endpoint, string Protocol, int TimeoutMilliseconds);
+
 public sealed class OtlpHttpSpanExporter : BaseExporter<ExportedSpan>
 {
-  private readonly OtlpExporterOptions options;
+  private readonly OtlpHttpSettings options;
   private readonly string service;
   private readonly HttpClient http;
-  public OtlpHttpSpanExporter(OtlpExporterOptions options, string service, HttpClient? http = null)
+  public OtlpHttpSpanExporter(OtlpHttpSettings options, string service, HttpClient? http = null)
   {
     this.options = options; this.service = service; this.http = http ?? new HttpClient();
   }
@@ -49,7 +50,7 @@ public sealed class OtlpHttpSpanExporter : BaseExporter<ExportedSpan>
     using var suppression = SuppressInstrumentationScope.Begin();
     try
     {
-      if (options.Protocol != OtlpExportProtocol.HttpProtobuf) return ExportResult.Failure;
+      if (options.Protocol != "http/protobuf") return ExportResult.Failure;
       using var timeout = new CancellationTokenSource(options.TimeoutMilliseconds);
       using var request = new HttpRequestMessage(HttpMethod.Post, options.Endpoint) { Content = new ByteArrayContent(Encode(batch, service)) };
       request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-protobuf");

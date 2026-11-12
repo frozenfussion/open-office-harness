@@ -526,7 +526,9 @@ for host integration,
 [OpenTelemetry.Instrumentation.AspNetCore](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.AspNetCore/1.21.0)
 for server spans,
 [OpenTelemetry.Instrumentation.Http](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Http/1.21.0)
-for internal HTTP spans, and
-[OpenTelemetry.Exporter.OpenTelemetryProtocol](https://www.nuget.org/packages/OpenTelemetry.Exporter.OpenTelemetryProtocol/1.21.0)
-for batch OTLP HTTP export. Tests use a local in-memory exporter class, with no
-additional package. No UI dependency or container image version changes.
+for internal HTTP spans. OTLP export uses the in-repo event-free encoder
+`OtlpHttpSpanExporter`, configured by plain endpoint, protocol and timeout settings.
+The official `OpenTelemetry.Exporter.OpenTelemetryProtocol` package is not used.
+This encoder was chosen by the builder to meet the spec author fix list
+(wrapper, no private field); it was not a decision by Aziz. Tests use a local
+in-memory exporter class, with no additional package. No UI dependency or container image version changes.

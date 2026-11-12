@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Text;
 using Confluent.Kafka;
 using OpenTelemetry;
-using OpenTelemetry.Exporter;
 using OpenTelemetry.Context.Propagation;
 using OpenTelemetry.Trace;
 
@@ -20,12 +19,8 @@ public static class Tracing
     DistributedContextPropagator.Current = new IngressPropagator();
     Sdk.SetDefaultTextMapPropagator(new IngressTextMapPropagator());
     services.AddOpenTelemetry().WithTracing(t => Configure(t).AddProcessor(new BatchActivityExportProcessor(
-      new PrivateSpanExporter(new OtlpHttpSpanExporter(new OtlpExporterOptions
-      {
-        Endpoint = new Uri(config["OTEL_EXPORTER_OTLP_ENDPOINT"]!.TrimEnd('/') + "/v1/traces"),
-        Protocol = OtlpExportProtocol.HttpProtobuf,
-        TimeoutMilliseconds = 5000
-      }, config["OTEL_SERVICE_NAME"] ?? "control-centre")), exporterTimeoutMilliseconds: 5000)));
+      new PrivateSpanExporter(new OtlpHttpSpanExporter(new OtlpHttpSettings(
+        new Uri(config["OTEL_EXPORTER_OTLP_ENDPOINT"]!.TrimEnd('/') + "/v1/traces"), "http/protobuf", 5000), config["OTEL_SERVICE_NAME"] ?? "control-centre")), exporterTimeoutMilliseconds: 5000)));
     return true;
   }
   public static TracerProviderBuilder Configure(TracerProviderBuilder builder) => builder
