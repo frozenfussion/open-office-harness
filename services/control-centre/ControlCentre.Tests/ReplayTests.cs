@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 using System.Diagnostics;
+using System.Data.Common;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
@@ -130,6 +132,36 @@ public sealed class ReplayTests
     await new DeadLetterConsumer(db).Handle(new(position.Topic, "not json", position, headers), TestContext.Current.CancellationToken);
     Assert.Equal(2, capture.Spans.Count);
     Assert.All(capture.Spans, span => { Assert.Equal(ActivityKind.Consumer, span.Kind); Assert.Equal(traceId, span.TraceId.ToHexString()); Assert.Equal(parentId, span.ParentSpanId.ToHexString()); Assert.StartsWith("process ", span.DisplayName); });
+  }
+
+  private sealed class ReplayQueryCount : DbCommandInterceptor
+  {
+    public List<string> Reads { get; } = [];
+    public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData,
+      InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+    {
+      if (command.CommandText.Contains("FROM dead_letter_replays", StringComparison.Ordinal)) Reads.Add(command.CommandText);
+      return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+    }
+  }
+  [DatabaseFact]
+  public async Task ReplayHistoryForAnEntirePageUsesOneQueryAndKeepsPerLetterOrder()
+  {
+    await Migrate(); var count = new ReplayQueryCount();
+    await using var db = new CentreDb(new DbContextOptionsBuilder<CentreDb>()
+      .UseNpgsql(DatabaseConnections.Configure(TestSettings.Load()["CC_TEST_DB_CONNECTION"])).AddInterceptors(count).Options);
+    var rows = new[] { Letter(), Letter(), Letter() }; db.DeadLetters.AddRange(rows);
+    var first = new DeadLetterReplay { DeadLetterId = rows[0].Id, ReplayedBy = "synthetic", TargetTopic = "approvals.requested", Outcome = "sent", ReplayedAt = DateTimeOffset.UtcNow.AddMinutes(-1) };
+    var last = new DeadLetterReplay { DeadLetterId = rows[0].Id, ReplayedBy = "synthetic", TargetTopic = "approvals.requested", Outcome = "failed", ReplayedAt = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) };
+    db.DeadLetterReplays.AddRange(first, last, new() { DeadLetterId = rows[1].Id, ReplayedBy = "synthetic", TargetTopic = "approvals.requested", Outcome = "sent" });
+    await db.SaveChangesAsync(TestContext.Current.CancellationToken); count.Reads.Clear();
+    var views = JsonNode.Parse(Api.Encode(await ReplayRoutes.Views(db, rows, TestContext.Current.CancellationToken)))!.AsArray();
+    Assert.Contains("ANY", Assert.Single(count.Reads));
+    Assert.Equal(new[] { 2, 1, 0 }, views.Select(x => x!["replay_count"]!.GetValue<int>()));
+    Assert.Equal(last.Id.ToString(), views[0]!["replay_history"]![0]!["id"]!.GetValue<string>());
+    Assert.Equal(last.ReplayedAt, views[0]!["last_replayed_at"]!.GetValue<DateTimeOffset>());
+    Assert.Null(views[2]!["last_replayed_at"]); Assert.Empty(views[2]!["replay_history"]!.AsArray());
+    count.Reads.Clear(); Assert.Empty(await ReplayRoutes.Views(db, [], TestContext.Current.CancellationToken)); Assert.Empty(count.Reads);
   }
 
 }

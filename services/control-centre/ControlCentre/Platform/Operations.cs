@@ -86,9 +86,7 @@ public static class OperationsRoutes
         var id = Api.Id(parts[1]); query = query.Where(x => x.ReceivedAt < at || x.ReceivedAt == at && x.Id.CompareTo(id) < 0);
       }
       var rows = await query.OrderByDescending(x => x.ReceivedAt).ThenByDescending(x => x.Id).Take(limit).ToListAsync();
-      var views = new List<object>();
-      foreach (var row in rows) views.Add(await ReplayRoutes.View(db, row, c.RequestAborted));
-      return Results.Ok(views);
+      return Results.Ok(await ReplayRoutes.Views(db, rows, c.RequestAborted));
     }).RequireAuthorization();
     app.MapGet("/api/admin/trail", async (HttpContext c, OperationsClient client, CentreDb db) =>
     {

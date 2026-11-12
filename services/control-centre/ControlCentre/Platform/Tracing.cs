@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 using System.Diagnostics;
-using System.Reflection;
 using System.Text;
 using Confluent.Kafka;
 using OpenTelemetry;
 using OpenTelemetry.Exporter;
-using OpenTelemetry.Resources;
 using OpenTelemetry.Context.Propagation;
 using OpenTelemetry.Trace;
 
@@ -21,18 +19,17 @@ public static class Tracing
     if (string.IsNullOrWhiteSpace(config["OTEL_EXPORTER_OTLP_ENDPOINT"])) return false;
     DistributedContextPropagator.Current = new IngressPropagator();
     Sdk.SetDefaultTextMapPropagator(new IngressTextMapPropagator());
-    services.AddOpenTelemetry().ConfigureResource(r => r.AddService(config["OTEL_SERVICE_NAME"] ?? "control-centre"))
-      .WithTracing(t => Configure(t).AddOtlpExporter(o =>
+    services.AddOpenTelemetry().WithTracing(t => Configure(t).AddProcessor(new BatchActivityExportProcessor(
+      new PrivateSpanExporter(new OtlpHttpSpanExporter(new OtlpExporterOptions
       {
-        o.Endpoint = new Uri(config["OTEL_EXPORTER_OTLP_ENDPOINT"]!.TrimEnd('/') + "/v1/traces");
-        o.Protocol = OtlpExportProtocol.HttpProtobuf;
-        o.TimeoutMilliseconds = 5000;
-        o.ExportProcessorType = ExportProcessorType.Batch;
-      }));
+        Endpoint = new Uri(config["OTEL_EXPORTER_OTLP_ENDPOINT"]!.TrimEnd('/') + "/v1/traces"),
+        Protocol = OtlpExportProtocol.HttpProtobuf,
+        TimeoutMilliseconds = 5000
+      }, config["OTEL_SERVICE_NAME"] ?? "control-centre")), exporterTimeoutMilliseconds: 5000)));
     return true;
   }
   public static TracerProviderBuilder Configure(TracerProviderBuilder builder) => builder
-    .SetSampler(new ParentBasedSampler(new AlwaysOnSampler())).AddSource(SourceName)
+    .AddSource(SourceName)
     .AddAspNetCoreInstrumentation(o => { o.RecordException = false; o.Filter = c => c.Request.Path != "/health" && c.Request.Path != "/api/admin/health"; })
     .AddHttpClientInstrumentation(o =>
     {
@@ -70,12 +67,9 @@ public static class Tracing
 
 public sealed class PrivateSpanProcessor : BaseProcessor<Activity>
 {
-  // Activity has no public event removal API in .NET 10; clear its runtime event list before the batch exporter sees it.
-  private static readonly FieldInfo Events = typeof(Activity).GetField("_events", BindingFlags.Instance | BindingFlags.NonPublic)!;
   public override void OnEnd(Activity activity)
   {
     foreach (var tag in activity.TagObjects.ToArray()) if (!Tracing.Attributes.Contains(tag.Key)) activity.SetTag(tag.Key, null);
-    Events.SetValue(activity, null);
     activity.SetStatus(activity.Status, activity.GetTagItem("ooh.error_code") as string);
   }
 }

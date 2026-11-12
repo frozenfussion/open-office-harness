@@ -15,8 +15,20 @@ namespace ControlCentre.Tests;
 
 public sealed class CapturedSpans : BaseExporter<Activity>
 {
-  public List<Activity> Spans { get; } = [];
-  public override ExportResult Export(in Batch<Activity> batch) { foreach (var span in batch) Spans.Add(span); return ExportResult.Success; }
+  private readonly System.Collections.Concurrent.ConcurrentQueue<Activity> spans = new();
+  public List<Activity> Spans => spans.ToList();
+  public override ExportResult Export(in Batch<Activity> batch) { foreach (var span in batch) spans.Enqueue(span); return ExportResult.Success; }
+  public async Task<Activity> WaitForServerSpan(int after = 0)
+  {
+    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+    timeout.CancelAfter(TimeSpan.FromSeconds(5));
+    while (true)
+    {
+      var span = Spans.Skip(after).FirstOrDefault(x => x.Kind == ActivityKind.Server);
+      if (span is not null) return span;
+      await Task.Delay(10, timeout.Token);
+    }
+  }
 }
 public sealed class TracingTests
 {
@@ -37,17 +49,39 @@ public sealed class TracingTests
   [Fact]
   public void ManualSourceIsRegisteredAndFiltersTagsEventsAndStatusDescription()
   {
-    var capture = new CapturedSpans();
-    using var provider = Tracing.Configure(Sdk.CreateTracerProviderBuilder()).AddProcessor(new SimpleActivityExportProcessor(capture)).Build();
+    var capture = new CapturedExports();
+    using var provider = Tracing.Configure(Sdk.CreateTracerProviderBuilder()).AddProcessor(new SimpleActivityExportProcessor(new PrivateSpanExporter(capture))).Build();
     using (var span = Tracing.Start("audit.events", ActivityKind.Producer))
     {
       Assert.NotNull(span); span.SetTag("url.full", "private-marker"); span.SetTag("ooh.tokens", 4);
       span.AddEvent(new ActivityEvent("exception", tags: new ActivityTagsCollection { ["exception.message"] = "private-marker" }));
       span.SetStatus(ActivityStatusCode.Error, "private-marker");
+      Assert.Null(Record.Exception(() => new PrivateSpanProcessor().OnEnd(span)));
+      Assert.Single(span.Events);
     }
-    var exported = Assert.Single(capture.Spans); Assert.Equal(ActivityStatusCode.Error, exported.Status); Assert.Null(exported.StatusDescription);
-    Assert.Empty(exported.Events); Assert.All(exported.TagObjects, tag => Assert.Contains(tag.Key, Tracing.Attributes));
-    Assert.DoesNotContain("private-marker", Api.Encode(exported.TagObjects));
+    var exported = Assert.Single(capture.Spans); Assert.Equal(ActivityStatusCode.Error, exported.Status); Assert.Null(exported.ErrorCode);
+    Assert.All(exported.Attributes, tag => Assert.Contains(tag.Key, Tracing.Attributes));
+    using var batch = new Batch<ExportedSpan>(exported);
+    var bytes = OtlpHttpSpanExporter.Encode(batch, "control-centre");
+    Assert.DoesNotContain("private-marker", System.Text.Encoding.UTF8.GetString(bytes));
+    Assert.DoesNotContain(OtlpFields.Spans(bytes).Single(), field => field.Number == 11);
+  }
+  [Theory]
+  [InlineData("always_off", false)]
+  [InlineData("always_on", true)]
+  [InlineData("parentbased_always_on", true)]
+  public void SamplerFollowsEnvironment(string sampler, bool recorded)
+  {
+    var previous = Environment.GetEnvironmentVariable("OTEL_TRACES_SAMPLER");
+    try
+    {
+      Environment.SetEnvironmentVariable("OTEL_TRACES_SAMPLER", sampler);
+      var capture = new CapturedSpans();
+      using var provider = Tracing.Configure(Sdk.CreateTracerProviderBuilder()).AddProcessor(new SimpleActivityExportProcessor(capture)).Build();
+      using (var span = Tracing.Source.StartActivity("synthetic")) Assert.Equal(recorded, span?.Recorded == true);
+      Assert.Equal(recorded ? 1 : 0, capture.Spans.Count);
+    }
+    finally { Environment.SetEnvironmentVariable("OTEL_TRACES_SAMPLER", previous); }
   }
   [Fact]
   public void KafkaHeadersContinueTraceAndStateAndAuditOutboxKeepsContext()
@@ -75,10 +109,11 @@ public sealed class TracingTests
       const string trace = "12345678901234567890123456789012";
       client.DefaultRequestHeaders.Add("traceparent", "00-" + trace + "-1234567890123456-01");
       await client.GetAsync("/api/admin/traces/invalid", TestContext.Current.CancellationToken);
-      var internalSpan = capture.Spans.Last(x => x.Kind == ActivityKind.Server); Assert.Equal(trace, internalSpan.TraceId.ToHexString());
+      var internalSpan = await capture.WaitForServerSpan(); Assert.Equal(trace, internalSpan.TraceId.ToHexString());
+      var prior = capture.Spans.Count;
       client.DefaultRequestHeaders.Add("X-Forwarded-For", "192.0.2.1");
       await client.GetAsync("/api/admin/traces/invalid", TestContext.Current.CancellationToken);
-      var externalSpan = capture.Spans.Last(x => x.Kind == ActivityKind.Server); Assert.NotEqual(trace, externalSpan.TraceId.ToHexString()); Assert.Equal(default, externalSpan.ParentSpanId);
+      var externalSpan = await capture.WaitForServerSpan(prior); Assert.NotEqual(trace, externalSpan.TraceId.ToHexString()); Assert.Equal(default, externalSpan.ParentSpanId);
       var count = capture.Spans.Count; await client.GetAsync("/api/admin/health", TestContext.Current.CancellationToken); Assert.Equal(count, capture.Spans.Count);
     }
     finally { DistributedContextPropagator.Current = previous; Sdk.SetDefaultTextMapPropagator(previousOtel); }
@@ -86,15 +121,30 @@ public sealed class TracingTests
   [Fact]
   public async Task UnhandledRouteErrorExportsNoMarkerEventsOrPrivateTags()
   {
-    var capture = new CapturedSpans();
-    using var provider = Tracing.Configure(Sdk.CreateTracerProviderBuilder()).AddProcessor(new SimpleActivityExportProcessor(capture)).Build();
-    Environment.SetEnvironmentVariable("CC_JAEGER_QUERY_URL", "http://tracing.invalid");
-    using var host = new Host(); using var client = host.Client();
-    host.Gateway.Answer = _ => throw new Exception("private-marker");
-    try { await client.GetAsync("/api/admin/traces/12345678901234567890123456789012", TestContext.Current.CancellationToken); }
-    finally { Environment.SetEnvironmentVariable("CC_JAEGER_QUERY_URL", null); }
-    Assert.All(capture.Spans, span => { Assert.Empty(span.Events); Assert.All(span.TagObjects, tag => Assert.Contains(tag.Key, Tracing.Attributes)); Assert.DoesNotContain("private-marker", span.StatusDescription ?? ""); });
-    Assert.Contains(capture.Spans, span => span.Kind == ActivityKind.Server && span.Status == ActivityStatusCode.Error);
+    var capture = new CapturedSpans(); var filtered = new CapturedExports();
+    using var provider = Tracing.Configure(Sdk.CreateTracerProviderBuilder())
+      .AddProcessor(new SimpleActivityExportProcessor(new PrivateSpanExporter(filtered)))
+      .AddProcessor(new SimpleActivityExportProcessor(capture)).Build();
+    var previous = Environment.GetEnvironmentVariable("CC_JAEGER_QUERY_URL");
+    Environment.SetEnvironmentVariable("CC_JAEGER_QUERY_URL", "http://127.0.0.1:1");
+    try
+    {
+      using var host = new Host();
+      host.Gateway.Answer = _ => throw new Exception("private-marker");
+      using var client = host.Client();
+      var response = await client.GetAsync("/api/admin/traces/12345678901234567890123456789012", TestContext.Current.CancellationToken);
+      Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+      Assert.Equal(1, host.Gateway.GatewayCalls);
+      var server = await capture.WaitForServerSpan();
+      Assert.Equal(ActivityStatusCode.Error, server.Status);
+      Assert.All(filtered.Spans, span => { Assert.All(span.Attributes, tag => Assert.Contains(tag.Key, Tracing.Attributes)); Assert.DoesNotContain("private-marker", span.ErrorCode ?? ""); });
+      var exported = Assert.Single(filtered.Spans, x => x.Kind == ActivityKind.Server);
+      using var batch = new Batch<ExportedSpan>(exported);
+      var bytes = OtlpHttpSpanExporter.Encode(batch, "control-centre");
+      Assert.DoesNotContain("private-marker", System.Text.Encoding.UTF8.GetString(bytes));
+      Assert.DoesNotContain(OtlpFields.Spans(bytes).Single(), field => field.Number == 11);
+    }
+    finally { Environment.SetEnvironmentVariable("CC_JAEGER_QUERY_URL", previous); }
   }
   [Fact]
   public void ParsesVersionedJaegerFixtureAndReducesSyntheticOtlpFields()

@@ -470,10 +470,23 @@ Outgoing calls to our services and Keycloak are marked for instrumentation;
 Jaeger queries and other addresses are excluded. Ingress requests identified by
 `X-Forwarded-For` ignore incoming trace context. Internal requests retain it.
 
-A processor keeps only the exact Stage 4 section 8 tag keys, removes every event
-and clears status descriptions unless an error code is available. .NET 10 has no
-public event-removal method, so the processor clears Activity's runtime event
-list before the exporter; tests exercise this against the pinned runtime.
+The SDK reads `OTEL_TRACES_SAMPLER`; code does not override it. A processor keeps
+only the exact Stage 4 section 8 tag keys and clears status descriptions unless
+an error code is available. A `BaseExporter<Activity>` wrapper projects public
+Activity data into export records that have no events, baggage or links. It
+preserves trace, span and parent IDs, timing, service name and allowed tags.
+The batch exporter sends those records as OTLP HTTP/protobuf with a five-second
+timeout. No private runtime field or reflection is used, and an export failure
+returns failure to the SDK without throwing through a request.
+
+The event-free protobuf projection follows the official
+[OTLP trace schema](https://github.com/open-telemetry/opentelemetry-proto/blob/v1.9.0/opentelemetry/proto/trace/v1/trace.proto)
+and [attribute schema](https://github.com/open-telemetry/opentelemetry-proto/blob/v1.9.0/opentelemetry/proto/common/v1/common.proto).
+Tests inspect the actual outgoing bytes, including IDs, parent links, timestamps,
+typed attributes, service, status and absence of the events field. They also
+exercise exporter failure, environment-controlled sampling and a deterministic
+fake-host error, waiting up to five seconds for TestServer to finish its span.
+
 Kafka sends and consumers propagate W3C headers. Outbox rows retain traceparent
 and tracestate, and their eventual send spans continue the originating trace.
 Audit event payloads include a valid current trace ID when present.
@@ -504,6 +517,8 @@ originals return `409 not_replayable`. A JSON original also needs its original
 request ID to preserve the Kafka key; a missing or invalid ID is refused.
 The dead-letter list adds replay count,
 last replay time, replayability and replay history without modifying the letter.
+Replay rows for all IDs on a page are loaded in one query and grouped in memory;
+a page uses two reads regardless of its row count.
 
 New direct packages, each pinned to 1.21.0 and checked on NuGet on 12 Nov 2026:
 [OpenTelemetry.Extensions.Hosting](https://www.nuget.org/packages/OpenTelemetry.Extensions.Hosting/1.21.0)

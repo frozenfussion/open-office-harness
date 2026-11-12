@@ -17,11 +17,31 @@ public static class ReplayRoutes
     }
     catch (JsonException) { return false; }
   }
-  public static async Task<object> View(CentreDb db, DeadLetter row, CancellationToken ct)
+  public static async Task<object[]> Views(CentreDb db, IReadOnlyList<DeadLetter> rows, CancellationToken ct)
   {
-    var history = await db.DeadLetterReplays.AsNoTracking().Where(x => x.DeadLetterId == row.Id).OrderByDescending(x => x.ReplayedAt).ThenByDescending(x => x.Id).ToListAsync(ct);
-    return new { row.Id, row.Topic, row.Partition, row.Offset, row.ReceivedAt, row.ErrorCode, row.ErrorMessage, row.OriginalMessage, row.CorrelationId, replay_count = history.Count, last_replayed_at = history.FirstOrDefault()?.ReplayedAt, replayable = Replayable(row), replay_history = history };
+    if (rows.Count == 0) return [];
+    var ids = rows.Select(x => x.Id).ToArray();
+    var history = await db.DeadLetterReplays.AsNoTracking().Where(x => ids.Contains(x.DeadLetterId))
+      .OrderByDescending(x => x.ReplayedAt).ThenByDescending(x => x.Id).ToListAsync(ct);
+    var grouped = history.ToLookup(x => x.DeadLetterId);
+    return rows.Select(row => View(row, grouped[row.Id].ToArray())).ToArray();
   }
+  private static object View(DeadLetter row, DeadLetterReplay[] history) => new
+  {
+    row.Id,
+    row.Topic,
+    row.Partition,
+    row.Offset,
+    row.ReceivedAt,
+    row.ErrorCode,
+    row.ErrorMessage,
+    row.OriginalMessage,
+    row.CorrelationId,
+    replay_count = history.Length,
+    last_replayed_at = history.FirstOrDefault()?.ReplayedAt,
+    replayable = Replayable(row),
+    replay_history = history
+  };
   public static void Map(WebApplication app)
   {
     app.MapPost("/api/admin/dead-letters/{id}/replay", async (string id, HttpContext c, CentreDb db, IKafka kafka) =>
