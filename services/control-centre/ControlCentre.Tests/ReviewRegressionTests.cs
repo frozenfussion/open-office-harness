@@ -127,7 +127,7 @@ public sealed class ReviewRegressionTests
     Assert.DoesNotContain("user@test.invalid", logger.Message);
     Assert.DoesNotContain("private value", logger.Message);
   }
-  private sealed class InsertFailure(int count) : DbCommandInterceptor
+  internal sealed class InsertFailure(int count) : DbCommandInterceptor
   {
     public int Failed { get; private set; }
     public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)

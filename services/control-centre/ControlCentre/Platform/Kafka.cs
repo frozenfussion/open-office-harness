@@ -6,7 +6,10 @@ using Npgsql;
 
 namespace ControlCentre.Platform;
 
-public sealed record KafkaRecord(string Topic, string Value, object Position);
+public sealed record KafkaRecord(string Topic, string Value, object Position, Headers? Headers = null)
+{
+  public Guid DeliveryId { get; } = Guid.NewGuid();
+}
 public interface IKafka
 {
   Task Publish(string topic, string key, string value, CancellationToken ct);
@@ -46,13 +49,17 @@ public sealed class KafkaClient : IKafka, IDisposable
     }).SetLogHandler((_, _) => { }).SetErrorHandler((_, _) => { }).Build();
     consumer.Subscribe(new[] { "approvals.requested" }.Concat(DeadLetterConsumer.Topics));
   }
-  public async Task Publish(string topic, string key, string value, CancellationToken ct) =>
-      await producer.ProduceAsync(topic, new Message<string, string> { Key = key, Value = value }, ct);
+  public async Task Publish(string topic, string key, string value, CancellationToken ct)
+  {
+    using var span = System.Diagnostics.Activity.Current is { Kind: System.Diagnostics.ActivityKind.Producer } current && current.DisplayName == "send " + topic ? null : Tracing.Start(topic, System.Diagnostics.ActivityKind.Producer);
+    try { await producer.ProduceAsync(topic, new Message<string, string> { Key = key, Value = value, Headers = Tracing.Headers() }, ct); }
+    catch { System.Diagnostics.Activity.Current?.SetTag("ooh.error_code", "kafka_unavailable"); System.Diagnostics.Activity.Current?.SetStatus(System.Diagnostics.ActivityStatusCode.Error); throw; }
+  }
   public KafkaRecord? Read(CancellationToken ct)
   {
     ct.ThrowIfCancellationRequested();
     var record = consumer.Consume(TimeSpan.FromMilliseconds(100));
-    return record is null ? null : new KafkaRecord(record.Topic, record.Message.Value, record);
+    return record is null ? null : new KafkaRecord(record.Topic, record.Message.Value, record, record.Message.Headers);
   }
   public void Commit(KafkaRecord record) => consumer.Commit((ConsumeResult<string, string>)record.Position);
   public bool Healthy() => admin.GetMetadata(TimeSpan.FromSeconds(5)).Brokers.Count > 0;
@@ -68,6 +75,7 @@ public sealed class OutboxPublisher(CentreDb db, IKafka kafka)
     var rows = await db.Outbox.FromSqlRaw("SELECT * FROM outbox WHERE sent_at IS NULL ORDER BY created_at, id LIMIT 50 FOR UPDATE SKIP LOCKED").ToListAsync(ct);
     foreach (var row in rows)
     {
+      using var context = Tracing.Start(row.Topic, System.Diagnostics.ActivityKind.Producer, row.Traceparent ?? "", row.Tracestate);
       await kafka.Publish(row.Topic, row.Key, row.Envelope, ct);
       row.SentAt = DateTimeOffset.UtcNow;
     }
@@ -80,6 +88,7 @@ public sealed class ApprovalConsumer(CentreDb db, SchemaChecks schemas, IRetryDe
 {
   public async Task Handle(KafkaRecord record, CancellationToken ct)
   {
+    using var span = Tracing.Start(record.Topic, System.Diagnostics.ActivityKind.Consumer, Tracing.Header(record.Headers, "traceparent") ?? "", Tracing.Header(record.Headers, "tracestate"));
     JsonNode? node = null;
     try
     {
@@ -100,12 +109,17 @@ public sealed class ApprovalConsumer(CentreDb db, SchemaChecks schemas, IRetryDe
         await delay.Wait(TimeSpan.FromSeconds(waits[attempt]), ct);
       }
     }
+    span?.SetTag("ooh.error_code", valid ? "processing_failed" : "invalid_event");
+    span?.SetStatus(System.Diagnostics.ActivityStatusCode.Error);
     Guid? eventId = Guid.TryParse(node?["event_id"]?.ToString(), out var parsedId) ? parsedId : null;
     var correlation = Guid.TryParse(node?["correlation_id"]?.ToString(), out var parsedCorrelation) ? parsedCorrelation : Guid.NewGuid();
     var user = node?["user_id"] is JsonValue userValue && userValue.TryGetValue<string>(out var parsedUser) && !string.IsNullOrWhiteSpace(parsedUser) ? parsedUser : "system";
     if (eventId is not null && await db.ProcessedEvents.AnyAsync(x => x.EventId == eventId, ct)) return;
-    if (eventId is not null) db.ProcessedEvents.Add(new ProcessedEvent { EventId = eventId.Value, Topic = record.Topic });
-    Api.Event(db, "dlq.approvals.requested", "dlq.entry", correlation, user, new { original_message = string.IsNullOrEmpty(record.Value) ? "<empty>" : record.Value, error = new { code = valid ? "processing_failed" : "invalid_event", message = valid ? "Approval request failed after three attempts" : "Invalid approval request" } });
+    // Deduplicate a broker redelivery without marking the failed event handled; a replay has a new broker offset.
+    var position = record.Position is ConsumeResult<string, string> broker ? $"{broker.Partition.Value}:{broker.Offset.Value}" : record.DeliveryId.ToString();
+    var failureId = new Guid(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(record.Topic + ":" + position))[..16]);
+    if (await db.Outbox.AnyAsync(x => x.Id == failureId, ct)) return;
+    Api.Event(db, "dlq.approvals.requested", "dlq.entry", correlation, user, new { original_message = string.IsNullOrEmpty(record.Value) ? "<empty>" : record.Value, error = new { code = valid ? "processing_failed" : "invalid_event", message = valid ? "Approval request failed after three attempts" : "Invalid approval request" } }, failureId);
     Api.Change(db, "system", "approval.failed", eventId?.ToString() ?? "unreadable", correlation, new { outcome = "dlq" }, user);
     await db.SaveChangesAsync(ct);
   }

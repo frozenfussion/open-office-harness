@@ -34,6 +34,16 @@ public sealed class DeadLetter
   public string OriginalMessage { get; set; } = "";
   public Guid? CorrelationId { get; set; }
 }
+public sealed class DeadLetterReplay
+{
+  public Guid Id { get; set; } = Guid.NewGuid();
+  public Guid DeadLetterId { get; set; }
+  public string ReplayedBy { get; set; } = "";
+  public DateTimeOffset ReplayedAt { get; set; } = DateTimeOffset.UtcNow;
+  public string TargetTopic { get; set; } = "";
+  public string Outcome { get; set; } = "";
+  public string? ErrorCode { get; set; }
+}
 public sealed class TierRequest : BusinessRow
 {
   public string UserId { get; set; } = "";
@@ -137,6 +147,8 @@ public sealed class Outbox
   public string Topic { get; set; } = "";
   public string Key { get; set; } = "";
   public string Envelope { get; set; } = "{}";
+  public string? Traceparent { get; set; }
+  public string? Tracestate { get; set; }
   public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
   public DateTimeOffset? SentAt { get; set; }
 }
@@ -155,6 +167,7 @@ public sealed class AuditRow
 public sealed class CentreDb(DbContextOptions<CentreDb> options) : DbContext(options)
 {
   public DbSet<SkillRequest> SkillRequests => Set<SkillRequest>();
+  public DbSet<DeadLetterReplay> DeadLetterReplays => Set<DeadLetterReplay>();
   public DbSet<DeadLetter> DeadLetters => Set<DeadLetter>();
   public DbSet<TierRequest> TierRequests => Set<TierRequest>();
   public DbSet<AccessRequest> AccessRequests => Set<AccessRequest>();
@@ -178,6 +191,9 @@ public sealed class CentreDb(DbContextOptions<CentreDb> options) : DbContext(opt
     });
     b.Entity<SkillRequest>().HasIndex(x => new { x.UserId, x.Skill }).IsUnique().HasFilter("deleted_at IS NULL AND status = 'pending'").HasDatabaseName("skill_requests_pending");
     b.Entity<SkillRequest>().HasIndex(x => new { x.RequestedAt, x.Id }).IsDescending().HasDatabaseName("skill_requests_paging");
+    b.Entity<DeadLetterReplay>().ToTable("dead_letter_replays", t => t.HasCheckConstraint("dead_letter_replays_outcome_check", "outcome IN ('sent','failed')"));
+    b.Entity<DeadLetterReplay>().HasOne<DeadLetter>().WithMany().HasForeignKey(x => x.DeadLetterId).OnDelete(DeleteBehavior.NoAction);
+    b.Entity<DeadLetterReplay>().HasIndex(x => new { x.DeadLetterId, x.ReplayedAt });
     b.Entity<DeadLetter>().ToTable("dead_letters");
     b.Entity<DeadLetter>().HasIndex(x => new { x.Topic, x.Partition, x.Offset }).IsUnique();
     b.Entity<DeadLetter>().HasIndex(x => new { x.ReceivedAt, x.Id }).IsDescending();

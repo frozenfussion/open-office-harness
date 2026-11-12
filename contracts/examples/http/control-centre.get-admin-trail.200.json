@@ -10,6 +10,7 @@
     "actor": "Synthetic",
     "action": "Synthetic",
     "target": "Synthetic",
-    "outcome": "Synthetic"
+    "outcome": "Synthetic",
+    "trace_id": "12345678901234567890123456789012"
   }
 ]

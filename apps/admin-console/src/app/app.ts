@@ -26,7 +26,7 @@ export class App {
     return greeting();
   });
   givenName = signal(''); displayTimeZone = signal(defaultTimeZone);
-  private screens = ['overview', 'approvals', 'rights', 'models', 'audit'];
+  private screens = ['overview', 'approvals', 'rights', 'models', 'audit', 'failed-messages'];
   private screenFromHash(): string { const value = window.location.hash.slice(1); return this.screens.includes(value) ? value : 'overview'; }
   screen = signal(this.screenFromHash());
   operationRequest: Request = <T>(path: string, method?: string, body?: unknown) => this.request<T>(path, method, body);

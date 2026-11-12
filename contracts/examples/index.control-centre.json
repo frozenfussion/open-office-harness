@@ -1722,6 +1722,139 @@
       "kind": "response",
       "media_type": "application/json",
       "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-traces-trace-id.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/traces/{trace_id}",
+      "method": "get",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-traces-trace-id.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/traces/{trace_id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-traces-trace-id.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/traces/{trace_id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-traces-trace-id.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/traces/{trace_id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-traces-trace-id.404.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/traces/{trace_id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-traces-trace-id.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/traces/{trace_id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.get-admin-traces-trace-id.200.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/traces/{trace_id}",
+      "method": "get",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "200"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-dead-letters-id-replay.parameters.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/dead-letters/{id}/replay",
+      "method": "post",
+      "kind": "parameters",
+      "media_type": "parameters"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-dead-letters-id-replay.400.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/dead-letters/{id}/replay",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "400"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-dead-letters-id-replay.401.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/dead-letters/{id}/replay",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "401"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-dead-letters-id-replay.403.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/dead-letters/{id}/replay",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "403"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-dead-letters-id-replay.404.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/dead-letters/{id}/replay",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "404"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-dead-letters-id-replay.409.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/dead-letters/{id}/replay",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "409"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-dead-letters-id-replay.503.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/dead-letters/{id}/replay",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/control-centre.post-admin-dead-letters-id-replay.202.json",
+      "openapi": "http/control-centre.openapi.yaml",
+      "path": "/api/admin/dead-letters/{id}/replay",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "202"
     }
   ]
 }

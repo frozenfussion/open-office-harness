@@ -2995,6 +2995,12 @@ paths:
           minimum: 1
           maximum: 200
           default: 50
+      - name: trace_id
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^(?!0{32}$)[0-9a-f]{32}$
   /api/admin/overview:
     get:
       operationId: get__api_admin_overview
@@ -3031,6 +3037,110 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/admin/traces/{trace_id}:
+    get:
+      operationId: get__api_admin_traces_trace_id
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: trace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^(?!0{32}$)[0-9a-f]{32}$
+      responses:
+        '400':
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trace'
+  /api/admin/dead-letters/{id}/replay:
+    post:
+      operationId: post__api_admin_dead_letters_id_replay
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '400':
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '202':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReplayResult'
 components:
   securitySchemes:
     bearerAuth:
@@ -3892,6 +4002,20 @@ components:
           - string
           - 'null'
           format: uuid
+        replay_count:
+          type: integer
+          minimum: 0
+        last_replayed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        replayable:
+          type: boolean
+        replay_history:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeadLetterReplay'
       required:
       - id
       - topic
@@ -3901,6 +4025,9 @@ components:
       - error_code
       - error_message
       - original_message
+      - replay_count
+      - replayable
+      - replay_history
       additionalProperties: false
     TrailRow:
       type: object
@@ -3941,6 +4068,11 @@ components:
             type: number
             minimum: 0
             maximum: 1
+        trace_id:
+          type:
+          - string
+          - 'null'
+          pattern: ^(?!0{32}$)[0-9a-f]{32}$
       required:
       - id
       - event_id
@@ -4017,4 +4149,224 @@ components:
       - cost_today_usd
       - needs_attention
       - health
+      additionalProperties: false
+    DeadLetterReplay:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        dead_letter_id:
+          type: string
+          format: uuid
+        replayed_by:
+          type: string
+        replayed_at:
+          type: string
+          format: date-time
+        target_topic:
+          type: string
+        outcome:
+          enum:
+          - sent
+          - failed
+        error_code:
+          type:
+          - string
+          - 'null'
+      required:
+      - id
+      - dead_letter_id
+      - replayed_by
+      - replayed_at
+      - target_topic
+      - outcome
+      additionalProperties: false
+    TraceSpan:
+      type: object
+      properties:
+        span_id:
+          type: string
+          pattern: ^[0-9a-f]{16}$
+        parent_span_id:
+          type:
+          - string
+          - 'null'
+          pattern: ^[0-9a-f]{16}$
+        service:
+          type: string
+        name:
+          type: string
+        kind:
+          type:
+          - string
+          - integer
+          - 'null'
+        start:
+          type: string
+          format: date-time
+        duration_ms:
+          type: number
+          minimum: 0
+        status:
+          enum:
+          - ok
+          - error
+        attributes:
+          type: object
+          properties:
+            ooh.user_id:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            ooh.conversation_id:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            ooh.job_id:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            ooh.correlation_id:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            ooh.model_entry_id:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            ooh.tier:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            ooh.purpose:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            ooh.skill:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            ooh.status:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            ooh.error_code:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            ooh.attempt:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            ooh.tokens:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            ooh.connection_type:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            http.request.method:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            http.route:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            http.response.status_code:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            server.port:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            messaging.destination.name:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+            messaging.operation.type:
+              type:
+              - string
+              - number
+              - boolean
+              - 'null'
+          additionalProperties: false
+      required:
+      - span_id
+      - service
+      - name
+      - kind
+      - start
+      - duration_ms
+      - status
+      - attributes
+      additionalProperties: false
+    Trace:
+      type: object
+      properties:
+        trace_id:
+          type: string
+          pattern: ^(?!0{32}$)[0-9a-f]{32}$
+        spans:
+          type: array
+          items:
+            $ref: '#/components/schemas/TraceSpan'
+      required:
+      - trace_id
+      - spans
+      additionalProperties: false
+    ReplayResult:
+      type: object
+      properties:
+        replay_id:
+          type: string
+          format: uuid
+        target_topic:
+          type: string
+        outcome:
+          enum:
+          - sent
+      required:
+      - replay_id
+      - target_topic
+      - outcome
       additionalProperties: false

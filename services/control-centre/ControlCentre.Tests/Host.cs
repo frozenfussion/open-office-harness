@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+using Confluent.Kafka;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
 using System.Security.Claims;
@@ -44,10 +45,12 @@ public sealed class DatabaseFactAttribute : FactAttribute
 public sealed class FakeKafka : IKafka
 {
   public List<(string Topic, string Key, string Value)> Published { get; } = [];
+  public List<Headers> Headers { get; } = [];
   public bool Fail { get; set; }
   public Task Publish(string topic, string key, string value, CancellationToken ct)
   {
     if (Fail) throw new IOException("Synthetic publish failure");
+    Headers.Add(Tracing.Headers());
     Published.Add((topic, key, value)); return Task.CompletedTask;
   }
   public KafkaRecord? Read(CancellationToken ct) => null;

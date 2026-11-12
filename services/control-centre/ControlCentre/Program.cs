@@ -65,6 +65,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
   };
 });
 builder.Services.AddAuthorization();
+Tracing.Register(builder.Services, builder.Configuration);
 builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
 builder.Services.AddSingleton<SchemaChecks>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -75,6 +76,7 @@ builder.Services.AddSingleton<IKafka, KafkaClient>();
 builder.Services.AddSingleton<IRetryDelay, RetryDelay>();
 builder.Services.AddScoped<DeadLetterConsumer>();
 builder.Services.AddSingleton<OperationsClient>();
+builder.Services.AddSingleton<TraceClient>();
 builder.Services.AddSingleton<ServiceHealth>();
 builder.Services.AddHostedService<HealthPoller>();
 builder.Services.AddScoped<ApprovalConsumer>();
@@ -93,6 +95,7 @@ app.Use(async (c, next) =>
   { await Api.Error(409, "conflict", "An active entry already exists").ExecuteAsync(c); }
   catch (Exception error)
   {
+    System.Diagnostics.Activity.Current?.SetStatus(System.Diagnostics.ActivityStatusCode.Error);
     Diagnostics.Failure(app.Logger, "Request could not be completed", error, c.User.Claims.Select(x => x.Value).Append(c.Request.Headers.Authorization.ToString()).Append(c.Request.Headers.Authorization.ToString().Replace("Bearer ", "", StringComparison.OrdinalIgnoreCase)));
     await Api.Error(503, "unavailable", "Control Centre unavailable").ExecuteAsync(c);
   }
@@ -121,6 +124,8 @@ app.MapGet("/health", async (HttpContext c, CentreDb db) =>
 });
 SkillRequestRoutes.Map(app);
 OperationsRoutes.Map(app);
+TraceRoutes.Map(app);
+ReplayRoutes.Map(app);
 TierRequestRoutes.Map(app);
 AccessRoutes.Map(app);
 RightsRoutes.Map(app);

@@ -1,0 +1,17 @@
+{
+  "trace_id": "12345678901234567890123456789012",
+  "spans": [
+    {
+      "span_id": "1234567890123456",
+      "service": "control-centre",
+      "name": "send approvals.requested",
+      "kind": 4,
+      "start": "2026-11-12T00:00:00Z",
+      "duration_ms": 2.5,
+      "status": "ok",
+      "attributes": {
+        "messaging.destination.name": "approvals.requested"
+      }
+    }
+  ]
+}
