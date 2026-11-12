@@ -45,7 +45,10 @@
     },
     "trace_id": {
       "type": "string",
-      "pattern": "^[0-9a-f]{32}$"
+      "pattern": "^[0-9a-f]{32}$",
+      "not": {
+        "const": "00000000000000000000000000000000"
+      }
     }
   },
   "required": [
