@@ -91,7 +91,7 @@ Written 2026-11-12 by Claude (orchestrator). Read `00-GLOBAL-RULES.md` first; it
   - **worker-down:** scale `slides-worker` to 0 → presenter asks for slides (chat answers, card Queued) → script shows "slides-worker pods: 0" → scale back to the recorded count → card turns Ready (15.2, 15.20).
   - **duplicate:** publishes one `skill.requested` twice with the same `event_id` (check principal, as `77` item 5) → shows one result id and the file's unchanged modification time.
   - **dead-letter:** the order in 15.1 (worker to 0 → presenter asks for slides → Gateway to 0 → worker back → it gives up, card Failed → Gateway back → **Replay** → card Ready); `--auto` as 15.27. Restores both Deployments on any exit (15.20). Warns before starting that chat is unavailable while the Gateway is down.
-  Each demo uses the shared check-client helper (`install/lib/stage-check.sh`) for admin calls and Kafka check pods, never prints a secret, and ends with `DONE`.
+  `78` and `79` use `install/lib/stage-check.sh` for the check client and admin tokens, and carry their own short-lived Kafka check-pod code as `77` does. Only the `duplicate` and `dead-letter` demos start the check client; `worker-down` and `restore` never do. No demo prints a secret; each ends with `DONE`.
 - `install/78-check-stage-4.sh <tag>` (section 9).
 - Workspace: saved link and table fixes (section 4), with tests.
 - `README.md`, `docs/ARCHITECTURE.md`, `contracts/identity.md`.
@@ -182,10 +182,10 @@ Claude makes `stage-4` from `stage-4-base` in `~/projects/worktrees/stage-4`, me
 
 Uses `install/lib/stage-check.sh` as `77` does (lock, temporary check client, tokens never printed). Kafka through short-lived check pods.
 1. Every Deployment in `ooh-apps` runs `:<tag>` and is Ready; Jaeger is Ready.
-2. A non-streamed chat call through the Harness as the check user (tier 1) → its audit rows carry one `trace_id`; within 60 s `GET /api/admin/traces/{trace_id}` shows spans from `harness-api`, `control-centre` and `model-gateway`, with the Gateway span a descendant of the Harness span.
+2. One chat message through the Harness as the check user (tier 1), stream read to its end; correlation id = the user message id from the stream → its audit rows carry one `trace_id`; within 60 s `GET /api/admin/traces/{trace_id}` shows spans from `harness-api`, `control-centre` and `model-gateway`, with the Gateway span a descendant of the Harness span.
 3. A Slides job published as in `77` item 4 with a `traceparent` header → the trace holds spans from `slides-worker`, `model-gateway` and `audit-writer` under that trace id.
 4. No span attribute in items 2–3 contains the check's question text or the slide topic (the check sends a unique marker word and searches the raw Jaeger answer for it, inside the check pod; prints only PASS/FAIL).
-5. Replay: with the Gateway scaled to 0 (restored on every exit), a Slides request → within 120 s a `worker_gave_up` result and a dead letter for it; Gateway back and Ready; `POST …/replay` → 202 `sent`; within 180 s a `completed` result for the same correlation id and the job's file exists; a second replay of a `dlq.chat.messages` row (if any; else the check publishes none and prints `SKIP`) → 409.
+5. Replay: with the Gateway scaled to 0 (restored on every exit), a Slides request → within 120 s a `worker_gave_up` result and a dead letter for it; Gateway back and Ready; `POST …/replay` → 202 `sent`; within 180 s a `completed` result for the same correlation id and the job's file exists; replay of a dead letter whose original message is not JSON (`77` item 6 makes one; else the check publishes `not json`) → 409 `not_replayable`.
 6. `GET /api/admin/dead-letters` shows `replay_count` ≥ 1 for that dead letter; the audit trail holds `dead_letter.replayed`.
 7. `ooh-stage-check` disabled again (as `77` item 13).
 Each run makes a few short paid calls and briefly stops the Gateway (the README says so; never run it during a class).
@@ -221,6 +221,7 @@ AWS, Terraform, EKS (phase 2 spec); metrics and logs pipelines; database spans; 
 | # | Change | Who / when |
 |---|---|---|
 | 1 | Spec review by Claude Code (25 findings): every finding resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 12 Nov |
+| 3 | Final check (34–36): resolved in section 15 "Final check additions"; section 9 and 6.4 lines corrected in place | Spec author, 12 Nov |
 | 2 | Spec re-review (findings 1, 9, 13 partly open; 26–33 new): resolved in section 15 "Re-review additions"; body lines corrected in place to match section 15 | Spec author, 12 Nov |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees)
@@ -228,7 +229,7 @@ AWS, Terraform, EKS (phase 2 spec); metrics and logs pipelines; database spans; 
 Review by Claude Code, 12 Nov 2026 (`reviews/stage-4-spec-review` in the course folder, 25 findings). Numbers = review findings.
 
 **Demos and check**
-1. Dead-letter demo, in this order: scale `slides-worker` to 0 → the presenter asks for slides in the Workspace (card Queued) → scale `model-gateway` to 0 → scale `slides-worker` back to its recorded count (it retries, gives up, publishes `worker_gave_up` and the dead letter; the card shows Failed) → scale the Gateway back and wait for Ready → the presenter clicks **Replay** (or `--auto` replays the dead letter whose `correlation_id` is the newest job of the check user) → the card turns Ready. `78` item 5 keeps the direct Kafka publish and checks the Kafka and Control Centre part only; the Harness revive rule is proved by Part A's tests and browser test 4(b).
+1. Dead-letter demo, in this order: scale `slides-worker` to 0 → the presenter asks for slides in the Workspace (card Queued) → scale `model-gateway` to 0 → scale `slides-worker` back to its recorded count (it retries, gives up, publishes `worker_gave_up` and the dead letter; the card shows Failed) → scale the Gateway back and wait for Ready → the presenter clicks **Replay** (or `--auto`, 15.27) → the card turns Ready. `78` item 5 keeps the direct Kafka publish and checks the Kafka and Control Centre part only; the Harness revive rule is proved by Part A's tests and browser test 4(b).
 2. Worker-down demo: no consumer-lag step. It shows "slides-worker pods: 0" and the Queued card, then the card turning Ready after the worker returns. No ACL change for `ooh-stage-check`; `77` stays untouched.
 17. `78` item 2: one chat message through the Harness with the stream read to its end; the correlation id is the user message id from the stream.
 18. `78` item 3 sends `traceparent` `00-<random 32 hex>-<random 16 hex>-01`.
@@ -269,3 +270,8 @@ Review by Claude Code, 12 Nov 2026 (`reviews/stage-4-spec-review` in the course 
 31. Body lines in sections 4, 6.4 and 8 corrected in place to agree with section 15.
 32. The Gateway keeps two HTTP clients: one for Keycloak and the Control Centre, instrumented with `HTTPXClientInstrumentor.instrument_client`, and one uninstrumented client for providers. No package calls the global `HTTPXClientInstrumentor().instrument()`; each instruments its own clients with `instrument_client`. Part B test: a provider call produces only the `provider <connection type>` span.
 33. Section 8 Scripts row gives both forms of `79-demo.sh`; `restore` takes no tag and needs no check client.
+
+**Final check additions (binding)**
+34. The span filter (15.26) also replaces the status description with the error code, or with nothing when there is none. Test: an unhandled error whose message contains a marker word exports a span with the marker nowhere, the status included.
+35. Section 9 items 2 and 5 and 15.1 corrected in place.
+36. Section 6.4 corrected in place: the check helper is used for the check client and tokens only; Kafka check pods are each script's own code; only `duplicate` and `dead-letter` start the check client.
