@@ -48,7 +48,7 @@ by these checks. Platform operations are covered by the root README.
 | http/model-gateway.openapi.yaml | Purpose calls and classification |
 | http/harness-api.openapi.yaml | Conversations, SSE, uploads and links |
 | events/envelope.schema.json | Common event fields and payload selection |
-| events/payloads/*.schema.json | Seven event payload types |
+| events/payloads/*.schema.json | Seven event payload types; Kafka messages may also carry W3C Trace Context headers `traceparent` and `tracestate`, which are not part of the envelope |
 | events/topics.yaml | Partitions, retention, producers and consumers |
 | skills/manifest.schema.json | Worker/instruction manifest format |
 | skills/slides/manifest.json | Registered Slides skill |
