@@ -44,12 +44,12 @@ Written 2026-11-12 by Claude (orchestrator). Read `00-GLOBAL-RULES.md` first; it
 
 | Item | Decision | Why |
 |---|---|---|
-| Trace store and viewer | **Jaeger 2.23.0** (`cr.jaegertracing.io/jaegertracing/jaeger:2.23.0`), one pod in `ooh-platform`, OTLP receiver (gRPC 4317, HTTP 4318), **memory storage** (at most 100 000 traces), query API on 16686 inside the cluster only; no Ingress | One binary, no database; traces are for demos and debugging, losing them on restart is acceptable (the audit trail is the permanent record) |
+| Trace store and viewer | **Jaeger 2.23.0** (`cr.jaegertracing.io/jaegertracing/jaeger:2.23.0`), one pod in `ooh-platform`, OTLP receiver (HTTP 4318 only), **memory storage** (at most 20 000 traces, 15.8), query API on 16686 inside the cluster only; no Ingress | One binary, no database; traces are for demos and debugging, losing them on restart is acceptable (the audit trail is the permanent record) |
 | Python SDK | `opentelemetry-api` and `opentelemetry-sdk` **1.45.2**, `opentelemetry-exporter-otlp-proto-http` **1.45.2**, `opentelemetry-instrumentation-fastapi` and `-httpx` **0.66b2** (all pinned in each lock file) | Newest; FastAPI and httpx spans automatic |
 | Database spans | none in phase 1 (no psycopg or Npgsql instrumentation) | Keeps SQL text out of traces; the request path is what the demo needs |
 | Kafka spans | **manual**: every producer injects the W3C `traceparent` (and `tracestate` when present) into the Kafka message **headers**; every consumer extracts it and starts a `CONSUMER` span `process <topic>` as a child; a producer send is a `PRODUCER` span `send <topic>`. No Kafka instrumentation package | The same small code in Python and C#; no beta package; the envelope stays unchanged |
 | .NET | `OpenTelemetry.Extensions.Hosting`, `OpenTelemetry.Instrumentation.AspNetCore`, `OpenTelemetry.Instrumentation.Http`, `OpenTelemetry.Exporter.OpenTelemetryProtocol` **1.21.0** | Newest stable; ASP.NET and outgoing HTTP spans |
-| Settings | standard OpenTelemetry environment variables in each ConfigMap: `OTEL_SERVICE_NAME` (= the Deployment name), `OTEL_EXPORTER_OTLP_ENDPOINT` `http://jaeger.${PLATFORM_NAMESPACE}.svc:4318` (Python, HTTP) / `:4317` (.NET, gRPC), `OTEL_TRACES_SAMPLER` `parentbased_always_on`. Unset endpoint = tracing off, the service still runs | No code constants; tracing can never stop a service |
+| Settings | standard OpenTelemetry environment variables in each ConfigMap: `OTEL_SERVICE_NAME` (= the Deployment name), `OTEL_EXPORTER_OTLP_PROTOCOL` `http/protobuf`, `OTEL_EXPORTER_OTLP_ENDPOINT` `http://jaeger.${PLATFORM_NAMESPACE}.svc:4318` (every service, the Control Centre included), `OTEL_TRACES_SAMPLER` `parentbased_always_on`. Empty or unset endpoint = no tracer provider registered (15.22), the service still runs | No code constants; tracing can never stop a service |
 | What a span may carry | ids (user id, conversation id, job id, correlation id, model entry id), tier, purpose, skill, status codes, token counts. **Never** message text, prompts, thinking, file contents, keys, tokens, emails or names. HTTP spans: route template, not the full URL with query string | Global rules section 4 (logs) applies to spans too |
 | Trace id in the audit trail | `audit.event` payload gains optional `trace_id` (32 lower-case hex); every producer of `audit.event` sets it from the current span; the audit writer stores it | One click from an audit row to its trace |
 | Reading traces | Control Centre admin route `GET /api/admin/traces/{trace_id}` calls Jaeger's query API inside the cluster and returns a reduced shape (section 6.5); the Admin Console draws it | No new public address, no second sign-in |
@@ -57,7 +57,7 @@ Written 2026-11-12 by Claude (orchestrator). Read `00-GLOBAL-RULES.md` first; it
 | Result after replay | the Harness accepts a `completed` `skill.result` for a job that is `failed` **with error code `worker_gave_up`** (and only that code): the job becomes `completed` and `job.completed` is sent; every other final status stays final | Lets a replayed job finish; a real failure or rejection is never overwritten |
 | Worker result ids | the Slides worker's outgoing `event_id` = UUID v5 of the incoming `event_id` + `skill.result` + **the status** (`completed`/`failed`), so the failed result and a later completed result of the same request have different ids; a repeated completed request still gives the same id | Otherwise the Harness drops the completed result as a duplicate of the failed one |
 | Demos | one script `install/79-demo.sh <worker-down|duplicate|dead-letter> <tag>` that runs one demo, prints each step in plain words ("Now ask for slides in the Workspace…"), waits for Enter where the presenter acts, and restores everything at the end (and on Ctrl+C) | One tool for the instructor; nothing left broken |
-| Workspace saved link | before the sign-in redirect the Workspace stores the requested path (only `/c/<uuid>` style paths of its own routes, validated) in `sessionStorage`; after sign-in it navigates there once and removes it | The OIDC library's redirect loses the path today |
+| Workspace saved link | the link is `/?conversation=<uuid>`; before the sign-in redirect the Workspace stores the `conversation` value (validated as a UUID) in `sessionStorage`; after sign-in it opens that conversation once and removes it (15.10) | The OIDC library's redirect loses the query today |
 | Words in tables | inside rendered Markdown tables: `overflow-wrap: normal; word-break: normal`; the table sits in a horizontally scrollable wrapper (`overflow-x: auto`) so wide tables scroll instead of squeezing words; message text outside tables keeps `overflow-wrap: anywhere` | Long ids still wrap in text; words in tables stay whole |
 
 ## 5. Data
@@ -85,12 +85,12 @@ Written 2026-11-12 by Claude (orchestrator). Read `00-GLOBAL-RULES.md` first; it
 - Tests: as Part A for each package; the audit writer stores and filters `trace_id`; an event without `trace_id` is still stored.
 
 ### 6.4 Platform, demos, check, Workspace (Part C)
-- `deploy/platform/tracing/`: Deployment `jaeger` (1 replica, non-root, read-only root filesystem where the image allows, requests 100m/256Mi, limits 500m/1Gi, memory storage capped as section 4), Service `jaeger` (4317, 4318, 16686), its config file in a ConfigMap. `30-platform-apply.sh` applies it and waits for Ready; `40-check-platform.sh` adds one line: Jaeger Ready and its query API answers inside the cluster.
-- KafkaUser `control-centre` gains **Write + Describe** on `skill.requests.slides`, `skill.results`, `approvals.requested`, `audit.events` (replay targets; it already writes `approvals.decided`); `contracts/identity.md` table updated; `77` item 3 keeps passing (it compares with the table).
+- `deploy/platform/tracing/`: Deployment `jaeger` (1 replica, non-root, read-only root filesystem where the image allows, requests 100m/256Mi, limits 500m/1Gi, memory storage capped as section 4), Service `jaeger` (4318, 16686), its config file in a ConfigMap (contents: 15.9 and 15.28). `30-platform-apply.sh` applies it and waits for Ready; `40-check-platform.sh` adds one line: Jaeger Ready and its query API answers inside the cluster.
+- KafkaUser `control-centre`: Write added to the existing `approvals.requested` entry; new Write + Describe entries for `skill.requests.slides` and `skill.results` (it already writes `approvals.decided` and `audit.events`; 15.15); `contracts/identity.md` table updated; `77` item 3 keeps passing (it compares with the table).
 - `install/79-demo.sh` (section 4), three demos:
-  - **worker-down:** scale `slides-worker` to 0 → presenter asks for slides (chat answers, card Queued) → script shows the message waiting in Kafka (consumer-group lag) → scale back to 1 → card turns Ready. Restores 1 replica on any exit.
+  - **worker-down:** scale `slides-worker` to 0 → presenter asks for slides (chat answers, card Queued) → script shows "slides-worker pods: 0" → scale back to the recorded count → card turns Ready (15.2, 15.20).
   - **duplicate:** publishes one `skill.requested` twice with the same `event_id` (check principal, as `77` item 5) → shows one result id and the file's unchanged modification time.
-  - **dead-letter:** scale `model-gateway` to 0 → publishes one Slides request for the check user → the worker retries three times and gives up (shown: the `worker_gave_up` result and the dead letter in the Admin API) → scale the Gateway back → presenter clicks **Replay** in Failed messages (the script can also call the replay route itself when run with `--auto`) → the job completes. Restores the Gateway on any exit. Warns before starting that chat is unavailable while the Gateway is down.
+  - **dead-letter:** the order in 15.1 (worker to 0 → presenter asks for slides → Gateway to 0 → worker back → it gives up, card Failed → Gateway back → **Replay** → card Ready); `--auto` as 15.27. Restores both Deployments on any exit (15.20). Warns before starting that chat is unavailable while the Gateway is down.
   Each demo uses the shared check-client helper (`install/lib/stage-check.sh`) for admin calls and Kafka check pods, never prints a secret, and ends with `DONE`.
 - `install/78-check-stage-4.sh <tag>` (section 9).
 - Workspace: saved link and table fixes (section 4), with tests.
@@ -168,14 +168,15 @@ Claude makes `stage-4` from `stage-4-base` in `~/projects/worktrees/stage-4`, me
 
 | What | Value |
 |---|---|
-| Jaeger | Deployment and Service `jaeger` in `ooh-platform`; ports 4317 (OTLP gRPC), 4318 (OTLP HTTP), 16686 (query) |
+| Jaeger | Deployment and Service `jaeger` in `ooh-platform`; Service ports 4318 (OTLP HTTP), 16686 (query); probes on 13133 `/status` |
 | Settings | `OTEL_SERVICE_NAME` = Deployment name (`harness-api`, `slides-worker`, `model-gateway`, `audit-writer`, `cost-meter`, `safety-watcher`, `control-centre`); `OTEL_EXPORTER_OTLP_ENDPOINT`; `OTEL_TRACES_SAMPLER`; `CC_JAEGER_QUERY_URL` |
 | Kafka headers | `traceparent`, `tracestate` (bytes, UTF-8) |
 | Span names | HTTP: instrumentation default (method + route template); Kafka: `send <topic>`, `process <topic>`; Gateway: `provider <connection type>`, `classify` |
 | Audit | payload field `trace_id`; trail column `trace_id`; route filter `trace_id=` |
 | Replay | route `POST /api/admin/dead-letters/{id}/replay`; audit action `dead_letter.replayed`; error codes `not_replayable`, `kafka_unavailable`; table `dead_letter_replays` |
 | Result after replay | only error code `worker_gave_up` may be followed by `completed` |
-| Scripts | `78-check-stage-4.sh <tag>`, `79-demo.sh <demo> <tag> [--auto]` |
+| Scripts | `78-check-stage-4.sh <tag>`; `79-demo.sh <worker-down\|duplicate\|dead-letter> <tag> [--auto]`; `79-demo.sh restore` (no tag, no check client) |
+| Span attribute keys (the only ones exported; every filter and the Control Centre allow-list use exactly these) | `ooh.user_id`, `ooh.conversation_id`, `ooh.job_id`, `ooh.correlation_id`, `ooh.model_entry_id`, `ooh.tier`, `ooh.purpose`, `ooh.skill`, `ooh.status`, `ooh.error_code`, `ooh.attempt`, `ooh.tokens`, `ooh.connection_type`, `http.request.method`, `http.route`, `http.response.status_code`, `server.port`, `messaging.destination.name`, `messaging.operation.type` |
 
 ## 9. `install/78-check-stage-4.sh <tag>` (Part C), one `PASS`/`FAIL` line each, then `DONE`
 
@@ -220,6 +221,7 @@ AWS, Terraform, EKS (phase 2 spec); metrics and logs pipelines; database spans; 
 | # | Change | Who / when |
 |---|---|---|
 | 1 | Spec review by Claude Code (25 findings): every finding resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 12 Nov |
+| 2 | Spec re-review (findings 1, 9, 13 partly open; 26–33 new): resolved in section 15 "Re-review additions"; body lines corrected in place to match section 15 | Spec author, 12 Nov |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees)
 
@@ -257,3 +259,13 @@ Review by Claude Code, 12 Nov 2026 (`reviews/stage-4-spec-review` in the course 
 10. Workspace saved link: the link is `/?conversation=<uuid>`. Before the sign-in redirect the Workspace stores the `conversation` query value (validated as a UUID) in `sessionStorage`; after sign-in it opens that conversation once and removes the value; any other value is ignored; test with a non-UUID value.
 11. Section 5 addition: in the same Control Centre migration `outbox` gains `traceparent text null` and `tracestate text null`; Part D test: an audit row written inside a request is published with that request's trace id.
 23. Jaeger's answer to `GET /api/v3/traces/{id}` is OTLP JSON wrapped as `{"result": {"resourceSpans": [...]}}`: `traceId`/`spanId`/`parentSpanId` as hex, `kind` as an enum, start and end as nanosecond strings, service name in `resource.attributes["service.name"]`; 404 when the trace is unknown. Part D builds its parser and fixture from Jaeger 2.23.0's own documentation or a captured answer, and reports which.
+
+**Re-review additions (binding; numbers = re-review findings)**
+26. Replaces 15.3(a)/(b) on how: **Python**: a filtering wrapper around the OTLP span exporter that copies each span with only the section 8 attribute keys and no events, passed to the real exporter inside a `BatchSpanProcessor`. **.NET**: a `BaseProcessor<Activity>` that in `OnEnd` removes tags not in the section 8 list and clears events. No span events are exported anywhere. Test in every package: an unhandled route error exports a span with status error, no events and no attribute outside the list.
+27. `--auto` waits for, and replays, the newest dead letter on `dlq.skill.requests.slides` with error code `worker_gave_up` received after the script scaled the Gateway to 0 (`GET /api/admin/dead-letters?topic=dlq.skill.requests.slides`, compared by `received_at`); none within 120 s → `STOP: no dead letter arrived; is the worker running?`.
+28. Jaeger config additions: `healthcheckv2: {use_v2: true, http: {endpoint: 0.0.0.0:13133, status: {enabled: true, path: /status}}}`, readiness and liveness `httpGet /status` on 13133; `memory_limiter: {check_interval: 1s, limit_mib: 800, spike_limit_mib: 150}` first in the processor list; no `telemetry` or `pprof` blocks. The builder confirms each key against Jaeger 2.23.0's own example configs and reports.
+29. Replaces 15.13: incoming `traceparent`/`tracestate` is dropped only on requests that came through the ingress, recognised by the `X-Forwarded-For` header Traefik adds. In the Harness (Python: ASGI middleware outside the OpenTelemetry middleware that removes the two headers from the scope when `X-Forwarded-For` is present) and the Control Centre (.NET: the same rule in a propagator wrapper or middleware ahead of the ASP.NET instrumentation). In-cluster calls (the Harness calling the Control Centre's rights routes on 8080) keep their trace. Tests: Part D, a request with `traceparent` and no `X-Forwarded-For` continues that trace; Parts A and D, a request with both gets a new trace.
+30. Span attribute keys are fixed in section 8; Parts A and B write only those keys, every filter and the Control Centre trace route allow exactly those.
+31. Body lines in sections 4, 6.4 and 8 corrected in place to agree with section 15.
+32. The Gateway keeps two HTTP clients: one for Keycloak and the Control Centre, instrumented with `HTTPXClientInstrumentor.instrument_client`, and one uninstrumented client for providers. No package calls the global `HTTPXClientInstrumentor().instrument()`; each instruments its own clients with `instrument_client`. Part B test: a provider call produces only the `provider <connection type>` span.
+33. Section 8 Scripts row gives both forms of `79-demo.sh`; `restore` takes no tag and needs no check client.
