@@ -184,9 +184,8 @@ export class Operations implements OnChanges {
     } catch (e) {
       if (sequence === this.traceSequence) {
         const status = (e as { status?: number } | null)?.status;
-        const message = e instanceof Error ? e.message : '';
-        this.traceMessage.set(status === 401 || status == null && /^(Valid token required|Your session has expired, sign in again)$/.test(message) ? 'Your session has expired, sign in again'
-          : status === 404 || status == null && /^(trace_not_found|This trace has expired)$/.test(message) ? 'Trace not found' : 'Tracing is unavailable');
+        this.traceMessage.set(status === 401 ? 'Your session has expired, sign in again'
+          : status === 404 ? 'Trace not found' : 'Tracing is unavailable');
       }
     } finally { if (sequence === this.traceSequence) this.traceLoading.set(false); }
   }

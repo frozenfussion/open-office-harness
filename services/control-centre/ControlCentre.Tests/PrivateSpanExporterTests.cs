@@ -63,6 +63,21 @@ public sealed class PrivateSpanExporterTests
     }
   }
   [Fact]
+  public void ExporterOmitsEventsEvenWhenNoProcessorCanClearThem()
+  {
+    using var transport = new Transport();
+    using var sink = new PrivateSpanExporter(new OtlpHttpSpanExporter(
+      new(new Uri("http://127.0.0.1:1/v1/traces"), "http/protobuf", 5000), "control-centre", new HttpClient(transport)));
+    using var activity = new Activity("synthetic").SetIdFormat(ActivityIdFormat.W3C).Start();
+    activity.AddEvent(new ActivityEvent("private-event-marker", tags: new ActivityTagsCollection { ["exception.message"] = "private-event-marker" }));
+    new PrivateSpanProcessor(null).OnEnd(activity); activity.Stop();
+    Assert.Single(activity.Events);
+    using var batch = new Batch<Activity>(activity);
+    Assert.Equal(ExportResult.Success, sink.Export(batch));
+    Assert.DoesNotContain("private-event-marker", Encoding.UTF8.GetString(transport.Body!));
+    Assert.DoesNotContain(Assert.Single(OtlpFields.Spans(transport.Body!)), field => field.Number == 11);
+  }
+  [Fact]
   public async Task ProgramReadsUnsupportedProtocolAndWarnsOnceOnStartup()
   {
     var endpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");

@@ -63,10 +63,13 @@ public static class Tracing
 public sealed class PrivateSpanProcessor : BaseProcessor<Activity>
 {
   // Activity has no public event removal API in .NET 10. Clear its event storage before export.
-  private static readonly System.Reflection.FieldInfo Events = typeof(Activity).GetField("_events", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+  private static readonly System.Reflection.FieldInfo? Events = typeof(Activity).GetField("_events", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+  private readonly System.Reflection.FieldInfo? eventStorage;
+  public PrivateSpanProcessor() : this(Events) { }
+  public PrivateSpanProcessor(System.Reflection.FieldInfo? eventStorage) => this.eventStorage = eventStorage;
   public override void OnEnd(Activity activity)
   {
-    Events.SetValue(activity, null);
+    eventStorage?.SetValue(activity, null);
     foreach (var tag in activity.TagObjects.ToArray()) if (!Tracing.Attributes.Contains(tag.Key)) activity.SetTag(tag.Key, null);
     activity.SetStatus(activity.Status, activity.GetTagItem("ooh.error_code") as string);
   }

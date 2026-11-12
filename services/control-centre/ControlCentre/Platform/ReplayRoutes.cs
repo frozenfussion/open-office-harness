@@ -57,8 +57,8 @@ public static class ReplayRoutes
       var replay = new DeadLetterReplay { DeadLetterId = row.Id, ReplayedBy = Api.Actor(c), TargetTopic = row.Topic[4..], Outcome = "sent" };
       using (var send = Tracing.Start(replay.TargetTopic, System.Diagnostics.ActivityKind.Producer))
       {
-        try { await kafka.Publish(replay.TargetTopic, correlationValue.GetString()!, row.OriginalMessage, c.RequestAborted); }
-        catch (Exception e) when (e is not OperationCanceledException || !c.RequestAborted.IsCancellationRequested)
+        try { await kafka.Publish(replay.TargetTopic, correlationValue.GetString()!, row.OriginalMessage, CancellationToken.None); }
+        catch (Exception)
         {
           replay.Outcome = "failed"; replay.ErrorCode = "kafka_unavailable";
           send?.SetTag("ooh.error_code", replay.ErrorCode); send?.SetStatus(System.Diagnostics.ActivityStatusCode.Error);

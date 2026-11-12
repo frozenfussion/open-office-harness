@@ -3,7 +3,10 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Operations, Request, DecisionRow, TrailRow } from './operations';
 import { connectionSummary } from './models';
-afterEach(() => vi.restoreAllMocks());
+import { App } from './app';
+import { OidcSecurityService } from 'angular-auth-oidc-client';
+import { of } from 'rxjs';
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function create(screen: string, request: Request = vi.fn().mockResolvedValue([])) {
   await TestBed.configureTestingModule({ imports: [Operations] }).compileComponents();
   const fixture = TestBed.createComponent(Operations);
@@ -128,7 +131,7 @@ describe('Stage 4 recovery and tracing', () => {
   it('keeps the audit rows when traces expire or tracing is unavailable', async () => {
     const request = vi.fn().mockResolvedValue([]); const { fixture, app } = await create('audit', request);
     app.trail.set([{ id: 1, occurred_at: '', producer: 'synthetic', correlation_id: 'synthetic', user_id: 'synthetic', actor: 'synthetic', action: 'synthetic', target: '', outcome: 'ok', trace_id: 'trace' }]);
-    request.mockRejectedValueOnce(new Error('This trace has expired')); await app.openTrace('trace', 1); fixture.detectChanges(); expect(fixture.nativeElement.textContent).toContain('Trace not found'); expect(app.trail()).toHaveLength(1);
+    request.mockRejectedValueOnce(Object.assign(new Error('Unrelated server text'), { status: 404 })); await app.openTrace('trace', 1); fixture.detectChanges(); expect(fixture.nativeElement.textContent).toContain('Trace not found'); expect(app.trail()).toHaveLength(1);
     request.mockRejectedValueOnce(new Error('Unavailable')); await app.openTrace('trace', 1); expect(app.traceMessage()).toBe('Tracing is unavailable'); expect(app.trail()).toHaveLength(1);
   });
   it.each([
@@ -139,9 +142,25 @@ describe('Stage 4 recovery and tracing', () => {
     const request = vi.fn().mockResolvedValue([]); const { app } = await create('audit', request);
     request.mockRejectedValueOnce(Object.assign(new Error(message), { status }));
     await app.openTrace('trace', 1); expect(app.traceMessage()).toBe(expected);
-    // The shared request function currently preserves only the server message.
-    request.mockRejectedValueOnce(new Error(message));
-    await app.openTrace('trace', 1); expect(app.traceMessage()).toBe(expected);
+  });
+  it.each([
+    [401, 'Your session has expired, sign in again'],
+    [404, 'Trace not found'],
+    [503, 'Tracing is unavailable'],
+  ])('preserves HTTP %s through the shared request with JSON and non-JSON errors', async (status, expected) => {
+    window.oohConfig = { apiBase: '/api', issuer: 'https://issuer.invalid', clientId: 'ooh-admin-console' };
+    await TestBed.configureTestingModule({ imports: [Operations, App], providers: [
+      { provide: OidcSecurityService, useValue: { getAccessToken: () => of('synthetic-token'), checkAuth: () => of({ isAuthenticated: false }) } },
+    ] }).compileComponents();
+    const shell = TestBed.createComponent(App).componentInstance;
+    const fixture = TestBed.createComponent(Operations); const app = fixture.componentInstance;
+    fixture.componentRef.setInput('screen', 'audit');
+    fixture.componentRef.setInput('request', <T>(path: string) => shell.request<T>(path));
+    for (const body of ['{"message":"arbitrary message"}', '<html>arbitrary ingress response</html>', '']) {
+      vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(body, { status })));
+      await expect(shell.request('/admin/traces/trace')).rejects.toMatchObject({ status });
+      await app.openTrace('trace', 1); expect(app.traceMessage()).toBe(expected);
+    }
   });
   it('keeps the newly selected failed message when an earlier replay finishes', async () => {
     const other = { ...letter, id: 'other-letter' };

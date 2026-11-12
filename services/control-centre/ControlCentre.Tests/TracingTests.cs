@@ -34,6 +34,50 @@ public sealed class CapturedSpans : BaseExporter<Activity>
 public sealed class TracingTests
 {
   [Fact]
+  public void MissingEventFieldDoesNotThrowOrSkipTagAndStatusFiltering()
+  {
+    using var span = new Activity("synthetic");
+    span.AddEvent(new ActivityEvent("private-marker")); span.SetTag("url.full", "private-marker");
+    span.SetStatus(ActivityStatusCode.Error, "private-marker");
+    var processor = new PrivateSpanProcessor(null);
+    Assert.Null(Record.Exception(() => processor.OnEnd(span)));
+    Assert.Null(Record.Exception(() => processor.OnEnd(span)));
+    Assert.Single(span.Events); Assert.Empty(span.TagObjects); Assert.Null(span.StatusDescription);
+  }
+  private sealed class HttpReplyStream() : MemoryStream(System.Text.Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
+  {
+    public override void Write(byte[] buffer, int offset, int count) { }
+    public override void Write(ReadOnlySpan<byte> buffer) { }
+    public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken ct) => Task.CompletedTask;
+    public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken ct = default) => ValueTask.CompletedTask;
+  }
+  [Fact]
+  public async Task InternalHttpClientInjectsRealTraceparentBeforeTransport()
+  {
+    var capture = new CapturedSpans();
+    using var provider = Tracing.Configure(Sdk.CreateTracerProviderBuilder()).AddProcessor(new SimpleActivityExportProcessor(capture)).Build();
+    string? injected = null;
+    using var handler = new SocketsHttpHandler
+    {
+      UseProxy = false,
+      ConnectCallback = (context, ct) =>
+      {
+        injected = context.InitialRequestMessage.Headers.GetValues("traceparent").Single();
+        return ValueTask.FromResult<Stream>(new HttpReplyStream());
+      }
+    };
+    using var client = new HttpClient(handler);
+    using var root = Tracing.Source.StartActivity("synthetic request"); Assert.NotNull(root);
+    using var request = new HttpRequestMessage(HttpMethod.Get, "http://internal-service.invalid/rights");
+    request.Options.Set(Tracing.InternalRequest, true);
+    using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+    Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    Assert.True(ActivityContext.TryParse(injected, null, out var outgoing));
+    Assert.Equal(root.TraceId, outgoing.TraceId);
+    var sent = Assert.Single(capture.Spans, span => span.Kind == ActivityKind.Client);
+    Assert.Equal(root.SpanId, sent.ParentSpanId); Assert.Equal(sent.SpanId, outgoing.SpanId);
+  }
+  [Fact]
   public void EmptyEndpointRegistersNoProviderAndNoAuditTraceId()
   {
     var services = new ServiceCollection();

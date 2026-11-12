@@ -24,12 +24,16 @@ public sealed class ReplayTests
   private static async Task Migrate() { await using var db = Database(true); await db.Database.MigrateAsync(TestContext.Current.CancellationToken); }
   private static string Envelope() => Api.Encode(new { event_id = Guid.NewGuid(), type = "approval.requested", version = 1, occurred_at = DateTime.UtcNow.ToString("O"), correlation_id = Guid.NewGuid(), user_id = "synthetic-replay", producer = "synthetic", payload = new { action = "synthetic", details = new { }, risk = "low", requested_by = "worker" } });
   private static DeadLetter Letter(string? original = null, string topic = "dlq.approvals.requested") => new() { Topic = topic, Offset = DateTimeOffset.UtcNow.Ticks, ErrorCode = "processing_failed", ErrorMessage = "Synthetic failure", OriginalMessage = original ?? Envelope() };
-  private sealed class DisconnectAfterSend(CancellationTokenSource disconnected) : IKafka
+  private sealed class DisconnectDuringSend(CancellationTokenSource disconnected) : IKafka
   {
     public bool Sent { get; private set; }
-    public Task Publish(string topic, string key, string value, CancellationToken ct)
+    public async Task Publish(string topic, string key, string value, CancellationToken ct)
     {
-      ct.ThrowIfCancellationRequested(); Sent = true; disconnected.Cancel(); return Task.CompletedTask;
+      disconnected.Cancel();
+      await Task.Yield();
+      ct.ThrowIfCancellationRequested();
+      Assert.False(ct.CanBeCanceled);
+      Sent = true;
     }
     public KafkaRecord? Read(CancellationToken ct) => null;
     public void Commit(KafkaRecord record) { }
@@ -43,11 +47,11 @@ public sealed class ReplayTests
     };
   }
   [DatabaseFact]
-  public async Task DisconnectAfterDeliveryStillWritesReplayAndAudit()
+  public async Task DisconnectDuringDeliveryStillWritesReplayAndAudit()
   {
     await Migrate(); await using var db = Database(); var row = Letter(); db.DeadLetters.Add(row);
     await db.SaveChangesAsync(TestContext.Current.CancellationToken);
-    using var disconnected = new CancellationTokenSource(); var kafka = new DisconnectAfterSend(disconnected);
+    using var disconnected = new CancellationTokenSource(); var kafka = new DisconnectDuringSend(disconnected);
     using var host = new Host(true);
     using var realHost = host.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
     {
