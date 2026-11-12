@@ -1,5 +1,182 @@
 # QUICK GUIDE
 
+## Stage 4 — Traces, replay and class demos
+
+Claude runs the scripts in the harness terminal, Shell tile, plain shell while
+Aziz watches. No terminal password. Complete the existing Stage 3 setup first.
+Use the merged `stage-4` worktree and build all nine images for that commit.
+Replace `MERGED_IMAGE_TAG` below with that commit's first 12 characters.
+
+1. **Deploy in this order.** Type this in your harness terminal. Use the plain
+   shell; the first line selects the folder. This adds Jaeger, updates Kafka
+   permissions, runs migrations and deploys the same image tag everywhere.
+   Good result: Ready and `DONE` from every script. No new setup script is needed.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4
+   install/30-platform-apply.sh
+   install/61-control-centre-deploy.sh MERGED_IMAGE_TAG
+   install/65-model-gateway-deploy.sh MERGED_IMAGE_TAG
+   install/67-harness-api-deploy.sh MERGED_IMAGE_TAG
+   install/73-slides-worker-deploy.sh MERGED_IMAGE_TAG
+   install/75-consumers-deploy.sh MERGED_IMAGE_TAG
+   install/68-workspace-deploy.sh MERGED_IMAGE_TAG
+   install/69-admin-console-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+2. **Check before class.** Type this in your harness terminal. Use the plain
+   shell in the folder selected below. These check platform, rights, chat, jobs,
+   tracing and replay. Good result: every line PASS, then `DONE` per script.
+   Checks 70, 77 and 78 make short **paid calls**. Check 78 briefly stops the
+   Gateway, so **chat is unavailable** during its failure check. Never run 78
+   during a class. It temporarily grants tier 1 to the check account and removes
+   only the grant it created. It creates retained test conversations and files.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4
+   install/40-check-platform.sh
+   install/62-check-control-centre.sh
+   install/70-check-stage-2.sh
+   install/77-check-stage-3.sh MERGED_IMAGE_TAG
+   install/78-check-stage-4.sh MERGED_IMAGE_TAG
+   ```
+
+3. **Open a trace.** In Admin Console → Audit, find the request and click
+   **Trace**. A chat trace shows Harness, Control Centre and Gateway. A Slides
+   trace includes the worker and consumers. Select a span to see its allowed
+   attributes. **Tracing is unavailable** means Jaeger cannot be reached: check
+   its readiness and logs. **This trace has expired** means Jaeger no longer
+   has it. Jaeger stores at most 20,000 traces in memory; a restart clears them.
+   The permanent audit trail stays. Make another request to get a fresh trace.
+   There is no public Jaeger address or separate sign-in.
+
+4. **Replay by hand.** In Failed messages, filter by topic, select the matching
+   Request ID, read its error and fix the cause. Click **Replay**, confirm and
+   wait for `sent`. A Slides card failed with `worker_gave_up` can turn Ready.
+   Other failed and rejected jobs stay final. The original envelope, event ID
+   and correlation ID stay the same; replay gets the admin request's trace.
+   The replay count/history and an audit row record each attempt. A failed
+   Kafka send records a failed attempt; check Kafka before retrying.
+   Non-JSON messages and `dlq.chat.messages` cannot be replayed: the latter
+   stores IDs only. Replaying to `skill.results` or `audit.events` also delivers
+   to consumers that handled the event already; they drop it. The safety watcher
+   may classify once more after a restart (one paid call); duplicate flags are
+   still dropped by event ID.
+
+5. **Show a worker outage.** Type this in your harness terminal. Use the plain
+   shell in the folder below. The script stops only the Slides worker, then
+   pauses for the presenter. Ask for slides in Workspace: chat answers, the card
+   stays Queued, and the terminal shows `slides-worker pods: 0`. Press Enter to
+   restore the worker; show Ready and download the file, then press Enter again.
+   Good result: `DONE`. The successful job makes paid calls.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4
+   install/79-demo.sh worker-down MERGED_IMAGE_TAG
+   ```
+
+6. **Show a duplicate.** Type this in your harness terminal. Use the plain shell
+   in the folder below. This publishes a Slides message, checks the first file,
+   pauses, then sends the exact same message again. Press Enter at the pause.
+   The audience sees one result ID and an unchanged file modification time.
+   This direct Kafka demo creates no Workspace card. Good result: two PASS lines
+   and `DONE`. Only the first job needs paid model calls.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4
+   install/79-demo.sh duplicate MERGED_IMAGE_TAG
+   ```
+
+7. **Show failure and recovery.** Type this in your harness terminal. Use the
+   plain shell in the folder below. **Chat is unavailable while the Gateway is
+   down.** Follow the pauses: open Workspace and Failed messages; the worker
+   stops; ask for slides and wait for Queued and the completed chat; press Enter;
+   the Gateway stops and the worker returns; wait for Failed and its dead letter;
+   press Enter to restore the Gateway; click Replay and confirm; show Ready and
+   download the file; press Enter to finish. Recovery makes paid calls.
+   Good result: `DONE` and both services restored to their recorded counts.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4
+   install/79-demo.sh dead-letter MERGED_IMAGE_TAG
+   ```
+
+   To have the script find and replay the newest `worker_gave_up` Slides dead
+   letter received after it stopped the Gateway, use the command below instead.
+   It waits at most 120 seconds for that dead letter; the other presenter pauses
+   remain. Avoid unrelated Slides requests during this demo.
+
+   Type this in your harness terminal. Use the plain shell in the folder below.
+   This performs the same demo with automatic replay; good result: PASS and `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4
+   install/79-demo.sh dead-letter MERGED_IMAGE_TAG --auto
+   ```
+
+8. **Stop safely or recover.** Press Ctrl+C in the running script. EXIT, Ctrl+C,
+   TERM and HUP restore recorded replica counts. If the terminal or machine was
+   killed before cleanup, use the command below. No image tag or check client
+   is needed. The manifest count is **1 for each service**.
+
+   Type this in your harness terminal. Use the plain shell in the folder below.
+   This restores the Gateway and worker to their manifest counts and waits for
+   Ready; good result: `DONE`. Then run the platform check from step 2.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4
+   install/79-demo.sh restore
+   ```
+
+9. **Check the Workspace fixes.** Copy a `/?conversation=<uuid>` link, open it
+   signed out, then sign in: the saved conversation should open once. An invalid
+   ID is ignored. Ask for a Markdown table: words stay whole and a wide table
+   scrolls sideways; ordinary text still wraps long IDs. In the dead-letter demo,
+   watch a failed `worker_gave_up` card become Ready without refreshing; reload
+   and confirm it stays Ready.
+
+10. **After a reboot.** Allow five minutes for recovery, then repeat step 2.
+    Jaeger's old traces will be gone; the audit records and output files remain.
+    Use the existing status, logs, start, stop and restart commands below for
+    the application services. For Jaeger status and logs:
+
+    Type this in your harness terminal. The folder does not matter for these
+    commands. Use the plain shell. This shows readiness and recent Jaeger logs;
+    good result: one Ready replica and no repeated configuration errors.
+
+    ```bash
+    kubectl -n ooh-platform get deployment jaeger
+    kubectl -n ooh-platform logs deployment/jaeger --tail=100
+    ```
+
+### Stage 4 STOP and FAIL help
+
+| Message or failed check | What to do |
+|---|---|
+| Usage / invalid demo or image tag | Use one of the exact forms above with a 12-character lower-case commit tag. `--auto` is only for dead-letter. |
+| Missing tool / local settings / contact email | Complete the server setup and private settings steps below. Do not enter credentials in Codex. |
+| All application images / readiness | Build all nine images for the merged commit, keep them public and deploy the same tag in step 1. Inspect the failing Deployment's status and logs. |
+| Jaeger Ready / OTLP round-trip / query API | Re-run 30 after fixing Jaeger config/readiness. Inspect its logs; 4318 and 16686 are internal only. |
+| INFO jaeger restarted N times | Informational: traces may have expired. Check memory and logs if restarts repeat. |
+| Gateway or worker scaled to 0 / already stopped / could not restore | Run the restore command in step 8 and check readiness before retrying. |
+| Temporary check client / another check running / check token | Let the other check finish. If none runs, re-run 35 to repair the client, then retry. Check Keycloak privately. |
+| Check client did not disable / still enabled | Run a stage check to completion and then 40; inspect the helper and Keycloak privately if it persists. |
+| Check-user tier grant failed / temporary grant could not be removed | Check the active tier 1 entry and rights service. Remove only this run's new check-user grant in People & rights. |
+| Check conversation / saved chat / chat stream | Check Harness readiness, check-user approved access, tier 1 registry settings, rate limit and budget. |
+| Chat audit rows / trace parent relationship | Check audit writer readiness and tracing settings in all services. Ensure the merged Parts are deployed; try a new request. |
+| Traced Slides request / result / Kafka check | Check worker, Kafka, check-principal ACLs and an active chat model for Slides. Inspect pod logs privately. |
+| Raw traces contain question/topic or forbidden fields/events | Stop the demonstration and fix the service's trace filter before retrying. |
+| worker_gave_up result / no dead letter arrived; is the worker running? | Check the worker, its retry limit, Kafka and the Control Centre dead-letter consumer. Restore services before retrying. |
+| Replay did not return 202 sent / automatic replay failed | Inspect the Failed messages response and Kafka permissions. Restore services, fix the cause and retry. |
+| Replay count / replay audit row missing | Check Control Centre migration, audit writer and Kafka readiness. |
+| Replayed job did not complete / file missing or invalid | Check worker, Gateway, model registry and retained volume permissions. Fix the cause and replay again. |
+| Duplicate result differs / no fresh result / file time changed | Inspect worker idempotency. Do not continue the class demo until the same request reuses its result and file. |
+| Malformed message / dead letter / non-JSON replay was not refused | Check worker validation and Control Centre replay validation; do not replay arbitrary malformed content. |
+| Input closed / step failed / cannot continue / Stage 4 checks failed | Cleanup runs automatically. Fix the last failed check, restore if needed and retry from the start. |
+
+The Stage 3 guide below remains the setup and everyday operations reference.
+For Stage 4 deployment and checks use the order above.
+
 ## Stage 3 — Skills, jobs and admin screens
 
 Claude runs the non-sudo scripts below in the harness terminal, Shell tile,

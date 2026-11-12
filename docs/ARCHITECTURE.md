@@ -24,6 +24,51 @@ database rather than shared tables.
 | Platform | Keycloak identity, Kafka topics and ACLs, PostgreSQL, private storage, Kubernetes | Business logic |
 | Instruction skills | Know-how loaded as context from SKILL.md | Run worker code |
 
+## Stage 4 phase 1: tracing and replay
+
+Jaeger 2.23.0 runs as one internal Deployment in `ooh-platform`. Its Service
+exposes OTLP HTTP on 4318 and the query API on 16686; probes use `/status` on
+13133 directly on the pod. No Ingress is created. Memory storage retains at
+most 20,000 traces, with a memory limiter before batching; a restart loses
+traces, while the append-only audit trail remains permanent.
+
+Every service exports traces asynchronously using HTTP/protobuf; an empty
+`OTEL_EXPORTER_OTLP_ENDPOINT` leaves tracing off. Health requests are excluded.
+Only the fixed span attribute allow-list is exported, without events or exception
+text. No database spans or provider HTTP auto-instrumentation are enabled.
+Ingress requests start fresh traces when `X-Forwarded-For` is present; internal
+HTTP requests retain their parent context. Kafka producers carry W3C
+`traceparent` and optional `tracestate` headers, outside the unchanged envelope;
+consumer spans continue that context. Audit producers include a valid `trace_id`
+when available. Audit writer stores it and supports filtering by it.
+
+Admin Console reads a reduced trace timeline through the admin-only Control
+Centre route `/api/admin/traces/{trace_id}`. The Control Centre queries Jaeger
+internally; neither the browser nor another sign-in accesses Jaeger. Missing or
+unavailable traces do not prevent reading Audit.
+
+Failed messages lets an admin replay a stored original envelope unchanged to
+its source topic, using the same event ID and correlation ID. Control Centre
+waits for Kafka delivery, records an append-only replay outcome and audits
+`dead_letter.replayed`. A replay publishes under the admin request's trace.
+Non-JSON originals and ID-only chat dead letters are refused. Already handled
+events are ignored by consumers. A Slides failure with `worker_gave_up` can
+complete after replay; other final job states remain final. Worker result and
+audit IDs include status, so failed and completed results are distinct while
+duplicates of a completed request reuse the file and result ID. Workspace updates
+the failed card on completion or reload.
+
+`78-check-stage-4.sh` exercises HTTP and Kafka trace continuity, raw-span privacy,
+replay and retained files. It creates direct Kafka jobs for replay checks, with
+no Harness job row; browser acceptance and Harness tests cover card recovery.
+Its chat check reads the completed stream and then the saved conversation's
+newest user message ID as correlation ID. `79-demo.sh` provides worker-down,
+duplicate and dead-letter demonstrations. Both scripts restore stopped services
+on exit; `restore` recovers manifest replica counts without a check client.
+Workspace stores a validated saved-conversation UUID in session storage before
+sign-in, consumes it once after sign-in, and scrolls wide Markdown tables without
+breaking words.
+
 ## Agreements between modules
 
 - [Identity](../contracts/identity.md): users authenticate through Keycloak;

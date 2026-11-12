@@ -104,5 +104,14 @@ export function renderRichText(source: string): RichText {
       FORBID_TAGS: forbidden.filter(tag => tag !== 'math' && tag !== 'svg'), RETURN_DOM_FRAGMENT: true,
     }));
   }
+  for (const table of fragment.querySelectorAll('table')) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'ooh-table-scroll';
+    wrapper.tabIndex = 0;
+    wrapper.setAttribute('role', 'region');
+    wrapper.setAttribute('aria-label', 'Chat table');
+    table.replaceWith(wrapper);
+    wrapper.append(table);
+  }
   return {fragment, codeBlocks};
 }

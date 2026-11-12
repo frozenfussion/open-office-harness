@@ -23,7 +23,7 @@ describe('Auto routing metadata', () => {
 });
 
 describe('Workspace', () => {
-  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); TestBed.resetTestingModule(); window.history.replaceState(null, '', '/'); localStorage.clear(); });
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); TestBed.resetTestingModule(); window.history.replaceState(null, '', '/'); localStorage.clear(); sessionStorage.clear(); });
   it('parses SSE across byte and line boundaries, CRLF and final chunks', async () => {
     const events: unknown[] = [];
     const bytes = new TextEncoder().encode('data: {"type":"delta","text":"你"}\r\n\r\ndata: {"type":"failed","error":{"code":"unavailable","message":"Try again"}}\n\n');
@@ -92,6 +92,43 @@ describe('Workspace', () => {
     expect(authorize).toHaveBeenLastCalledWith(undefined, {customParams: {prompt: 'create'}});
     buttons[0].click(); expect(authorize).toHaveBeenLastCalledWith();
     expect(view.nativeElement.querySelector('h1').textContent).toBe(greeting());
+  });
+  it.each(['signIn', 'requestAccess'] as const)('restores a saved chat once after %s redirects', async action => {
+    const id = '12345678-1234-1234-1234-123456789012';
+    const authorize = vi.fn();
+    const conversation = vi.fn().mockResolvedValue({id, title: 'Saved chat', messages: []});
+    let authenticated = false;
+    TestBed.configureTestingModule({imports: [App], providers: [
+      {provide: Jobs, useValue: {start: vi.fn(), stop: vi.fn(), rows: signal([]), notice: signal(''), more: signal(false)}},
+      {provide: OidcSecurityService, useValue: {authorize, checkAuth: () => of({isAuthenticated: authenticated}), isAuthenticated$: of({isAuthenticated: false})}},
+      {provide: Api, useValue: {me: async () => ({access: 'approved', user_id: 'test-user', name: 'Test user', chat_tiers: [1], skills: [], requestable_tiers: [], chat_tier_titles: {}, chat_tier_thinking_switch: {}}), list: async () => [], conversation}},
+    ]});
+    window.history.replaceState(null, '', '/?conversation=' + id);
+    const before = TestBed.createComponent(App); before.detectChanges();
+    before.componentInstance[action](); before.destroy();
+    window.history.replaceState(null, '', '/?code=test'); authenticated = true;
+    const after = TestBed.createComponent(App); after.detectChanges(); await vi.waitFor(() => expect(after.componentInstance.loading()).toBe(false)); await after.whenStable();
+    expect(conversation).toHaveBeenCalledExactlyOnceWith(id);
+    expect(after.componentInstance.currentId()).toBe(id);
+    expect(sessionStorage.getItem('ooh.pending-conversation')).toBeNull();
+    after.destroy(); window.history.replaceState(null, '', '/');
+    const again = TestBed.createComponent(App); again.detectChanges(); await again.whenStable();
+    expect(conversation).toHaveBeenCalledOnce();
+  });
+  it('ignores non-UUID saved links before and after sign-in', async () => {
+    const conversation = vi.fn();
+    TestBed.configureTestingModule({imports: [App], providers: [
+      {provide: Jobs, useValue: {start: vi.fn(), stop: vi.fn(), rows: signal([]), notice: signal(''), more: signal(false)}},
+      {provide: OidcSecurityService, useValue: {authorize: vi.fn(), checkAuth: () => of({isAuthenticated: true}), isAuthenticated$: of({isAuthenticated: true})}},
+      {provide: Api, useValue: {me: async () => ({access: 'approved', user_id: 'test-user', name: 'Test user', chat_tiers: [1], skills: [], requestable_tiers: [], chat_tier_titles: {}, chat_tier_thinking_switch: {}}), list: async () => [], conversation}},
+    ]});
+    window.history.replaceState(null, '', '/?conversation=not-a-uuid');
+    const view = TestBed.createComponent(App); view.componentInstance.signIn();
+    expect(sessionStorage.getItem('ooh.pending-conversation')).toBeNull();
+    sessionStorage.setItem('ooh.pending-conversation', 'not-a-uuid');
+    view.detectChanges(); await vi.waitFor(() => expect(view.componentInstance.loading()).toBe(false)); await view.whenStable();
+    expect(conversation).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('ooh.pending-conversation')).toBeNull();
   });
   it('formats the meta line and budget note', () => {
     expect(metaLine({role: 'assistant', content: '', created_at: '2026-11-10T08:00:00Z', tier: 2, model_title: 'Test entry', input_tokens: 12, output_tokens: 24}))

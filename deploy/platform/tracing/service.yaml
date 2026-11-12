@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  selector:
+    app: jaeger
+  ports:
+  - name: otlp-http
+    port: 4318
+    targetPort: otlp-http
+  - name: query
+    port: 16686
+    targetPort: query
