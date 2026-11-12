@@ -404,3 +404,21 @@ async def test_invalid_message_ids_never_export(spans: Any, topic: str) -> None:
                 span.events,
             )
         )
+
+
+@pytest.mark.parametrize("status", list(trace.StatusCode))
+def test_status_description_only_for_errors(
+    spans: Any, caplog: pytest.LogCaptureFixture, status: trace.StatusCode
+) -> None:
+    tracer, exporter = spans
+    with tracer.start_as_current_span("status") as span:
+        span.set_attribute("ooh.error_code", "handling_failed")
+        span.set_status(trace.Status(status))
+    exported = exporter.get_finished_spans()[0]
+    assert exported.status.status_code == status
+    assert exported.status.description == (
+        "handling_failed" if status == trace.StatusCode.ERROR else None
+    )
+    assert exported.attributes["ooh.error_code"] == "handling_failed"
+    assert set(exported.attributes) <= tracing.ALLOWED
+    assert not caplog.records

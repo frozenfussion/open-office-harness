@@ -16,11 +16,11 @@ public static class Tracing
   public static bool Register(IServiceCollection services, IConfiguration config)
   {
     if (string.IsNullOrWhiteSpace(config["OTEL_EXPORTER_OTLP_ENDPOINT"])) return false;
-    DistributedContextPropagator.Current = new IngressPropagator();
+    services.AddSingleton<DistributedContextPropagator, IngressPropagator>();
     Sdk.SetDefaultTextMapPropagator(new IngressTextMapPropagator());
-    services.AddOpenTelemetry().WithTracing(t => Configure(t).AddProcessor(new BatchActivityExportProcessor(
+    services.AddOpenTelemetry().WithTracing(t => Configure(t).AddProcessor(sp => new BatchActivityExportProcessor(
       new PrivateSpanExporter(new OtlpHttpSpanExporter(new OtlpHttpSettings(
-        new Uri(config["OTEL_EXPORTER_OTLP_ENDPOINT"]!.TrimEnd('/') + "/v1/traces"), "http/protobuf", 5000), config["OTEL_SERVICE_NAME"] ?? "control-centre")), exporterTimeoutMilliseconds: 5000)));
+        new Uri(config["OTEL_EXPORTER_OTLP_ENDPOINT"]!.TrimEnd('/') + "/v1/traces"), config["OTEL_EXPORTER_OTLP_PROTOCOL"] ?? "http/protobuf", 5000), config["OTEL_SERVICE_NAME"] ?? "control-centre", logger: sp.GetRequiredService<ILogger<OtlpHttpSpanExporter>>())), exporterTimeoutMilliseconds: 5000)));
     return true;
   }
   public static TracerProviderBuilder Configure(TracerProviderBuilder builder) => builder
@@ -62,8 +62,11 @@ public static class Tracing
 
 public sealed class PrivateSpanProcessor : BaseProcessor<Activity>
 {
+  // Activity has no public event removal API in .NET 10. Clear its event storage before export.
+  private static readonly System.Reflection.FieldInfo Events = typeof(Activity).GetField("_events", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
   public override void OnEnd(Activity activity)
   {
+    Events.SetValue(activity, null);
     foreach (var tag in activity.TagObjects.ToArray()) if (!Tracing.Attributes.Contains(tag.Key)) activity.SetTag(tag.Key, null);
     activity.SetStatus(activity.Status, activity.GetTagItem("ooh.error_code") as string);
   }

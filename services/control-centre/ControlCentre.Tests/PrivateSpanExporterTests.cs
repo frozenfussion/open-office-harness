@@ -8,6 +8,7 @@ using ControlCentre.Platform;
 using OpenTelemetry;
 using OpenTelemetry.Trace;
 using Xunit;
+using Microsoft.Extensions.Logging;
 
 namespace ControlCentre.Tests;
 
@@ -60,6 +61,41 @@ public sealed class PrivateSpanExporterTests
       Body = await request.Content!.ReadAsByteArrayAsync(ct); ContentType = request.Content.Headers.ContentType!.MediaType; Address = request.RequestUri;
       return new(HttpStatusCode.OK);
     }
+  }
+  [Fact]
+  public async Task ProgramReadsUnsupportedProtocolAndWarnsOnceOnStartup()
+  {
+    var endpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
+    var protocol = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_PROTOCOL");
+    try
+    {
+      Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:1");
+      Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc");
+      using var host = new Host(); using var client = host.CreateClient();
+      await client.GetAsync("/api/admin/traces/invalid", TestContext.Current.CancellationToken);
+      await client.GetAsync("/api/admin/traces/invalid", TestContext.Current.CancellationToken);
+      Assert.Single(host.Logs.Entries, entry => entry == "Unsupported OTEL_EXPORTER_OTLP_PROTOCOL; using http/protobuf");
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint);
+      Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_PROTOCOL", protocol);
+    }
+  }
+  [Theory]
+  [InlineData("http/protobuf", 0)]
+  [InlineData("grpc", 1)]
+  [InlineData("http/json", 1)]
+  [InlineData("", 1)]
+  public void ProtocolFallsBackOnceAtStartupAndStillExportsProtobuf(string protocol, int warnings)
+  {
+    using var logs = new TestLogs(); using var transport = new Transport();
+    using var factory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder => builder.AddProvider(logs));
+    using var sink = new OtlpHttpSpanExporter(new(new Uri("http://127.0.0.1:1/v1/traces"), protocol, 5000), "control-centre", new HttpClient(transport), factory.CreateLogger<OtlpHttpSpanExporter>());
+    Assert.Equal(warnings, logs.Entries.Count);
+    using var batch = new Batch<ExportedSpan>(Array.Empty<ExportedSpan>(), 0);
+    Assert.Equal(ExportResult.Success, sink.Export(batch)); Assert.Equal(ExportResult.Success, sink.Export(batch));
+    Assert.Equal("application/x-protobuf", transport.ContentType); Assert.Equal(warnings, logs.Entries.Count);
   }
   [Fact]
   public void WrapperExportsEventFreeProtobufWithOriginalIdentityParentTimesTypesAndService()

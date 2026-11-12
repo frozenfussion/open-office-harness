@@ -39,6 +39,7 @@ export class Operations implements OnChanges {
   deadLetters = signal<DeadLetter[]>([]); deadLetter = signal<DeadLetter | null>(null); topic = ''; deadMore = signal(false);
   confirmReplay = signal(false); replayResult = signal('');
   traceSpans = signal<SpanRow[]>([]); traceMessage = signal(''); traceLoading = signal(false); selectedSpan = signal<Span | null>(null);
+  traceRow = signal<number | null>(null);
   private traceSequence = 0;
   note = ''; tier: number | undefined; tiers = signal<number[]>([]);
   requestId = ''; person = ''; action = ''; inTrace = signal(false); more = signal(false);
@@ -153,15 +154,19 @@ export class Operations implements OnChanges {
     this.busy.set(true); this.replayResult.set(''); this.confirmReplay.set(false);
     try {
       const result = await this.request()<{ outcome: string }>('/admin/dead-letters/' + encodeURIComponent(row.id) + '/replay', 'POST', {});
-      this.replayResult.set(result.outcome === 'sent' ? 'Replay sent. The job will update when processing finishes.' : 'Replay failed.');
-    } catch (e) { this.replayResult.set(e instanceof Error ? e.message : 'Replay failed.'); }
+      if (this.deadLetter()?.id === row.id) this.replayResult.set(result.outcome === 'sent' ? 'Replay sent. The job will update when processing finishes.' : 'Replay failed.');
+    } catch (e) { if (this.deadLetter()?.id === row.id) this.replayResult.set(e instanceof Error ? e.message : 'Replay failed.'); }
     finally {
       await this.loadDeadLetters();
       while (this.deadMore() && !this.error() && !this.deadLetters().some(x => x.id === row.id)) await this.loadDeadLetters(true);
-      this.deadLetter.set(this.deadLetters().find(x => x.id === row.id) ?? row); this.busy.set(false);
+      const selected = this.deadLetter();
+      if (selected) this.deadLetter.set(this.deadLetters().find(x => x.id === selected.id) ?? selected);
+      this.busy.set(false);
     }
   }
-  async openTrace(id: string): Promise<void> {
+  closeTrace(): void { ++this.traceSequence; this.traceRow.set(null); this.traceLoading.set(false); this.traceSpans.set([]); this.traceMessage.set(''); this.selectedSpan.set(null); }
+  async openTrace(id: string, rowId: number): Promise<void> {
+    this.traceRow.set(rowId);
     const sequence = ++this.traceSequence;
     this.traceMessage.set(''); this.traceSpans.set([]); this.selectedSpan.set(null); this.traceLoading.set(true);
     try {
@@ -175,9 +180,14 @@ export class Operations implements OnChanges {
         while (parent && byId.has(parent) && !seen.has(parent)) { seen.add(parent); depth++; parent = byId.get(parent)!.parent_span_id; }
         return { span, depth, offset: (Date.parse(span.start) - begin) / total * 100, width: Math.max(span.duration_ms / total * 100, 0.2) };
       }));
-      if (!spans.length) this.traceMessage.set('This trace has expired');
+      if (!spans.length) this.traceMessage.set('Trace not found');
     } catch (e) {
-      if (sequence === this.traceSequence) this.traceMessage.set(e instanceof Error && /trace_not_found|expired/i.test(e.message) ? 'This trace has expired' : 'Tracing is unavailable');
+      if (sequence === this.traceSequence) {
+        const status = (e as { status?: number } | null)?.status;
+        const message = e instanceof Error ? e.message : '';
+        this.traceMessage.set(status === 401 || status == null && /^(Valid token required|Your session has expired, sign in again)$/.test(message) ? 'Your session has expired, sign in again'
+          : status === 404 || status == null && /^(trace_not_found|This trace has expired)$/.test(message) ? 'Trace not found' : 'Tracing is unavailable');
+      }
     } finally { if (sequence === this.traceSequence) this.traceLoading.set(false); }
   }
   json(value: unknown): string { return JSON.stringify(value, null, 2); }

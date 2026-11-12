@@ -66,7 +66,8 @@ public static class ReplayRoutes
       }
       db.DeadLetterReplays.Add(replay);
       Api.Change(db, Api.Actor(c), "dead_letter.replayed", row.Id.ToString(), Api.Correlation(c), new { dead_letter_id = row.Id, replay_id = replay.Id, target_topic = replay.TargetTopic }, outcome: replay.Outcome == "sent" ? "success" : "failed");
-      await db.SaveChangesAsync(c.RequestAborted);
+      // Delivery has completed; a browser disconnect must not discard either record.
+      await db.SaveChangesAsync(CancellationToken.None);
       return replay.Outcome == "sent" ? Results.Json(new { replay_id = replay.Id, target_topic = replay.TargetTopic, outcome = replay.Outcome }, statusCode: 202)
         : Api.Error(503, "kafka_unavailable", "Kafka is unavailable; the replay was recorded");
     }).RequireAuthorization();

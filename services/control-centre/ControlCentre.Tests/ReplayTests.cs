@@ -11,6 +11,10 @@ using Microsoft.EntityFrameworkCore;
 using OpenTelemetry;
 using OpenTelemetry.Trace;
 using Xunit;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace ControlCentre.Tests;
 
@@ -20,6 +24,48 @@ public sealed class ReplayTests
   private static async Task Migrate() { await using var db = Database(true); await db.Database.MigrateAsync(TestContext.Current.CancellationToken); }
   private static string Envelope() => Api.Encode(new { event_id = Guid.NewGuid(), type = "approval.requested", version = 1, occurred_at = DateTime.UtcNow.ToString("O"), correlation_id = Guid.NewGuid(), user_id = "synthetic-replay", producer = "synthetic", payload = new { action = "synthetic", details = new { }, risk = "low", requested_by = "worker" } });
   private static DeadLetter Letter(string? original = null, string topic = "dlq.approvals.requested") => new() { Topic = topic, Offset = DateTimeOffset.UtcNow.Ticks, ErrorCode = "processing_failed", ErrorMessage = "Synthetic failure", OriginalMessage = original ?? Envelope() };
+  private sealed class DisconnectAfterSend(CancellationTokenSource disconnected) : IKafka
+  {
+    public bool Sent { get; private set; }
+    public Task Publish(string topic, string key, string value, CancellationToken ct)
+    {
+      ct.ThrowIfCancellationRequested(); Sent = true; disconnected.Cancel(); return Task.CompletedTask;
+    }
+    public KafkaRecord? Read(CancellationToken ct) => null;
+    public void Commit(KafkaRecord record) { }
+    public bool Healthy() => true;
+  }
+  private sealed class DisconnectToken(CancellationToken token) : IStartupFilter
+  {
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+    {
+      app.Use(async (context, handler) => { context.RequestAborted = token; await handler(context); }); next(app);
+    };
+  }
+  [DatabaseFact]
+  public async Task DisconnectAfterDeliveryStillWritesReplayAndAudit()
+  {
+    await Migrate(); await using var db = Database(); var row = Letter(); db.DeadLetters.Add(row);
+    await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+    using var disconnected = new CancellationTokenSource(); var kafka = new DisconnectAfterSend(disconnected);
+    using var host = new Host(true);
+    using var realHost = host.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+    {
+      services.RemoveAll<IKafka>(); services.AddSingleton<IKafka>(kafka);
+      services.AddSingleton<IStartupFilter>(new DisconnectToken(disconnected.Token));
+    }));
+    using var admin = realHost.CreateClient(); using var authenticated = host.Client();
+    admin.DefaultRequestHeaders.Authorization = authenticated.DefaultRequestHeaders.Authorization;
+    try { await admin.PostAsJsonAsync($"/api/admin/dead-letters/{row.Id}/replay", new { }, TestContext.Current.CancellationToken); }
+    catch (OperationCanceledException) when (disconnected.IsCancellationRequested) { }
+    Assert.True(kafka.Sent); Assert.True(disconnected.IsCancellationRequested);
+    var replay = Assert.Single(await db.DeadLetterReplays.Where(x => x.DeadLetterId == row.Id).ToListAsync(TestContext.Current.CancellationToken));
+    Assert.Equal("sent", replay.Outcome);
+    var audits = await db.Outbox.Where(x => x.Topic == "audit.events").ToListAsync(TestContext.Current.CancellationToken);
+    Assert.Single(audits, x => x.Envelope.Contains("dead_letter.replayed") && x.Envelope.Contains(row.Id.ToString()));
+    var audit = Assert.Single(await db.Audit.Where(x => x.Action == "dead_letter.replayed" && x.Target == row.Id.ToString()).ToListAsync(TestContext.Current.CancellationToken));
+    Assert.Contains(replay.Id.ToString(), audit.Detail);
+  }
   [DatabaseFact]
   public async Task ReplayConfirmsDeliveryKeepsOriginalAndRecordsHistoryAuditAndFailure()
   {

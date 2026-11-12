@@ -50,7 +50,10 @@ class FilteringExporter(SpanExporter):
                     start_time=span.start_time,
                     end_time=span.end_time,
                     status=Status(
-                        span.status.status_code, attributes.get("ooh.error_code")
+                        span.status.status_code,
+                        attributes.get("ooh.error_code")
+                        if span.status.status_code == trace.StatusCode.ERROR
+                        else None,
                     ),
                     instrumentation_scope=span.instrumentation_scope,
                 )

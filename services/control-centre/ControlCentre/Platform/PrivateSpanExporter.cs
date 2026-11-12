@@ -41,9 +41,11 @@ public sealed class OtlpHttpSpanExporter : BaseExporter<ExportedSpan>
   private readonly OtlpHttpSettings options;
   private readonly string service;
   private readonly HttpClient http;
-  public OtlpHttpSpanExporter(OtlpHttpSettings options, string service, HttpClient? http = null)
+  public OtlpHttpSpanExporter(OtlpHttpSettings options, string service, HttpClient? http = null, ILogger<OtlpHttpSpanExporter>? logger = null)
   {
-    this.options = options; this.service = service; this.http = http ?? new HttpClient();
+    if (options.Protocol != "http/protobuf")
+      logger?.LogWarning("Unsupported OTEL_EXPORTER_OTLP_PROTOCOL; using http/protobuf");
+    this.options = options with { Protocol = "http/protobuf" }; this.service = service; this.http = http ?? new HttpClient();
   }
   public override ExportResult Export(in Batch<ExportedSpan> batch)
   {

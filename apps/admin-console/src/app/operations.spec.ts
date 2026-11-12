@@ -113,17 +113,44 @@ describe('Stage 4 recovery and tracing', () => {
   });
   it('draws parent indentation and duration bars and exposes attributes on click', async () => {
     const request = vi.fn().mockResolvedValue([]); const { fixture, app } = await create('audit', request);
+    app.trail.set([{ id: 1, trace_id: 'trace' } as TrailRow, { id: 2, trace_id: 'trace' } as TrailRow]);
     const parent = { span_id: 'parent', service: 'harness-api', name: 'POST /chat', kind: 'SPAN_KIND_SERVER', start: '2026-11-12T00:00:00Z', duration_ms: 20, status: 'ok', attributes: {} };
     const child = { ...parent, span_id: 'child', parent_span_id: 'parent', service: 'control-centre', start: '2026-11-12T00:00:00.005Z', duration_ms: 5, status: 'error', attributes: { 'ooh.tier': 1 } };
-    request.mockResolvedValueOnce({ trace_id: 'trace', spans: [child, parent] }); await app.openTrace('trace'); fixture.detectChanges();
+    request.mockResolvedValueOnce({ trace_id: 'trace', spans: [child, parent] }); await app.openTrace('trace', 1); fixture.detectChanges();
     expect(app.traceSpans().map(x => x.depth)).toEqual([0, 1]); expect(app.traceSpans()[1].offset).toBe(25); expect(app.traceSpans()[1].width).toBe(25); expect(fixture.nativeElement.querySelectorAll('.timeline-bar')).toHaveLength(2);
+    const detail = fixture.nativeElement.querySelector('.trace-detail');
+    expect(detail.previousElementSibling.textContent).toContain('Trace');
+    expect(detail.nextElementSibling.querySelector('button').textContent).not.toBe('Close');
     const childButton = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find(x => x.textContent?.includes('control-centre'))!; childButton.click(); fixture.detectChanges(); expect(fixture.nativeElement.textContent).toContain('ooh.tier'); expect(fixture.nativeElement.textContent).toContain('Error');
+    Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find(x => x.textContent === 'Close')!.click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.trace-detail')).toBeNull(); expect(app.selectedSpan()).toBeNull();
   });
   it('keeps the audit rows when traces expire or tracing is unavailable', async () => {
     const request = vi.fn().mockResolvedValue([]); const { fixture, app } = await create('audit', request);
     app.trail.set([{ id: 1, occurred_at: '', producer: 'synthetic', correlation_id: 'synthetic', user_id: 'synthetic', actor: 'synthetic', action: 'synthetic', target: '', outcome: 'ok', trace_id: 'trace' }]);
-    request.mockRejectedValueOnce(new Error('This trace has expired')); await app.openTrace('trace'); fixture.detectChanges(); expect(fixture.nativeElement.textContent).toContain('This trace has expired'); expect(app.trail()).toHaveLength(1);
-    request.mockRejectedValueOnce(new Error('Unavailable')); await app.openTrace('trace'); expect(app.traceMessage()).toBe('Tracing is unavailable'); expect(app.trail()).toHaveLength(1);
+    request.mockRejectedValueOnce(new Error('This trace has expired')); await app.openTrace('trace', 1); fixture.detectChanges(); expect(fixture.nativeElement.textContent).toContain('Trace not found'); expect(app.trail()).toHaveLength(1);
+    request.mockRejectedValueOnce(new Error('Unavailable')); await app.openTrace('trace', 1); expect(app.traceMessage()).toBe('Tracing is unavailable'); expect(app.trail()).toHaveLength(1);
+  });
+  it.each([
+    [401, 'Valid token required', 'Your session has expired, sign in again'],
+    [404, 'This trace has expired', 'Trace not found'],
+    [503, 'Unavailable', 'Tracing is unavailable'],
+  ])('shows the trace error for HTTP %s', async (status, message, expected) => {
+    const request = vi.fn().mockResolvedValue([]); const { app } = await create('audit', request);
+    request.mockRejectedValueOnce(Object.assign(new Error(message), { status }));
+    await app.openTrace('trace', 1); expect(app.traceMessage()).toBe(expected);
+    // The shared request function currently preserves only the server message.
+    request.mockRejectedValueOnce(new Error(message));
+    await app.openTrace('trace', 1); expect(app.traceMessage()).toBe(expected);
+  });
+  it('keeps the newly selected failed message when an earlier replay finishes', async () => {
+    const other = { ...letter, id: 'other-letter' };
+    const request = vi.fn().mockResolvedValue([letter, other]); const { app } = await create('failed-messages', request);
+    let finish!: (value: { outcome: string }) => void;
+    request.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    app.selectDeadLetter(letter); app.confirmReplay.set(true); const replay = app.replay();
+    app.selectDeadLetter(other); finish({ outcome: 'sent' }); await replay;
+    expect(app.deadLetter()?.id).toBe(other.id); expect(app.replayResult()).toBe(''); expect(app.busy()).toBe(false);
   });
   it('links dead-letter attention to Failed messages', async () => {
     const request = vi.fn().mockResolvedValue({ people_active_today: 0, people_approved: 0, needs_attention: [{ kind: 'dead_letter', title: 'Failed messages', at: '', detail: '1', link: '#failed-messages' }], health: [] });

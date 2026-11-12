@@ -37,10 +37,7 @@
   <header><span class="ooh-label">Follow a request</span><h1>Audit</h1><p>Every decision, model call, skill job and approval, newest first. Open a request ID to see it in time order.</p></header>
   <form class="actions" (ngSubmit)="inTrace.set(false); filter()"><label class="ooh-field"><span class="ooh-label">Request ID (full ID)</span><input class="ooh-input" name="requestId" [(ngModel)]="requestId"></label><label class="ooh-field"><span class="ooh-label">Person (user ID)</span><input class="ooh-input" name="person" [(ngModel)]="person"></label><label class="ooh-field"><span class="ooh-label">Action</span><input class="ooh-input" name="action" [(ngModel)]="action"></label><button class="ooh-btn ooh-btn--secondary">Filter</button></form>
   @if (inTrace()) {<h2>Request {{ requestId }} · Time order</h2>}
-  <div class="ooh-table-wrap"><table class="ooh-table"><thead><tr><th>Time</th><th>Producer</th><th>Person</th><th>Action</th><th>Detail</th><th>Outcome</th><th>Request ID</th><th>Trace</th></tr></thead><tbody>@for (row of trail(); track row.id) {<tr><td>{{ formatTime(row.occurred_at, true) }}</td><td>{{ row.producer }}</td><td [attr.title]="row.user_id">{{ row.person || row.user_id }}</td><td>{{ row.action }}</td><td>{{ row.target }} @if (row.scores) {<pre>{{ json(row.scores) }}</pre>} {{ row.model || '' }} {{ row.tokens ?? '' }} {{ row.cost_usd ?? '' }}</td><td>{{ row.outcome }}</td><td><button class="ooh-btn ooh-btn--ghost" (click)="trace(row.correlation_id)">{{ row.correlation_id }}</button></td><td>@if (row.trace_id) {<button class="ooh-btn ooh-btn--secondary" (click)="openTrace(row.trace_id)">Trace</button>}</td></tr>}</tbody></table></div>
-  @if (more() && !inTrace()) {<button class="ooh-btn ooh-btn--secondary" (click)="filter(true)">Load more</button>}
-}
-@if (screen() === 'audit') {
+  <div class="ooh-table-wrap"><table class="ooh-table"><thead><tr><th>Time</th><th>Producer</th><th>Person</th><th>Action</th><th>Detail</th><th>Outcome</th><th>Request ID</th><th>Trace</th></tr></thead><tbody>@for (row of trail(); track row.id) {<tr><td>{{ formatTime(row.occurred_at, true) }}</td><td>{{ row.producer }}</td><td [attr.title]="row.user_id">{{ row.person || row.user_id }}</td><td>{{ row.action }}</td><td>{{ row.target }} @if (row.scores) {<pre>{{ json(row.scores) }}</pre>} {{ row.model || '' }} {{ row.tokens ?? '' }} {{ row.cost_usd ?? '' }}</td><td>{{ row.outcome }}</td><td><button class="ooh-btn ooh-btn--ghost" (click)="trace(row.correlation_id)">{{ row.correlation_id }}</button></td><td>@if (row.trace_id) {<button class="ooh-btn ooh-btn--secondary" (click)="openTrace(row.trace_id, row.id)">Trace</button>}</td></tr>@if (traceRow() === row.id) {<tr class="trace-detail"><td colspan="8"><section aria-label="Trace view"><button class="ooh-btn ooh-btn--ghost" (click)="closeTrace()">Close</button>
   @if (traceLoading()) {<p role="status">Loading trace…</p>}
   @if (traceMessage()) {<p role="status">{{ traceMessage() }}</p>}
   @if (traceSpans().length) {
@@ -48,6 +45,8 @@
     @for (row of traceSpans(); track row.span.span_id) {<tr><td [style.padding-left.px]="16 + row.depth * 20"><button class="ooh-btn ooh-btn--ghost" (click)="selectedSpan.set(row.span)">{{ row.span.service }} · {{ row.span.name }}</button></td><td><span class="ooh-chip" [class.ooh-chip--failed]="row.span.status === 'error'" [class.ooh-chip--done]="row.span.status !== 'error'">{{ row.span.status === 'error' ? 'Error' : 'OK' }}</span></td><td><div class="timeline-track"><span class="timeline-bar" [style.left.%]="row.offset" [style.width.%]="row.width"></span></div></td><td>{{ figure(row.span.duration_ms) }} ms</td></tr>}
     </tbody></table></div>@if (selectedSpan(); as span) {<h3>{{ span.service }} · {{ span.name }}</h3><pre>{{ json(span.attributes) }}</pre>}</section>
   }
+</section></td></tr>}}</tbody></table></div>
+  @if (more() && !inTrace()) {<button class="ooh-btn ooh-btn--secondary" (click)="filter(true)">Load more</button>}
 }
 @if (screen() === 'failed-messages') {
   <header><span class="ooh-label">Delivery recovery</span><h1>Failed messages</h1><p>Fix the cause, then replay the original message.</p></header>

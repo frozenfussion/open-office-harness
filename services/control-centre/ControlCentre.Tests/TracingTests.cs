@@ -4,6 +4,7 @@ using System.Net;
 using System.Text.Json.Nodes;
 using ControlCentre.Platform;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using OpenTelemetry.Context.Propagation;
 using Microsoft.Extensions.DependencyInjection;
@@ -57,7 +58,7 @@ public sealed class TracingTests
       span.AddEvent(new ActivityEvent("exception", tags: new ActivityTagsCollection { ["exception.message"] = "private-marker" }));
       span.SetStatus(ActivityStatusCode.Error, "private-marker");
       Assert.Null(Record.Exception(() => new PrivateSpanProcessor().OnEnd(span)));
-      Assert.Single(span.Events);
+      Assert.Empty(span.Events);
     }
     var exported = Assert.Single(capture.Spans); Assert.Equal(ActivityStatusCode.Error, exported.Status); Assert.Null(exported.ErrorCode);
     Assert.All(exported.Attributes, tag => Assert.Contains(tag.Key, Tracing.Attributes));
@@ -101,22 +102,34 @@ public sealed class TracingTests
   {
     var capture = new CapturedSpans();
     var previous = DistributedContextPropagator.Current; var previousOtel = Propagators.DefaultTextMapPropagator;
-    DistributedContextPropagator.Current = new IngressPropagator(); Sdk.SetDefaultTextMapPropagator(new IngressTextMapPropagator());
+    var endpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
+    Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:1");
     try
     {
-      using var provider = Tracing.Configure(Sdk.CreateTracerProviderBuilder()).AddProcessor(new SimpleActivityExportProcessor(capture)).Build();
-      using var host = new Host(); using var client = host.Client();
+      using var host = new Host();
+      using var realHost = host.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        services.AddOpenTelemetry().WithTracing(t => t.AddProcessor(new SimpleActivityExportProcessor(capture)))));
+      using var client = realHost.CreateClient();
       const string trace = "12345678901234567890123456789012";
       client.DefaultRequestHeaders.Add("traceparent", "00-" + trace + "-1234567890123456-01");
+      client.DefaultRequestHeaders.Add("tracestate", "synthetic=outside");
+      client.DefaultRequestHeaders.Add("baggage", "marker=outside");
       await client.GetAsync("/api/admin/traces/invalid", TestContext.Current.CancellationToken);
       var internalSpan = await capture.WaitForServerSpan(); Assert.Equal(trace, internalSpan.TraceId.ToHexString());
+      Assert.Equal("1234567890123456", internalSpan.ParentSpanId.ToHexString()); Assert.Equal("synthetic=outside", internalSpan.TraceStateString);
       var prior = capture.Spans.Count;
       client.DefaultRequestHeaders.Add("X-Forwarded-For", "192.0.2.1");
       await client.GetAsync("/api/admin/traces/invalid", TestContext.Current.CancellationToken);
       var externalSpan = await capture.WaitForServerSpan(prior); Assert.NotEqual(trace, externalSpan.TraceId.ToHexString()); Assert.Equal(default, externalSpan.ParentSpanId);
+      Assert.Null(externalSpan.TraceStateString); Assert.Empty(externalSpan.Baggage);
+      prior = capture.Spans.Count;
+      await client.GetAsync("/api/admin/traces/invalid", TestContext.Current.CancellationToken);
+      var nextExternal = await capture.WaitForServerSpan(prior);
+      Assert.NotEqual(externalSpan.TraceId, nextExternal.TraceId); Assert.NotEqual(trace, nextExternal.TraceId.ToHexString());
+      Assert.Equal(default, nextExternal.ParentSpanId); Assert.Null(nextExternal.TraceStateString); Assert.Empty(nextExternal.Baggage);
       var count = capture.Spans.Count; await client.GetAsync("/api/admin/health", TestContext.Current.CancellationToken); Assert.Equal(count, capture.Spans.Count);
     }
-    finally { DistributedContextPropagator.Current = previous; Sdk.SetDefaultTextMapPropagator(previousOtel); }
+    finally { Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint); DistributedContextPropagator.Current = previous; Sdk.SetDefaultTextMapPropagator(previousOtel); }
   }
   [Fact]
   public async Task UnhandledRouteErrorExportsNoMarkerEventsOrPrivateTags()

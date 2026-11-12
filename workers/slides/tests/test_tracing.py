@@ -361,3 +361,21 @@ async def test_stream_has_one_server_span_without_chunk_spans(spans: Any) -> Non
     assert len(finished) == 1
     assert finished[0].kind == trace.SpanKind.SERVER
     assert not any("http send" in s.name or "http receive" in s.name for s in finished)
+
+
+@pytest.mark.parametrize("status", list(trace.StatusCode))
+def test_status_description_only_for_errors(
+    spans: Any, caplog: pytest.LogCaptureFixture, status: trace.StatusCode
+) -> None:
+    tracer, exporter = spans
+    with tracer.start_as_current_span("status") as span:
+        span.set_attribute("ooh.error_code", "handling_failed")
+        span.set_status(trace.Status(status))
+    exported = exporter.get_finished_spans()[0]
+    assert exported.status.status_code == status
+    assert exported.status.description == (
+        "handling_failed" if status == trace.StatusCode.ERROR else None
+    )
+    assert exported.attributes["ooh.error_code"] == "handling_failed"
+    assert set(exported.attributes) <= tracing.ALLOWED
+    assert not caplog.records
