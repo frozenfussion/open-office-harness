@@ -332,3 +332,35 @@ async def test_runner_passes_real_message_headers_into_processing(
     provider.force_flush()
     item = next(s for s in exporter.get_finished_spans() if s.kind == SpanKind.CONSUMER)
     assert item.parent.span_id == root.get_span_context().span_id
+
+
+@pytest.mark.parametrize("service_name", [None, ""])
+def test_missing_service_name_uses_deployment_name(
+    monkeypatch: pytest.MonkeyPatch, service_name: str | None
+) -> None:
+    monkeypatch.setattr(tracing, "_provider", None)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector.invalid")
+    if service_name is None:
+        monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
+    else:
+        monkeypatch.setenv("OTEL_SERVICE_NAME", service_name)
+    exporter = InMemorySpanExporter()
+    monkeypatch.setattr(tracing, "OTLPSpanExporter", lambda **kwargs: exporter)
+    app = create_app()
+    provider = app.state.tracing_provider
+    try:
+        assert provider is not None
+        assert provider.resource.attributes["service.name"] == "cost-meter"
+
+        @app.get("/test-missing-service-name")
+        async def ready() -> dict[str, str]:
+            return {"status": "ok"}
+
+        assert TestClient(app).get("/test-missing-service-name").json() == {
+            "status": "ok"
+        }
+        provider.force_flush()
+        assert exporter.get_finished_spans()
+    finally:
+        if provider is not None:
+            provider.shutdown()

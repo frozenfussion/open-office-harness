@@ -94,7 +94,9 @@ def configure() -> TracerProvider | None:
         return None
     if _provider is None:
         _provider = TracerProvider(
-            resource=Resource({"service.name": os.environ["OTEL_SERVICE_NAME"]})
+            resource=Resource(
+                {"service.name": os.getenv("OTEL_SERVICE_NAME") or "cost-meter"}
+            )
         )
         _provider.add_span_processor(
             BatchSpanProcessor(

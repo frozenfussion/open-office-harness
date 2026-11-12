@@ -319,29 +319,41 @@ class Engine:
                             "ooh.purpose": call.purpose,
                         },
                     ) as provider_span:
-                        response = await self.client.post(
-                            entry.endpoint_url.rstrip("/") + "/v1/systemone",
-                            headers={"Authorization": "Bearer " + key} if key else {},
-                            json={
-                                "model": entry.model_id,
-                                "state": classification.text,
-                                "questions": {
-                                    k: {"type": "noul", "instructions": v}
-                                    for k, v in classification.questions.items()
+                        try:
+                            response = await self.client.post(
+                                entry.endpoint_url.rstrip("/") + "/v1/systemone",
+                                headers={"Authorization": "Bearer " + key}
+                                if key
+                                else {},
+                                json={
+                                    "model": entry.model_id,
+                                    "state": classification.text,
+                                    "questions": {
+                                        k: {"type": "noul", "instructions": v}
+                                        for k, v in classification.questions.items()
+                                    },
                                 },
-                            },
-                            timeout=entry.timeout_seconds,
-                        )
-                        from gateway.adapters.common import check_response
+                                timeout=entry.timeout_seconds,
+                            )
+                            from gateway.adapters.common import check_response
 
-                        await check_response(response, key)
-                        usage = response.json().get("usage") or {}
-                        provider_span.set_attribute(
-                            "ooh.tokens",
-                            usage.get("input_tokens", 0)
-                            + usage.get("output_tokens", 0),
-                        )
-                        provider_span.set_attribute("ooh.status", "ok")
+                            await check_response(response, key)
+                            usage = response.json().get("usage") or {}
+                            provider_span.set_attribute(
+                                "ooh.tokens",
+                                usage.get("input_tokens", 0)
+                                + usage.get("output_tokens", 0),
+                            )
+                            provider_span.set_attribute("ooh.status", "ok")
+                        except BaseException:
+                            provider_span.set_attribute("ooh.status", "failed")
+                            provider_span.set_attribute(
+                                "ooh.error_code", "provider_failed"
+                            )
+                            provider_span.set_status(
+                                Status(StatusCode.ERROR, "provider_failed")
+                            )
+                            raise
 
                     answer = response.json()
                     scores = {

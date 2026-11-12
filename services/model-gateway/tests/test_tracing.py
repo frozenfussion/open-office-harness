@@ -328,30 +328,77 @@ async def test_classify_span_contains_provider_attempts_and_audit_trace(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("kind", ["openai_chat_completions", "jev_systemone"])
 async def test_failed_provider_attempt_has_error_code_without_diagnostics(
-    spans: tuple[Any, Any], entry: Any, call: Any
+    spans: tuple[Any, Any], entry: Any, call: Any, kind: str
 ) -> None:
     import respx
     from conftest import FakeDatabase, FakeRegistry
+    from test_stage3 import PATHS
 
     from gateway.engine import Engine
-    from gateway.models import GatewayError
+    from gateway.models import Classify, GatewayError
 
     provider, exporter = spans
     call = call.model_copy(update={"stream": False})
-    with respx.mock as mock:
-        mock.post(entry.endpoint_url + "/chat/completions").respond(
-            500, text="private-marker"
+    if kind == "jev_systemone":
+        entry = entry.model_copy(
+            update={"api_type": kind, "purpose": "classification", "tier": None}
         )
+    with respx.mock as mock:
+        mock.post(entry.endpoint_url + PATHS[kind]).respond(500, text="private-marker")
         async with httpx.AsyncClient() as client:
             engine = Engine(client, FakeRegistry([entry]), FakeDatabase())
             with pytest.raises(GatewayError):
-                _ = [event async for event in engine.events(call)]
+                if kind == "jev_systemone":
+                    await engine.classify(
+                        Classify(
+                            text="private-marker",
+                            questions={"risk": "private-marker"},
+                            user_id="fake-user",
+                        )
+                    )
+                else:
+                    _ = [event async for event in engine.events(call)]
             await engine.drain_background()
     provider.force_flush()
     item = next(
         s for s in exporter.get_finished_spans() if s.name.startswith("provider ")
     )
+    assert item.attributes["ooh.status"] == "failed"
+    assert item.attributes["ooh.error_code"] == "provider_failed"
     assert item.status.status_code == StatusCode.ERROR
     assert item.status.description == "provider_failed"
     assert "private-marker" not in item.to_json() and not item.events
+
+
+@pytest.mark.parametrize("service_name", [None, ""])
+def test_missing_service_name_uses_deployment_name(
+    monkeypatch: pytest.MonkeyPatch, service_name: str | None
+) -> None:
+    monkeypatch.setattr(tracing, "_provider", None)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector.invalid")
+    if service_name is None:
+        monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
+    else:
+        monkeypatch.setenv("OTEL_SERVICE_NAME", service_name)
+    exporter = InMemorySpanExporter()
+    monkeypatch.setattr(tracing, "OTLPSpanExporter", lambda **kwargs: exporter)
+    app = create_app()
+    provider = app.state.tracing_provider
+    try:
+        assert provider is not None
+        assert provider.resource.attributes["service.name"] == "model-gateway"
+
+        @app.get("/test-missing-service-name")
+        async def ready() -> dict[str, str]:
+            return {"status": "ok"}
+
+        assert TestClient(app).get("/test-missing-service-name").json() == {
+            "status": "ok"
+        }
+        provider.force_flush()
+        assert exporter.get_finished_spans()
+    finally:
+        if provider is not None:
+            provider.shutdown()
