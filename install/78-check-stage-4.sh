@@ -255,47 +255,60 @@ traceparent="00-$trace_id-$parent_span-01"
 make_event
 kafka write skill.requests.slides "$slide_event" || stop 'traced Slides request could not be published'
 kafka read skill.results || stop 'traced Slides job did not complete within 180 seconds'
-# Inspect the unfiltered Jaeger answer inside the pod; only PASS/FAIL leaves it.
+# Inspect the unfiltered Jaeger answer inside the pod; only check outcomes leave it.
 raw_trace_check() {
   local env script
   env="$(jq -cn --arg chat "$chat_trace" --arg slides "$trace_id" --arg marker "$marker" --arg parent "$parent_span" '[{name:"CHAT_TRACE",value:$chat},{name:"SLIDES_TRACE",value:$slides},{name:"MARKER",value:$marker},{name:"PARENT_SPAN",value:$parent}]')"
   script="$(cat <<'POD'
 python - <<'PY'
 import json, os, time, urllib.request
+hop_ok = True
+private_ok = True
 try:
     for name, required in [('CHAT_TRACE',{'harness-api','control-centre','model-gateway'}),('SLIDES_TRACE',{'slides-worker','model-gateway','audit-writer'})]:
         trace = os.environ[name]
         deadline = time.monotonic()+60
-        while True:
+        raw = None
+        rows = None
+        while time.monotonic() < deadline:
             try:
                 with urllib.request.urlopen('http://jaeger:16686/api/v3/traces/'+trace, timeout=5) as response:
                     raw = response.read().decode()
                 value = json.loads(raw)
                 rows = [(r,s) for r in value['result']['resourceSpans'] for scope in r.get('scopeSpans',[]) for s in scope.get('spans',[])]
                 services = {next(a['value']['stringValue'] for a in r['resource']['attributes'] if a['key']=='service.name') for r,s in rows}
-                assert required <= services
-                break
+                if required <= services:
+                    break
             except Exception:
-                if time.monotonic() >= deadline: raise
-                time.sleep(2)
-        assert os.environ['MARKER'] not in raw
-        assert all(key not in raw for key in ('url.full','user_agent.original','client.address'))
-        assert all(not s.get('events') for r,s in rows)
-        assert 'exception' not in raw.lower()
-        assert all(s['traceId'] == trace for r,s in rows)
+                rows = None
+            time.sleep(2)
+        if rows is None or raw is None:
+            hop_ok = False
+            private_ok = False
+            continue
+        hop_ok = hop_ok and required <= services and all(s['traceId'] == trace for r,s in rows)
         if name == 'SLIDES_TRACE':
-            assert any(s.get('parentSpanId') == os.environ['PARENT_SPAN'] for r,s in rows)
-    print('PASS')
+            hop_ok = hop_ok and any(s.get('parentSpanId') == os.environ['PARENT_SPAN'] for r,s in rows)
+        private_ok = private_ok and os.environ['MARKER'] not in raw
+        private_ok = private_ok and all(key not in raw for key in ('url.full','user_agent.original','client.address'))
+        private_ok = private_ok and all(not s.get('events') for r,s in rows) and 'exception' not in raw.lower()
 except Exception:
-    raise SystemExit('FAIL') from None
+    hop_ok = False
+    private_ok = False
+print('HOP=' + ('ok' if hop_ok else 'failed'), 'PRIVATE=' + ('ok' if private_ok else 'failed'))
 PY
 POD
 )"
   run_pod "$PLATFORM_NAMESPACE" "$script" "$env"
 }
-rc=0; raw_trace_check || rc=1
-require "$rc" 'traced Slides hop includes worker, Gateway and audit writer under the injected trace ID'
-result 0 'raw chat/Slides traces contain no question/topic or forbidden fields/events'
+hop_rc=1; private_rc=1
+if raw_trace_check; then
+  [[ " $pod_output " != *' HOP=ok '* ]] || hop_rc=0
+  [[ " $pod_output " != *' PRIVATE=ok '* ]] || private_rc=0
+fi
+result "$hop_rc" 'traced Slides hop includes worker, Gateway and audit writer under the injected trace ID'
+result "$private_rc" 'raw chat/Slides trace privacy: no question/topic or forbidden fields/events'
+((hop_rc == 0 && private_rc == 0)) || stop 'trace hop or privacy check failed; see the FAIL lines above'
 # This direct Kafka request deliberately has no Harness job row.
 gateway_replicas="$(record_count model-gateway)"
 kubectl -n "$APPS_NAMESPACE" scale deployment/model-gateway --replicas=0 >/dev/null
@@ -309,7 +322,6 @@ find_dead_letter "$failed_since" "$job_id"
 dead_id="$(jq -er '.id' <<< "$dead_letter")"
 result 0 'worker_gave_up result and dead letter arrived'
 restore_recorded || stop 'Gateway could not be restored; run install/79-demo.sh restore'
-replay_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 replay "$dead_id" || stop 'replay did not return 202 sent'
 result 0 'replay accepted with 202 sent'
 kafka read skill.results || stop 'replayed job did not complete within 180 seconds'
@@ -322,7 +334,7 @@ result 0 'dead letter replay_count is at least one'
 deadline=$((SECONDS + 60))
 while ((SECONDS < deadline)); do
   if request admin GET "$admin_base/api/admin/trail?action=dead_letter.replayed&limit=200" && [[ "$status" == 200 ]] &&
-    jq -e --arg at "$replay_started" 'any(.[]; .action == "dead_letter.replayed" and .occurred_at >= $at)' <<< "$body" >/dev/null; then break; fi
+    jq -e --arg id "$dead_id" 'any(.[]; .action == "dead_letter.replayed" and .target == $id)' <<< "$body" >/dev/null; then break; fi
   sleep 2
 done
 rc=0; ((SECONDS < deadline)) || rc=1
@@ -335,7 +347,13 @@ if [[ -z "$bad_id" ]]; then
   deadline=$((SECONDS + 60))
   while ((SECONDS < deadline)); do
     if request admin GET "$admin_base/api/admin/dead-letters?topic=dlq.skill.requests.slides&limit=200" && [[ "$status" == 200 ]]; then
-      bad_id="$(jq -r --arg at "$bad_since" '[.[] | select(.original_message == "not json" and .received_at >= $at)][0].id // empty' <<< "$body")"
+      bad_id="$(python3 -c '
+import json,sys
+from datetime import datetime
+at=datetime.fromisoformat(sys.argv[1])
+rows=[r for r in json.load(sys.stdin) if r["original_message"]=="not json" and datetime.fromisoformat(r["received_at"])>=at]
+if rows: print(rows[0]["id"])
+' "$bad_since" <<< "$body")"
       [[ -z "$bad_id" ]] || break
     fi
     sleep 2

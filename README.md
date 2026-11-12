@@ -157,6 +157,7 @@ Replace `MERGED_IMAGE_TAG` below with that commit's first 12 characters.
 | Missing tool / local settings / contact email | Complete the server setup and private settings steps below. Do not enter credentials in Codex. |
 | All application images / readiness | Build all nine images for the merged commit, keep them public and deploy the same tag in step 1. Inspect the failing Deployment's status and logs. |
 | Jaeger Ready / OTLP round-trip / query API | Re-run 30 after fixing Jaeger config/readiness. Inspect its logs; 4318 and 16686 are internal only. |
+| SKIP Jaeger round-trip (Slides worker not deployed yet) | Expected before deploying the application services: Jaeger readiness is still checked. Deploy Slides with step 1, then rerun 40 to check the OTLP round-trip. |
 | INFO jaeger restarted N times | Informational: traces may have expired. Check memory and logs if restarts repeat. |
 | Gateway or worker scaled to 0 / already stopped / could not restore | Run the restore command in step 8 and check readiness before retrying. |
 | Temporary check client / another check running / check token | Let the other check finish. If none runs, re-run 35 to repair the client, then retry. Check Keycloak privately. |
@@ -172,7 +173,7 @@ Replace `MERGED_IMAGE_TAG` below with that commit's first 12 characters.
 | Replayed job did not complete / file missing or invalid | Check worker, Gateway, model registry and retained volume permissions. Fix the cause and replay again. |
 | Duplicate result differs / no fresh result / file time changed | Inspect worker idempotency. Do not continue the class demo until the same request reuses its result and file. |
 | Malformed message / dead letter / non-JSON replay was not refused | Check worker validation and Control Centre replay validation; do not replay arbitrary malformed content. |
-| Input closed / step failed / cannot continue / Stage 4 checks failed | Cleanup runs automatically. Fix the last failed check, restore if needed and retry from the start. |
+| Input closed / step failed / cannot continue / trace hop or privacy check failed / Stage 4 checks failed | Cleanup runs automatically. Fix the last failed check, restore if needed and retry from the start. |
 
 The Stage 3 guide below remains the setup and everyday operations reference.
 For Stage 4 deployment and checks use the order above.

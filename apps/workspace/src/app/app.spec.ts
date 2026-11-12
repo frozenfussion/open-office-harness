@@ -115,6 +115,23 @@ describe('Workspace', () => {
     const again = TestBed.createComponent(App); again.detectChanges(); await again.whenStable();
     expect(conversation).toHaveBeenCalledOnce();
   });
+  it('opens the current address instead of an abandoned saved link', async () => {
+    const saved = '12345678-1234-1234-1234-123456789012';
+    const current = '12345678-1234-1234-1234-123456789013';
+    const conversation = vi.fn().mockResolvedValue({id: current, title: 'Current chat', messages: []});
+    TestBed.configureTestingModule({imports: [App], providers: [
+      {provide: Jobs, useValue: {start: vi.fn(), stop: vi.fn(), rows: signal([]), notice: signal(''), more: signal(false)}},
+      {provide: OidcSecurityService, useValue: {checkAuth: () => of({isAuthenticated: true}), isAuthenticated$: of({isAuthenticated: true})}},
+      {provide: Api, useValue: {me: async () => ({access: 'approved', user_id: 'test-user', name: 'Test user', chat_tiers: [1], skills: [], requestable_tiers: [], chat_tier_titles: {}, chat_tier_thinking_switch: {}}), list: async () => [], conversation}},
+    ]});
+    sessionStorage.setItem('ooh.pending-conversation', saved);
+    window.history.replaceState(null, '', '/?conversation=' + current);
+    const view = TestBed.createComponent(App); view.detectChanges();
+    await vi.waitFor(() => expect(view.componentInstance.loading()).toBe(false)); await view.whenStable();
+    expect(conversation).toHaveBeenCalledExactlyOnceWith(current);
+    expect(view.componentInstance.currentId()).toBe(current);
+    expect(sessionStorage.getItem('ooh.pending-conversation')).toBeNull();
+  });
   it('ignores non-UUID saved links before and after sign-in', async () => {
     const conversation = vi.fn();
     TestBed.configureTestingModule({imports: [App], providers: [

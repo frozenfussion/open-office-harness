@@ -132,7 +132,7 @@ export class App implements OnInit, OnDestroy {
         saved = conversationId(sessionStorage.getItem(savedConversationKey));
         sessionStorage.removeItem(savedConversationKey);
       } catch { /* Use the address when browser storage is unavailable. */ }
-      const id = saved ?? conversationId(new URL(window.location.href).searchParams.get('conversation'));
+      const id = conversationId(new URL(window.location.href).searchParams.get('conversation')) ?? saved;
       if (id) await this.open(id);
     } catch (error) { this.failure(error); }
     finally { this.loading.set(false); }

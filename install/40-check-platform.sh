@@ -141,7 +141,7 @@ run_pod() {
 rc=0
 jaeger="$(kubectl -n "$PLATFORM_NAMESPACE" get deployment jaeger -o json)" || rc=1
 jq -e '.metadata.generation <= (.status.observedGeneration // 0) and .spec.replicas == 1 and .status.updatedReplicas == 1 and .status.readyReplicas == 1 and .status.availableReplicas == 1' <<< "$jaeger" >/dev/null || rc=1
-trace_image="$(kubectl -n "$APPS_NAMESPACE" get deployment slides-worker -o jsonpath='{.spec.template.spec.containers[0].image}')" || rc=1
+trace_image="$(kubectl -n "$APPS_NAMESPACE" get deployment slides-worker --ignore-not-found -o jsonpath='{.spec.template.spec.containers[0].image}')" || rc=1
 trace_script="$(cat <<'POD'
 python - <<'PYCODE'
 import json, secrets, time, urllib.request
@@ -168,8 +168,13 @@ except Exception:
 PYCODE
 POD
 )"
-if ((rc == 0)); then run_pod "$trace_image" "$trace_script" '[]' || rc=1; fi
-result "$rc" 'Jaeger Ready and OTLP HTTP span readable through query API inside cluster' 're-run 30; inspect Jaeger readiness, configuration and logs'
+if [[ -z "$trace_image" ]]; then
+  result "$rc" 'Jaeger Ready' 're-run 30; inspect Jaeger readiness, configuration and logs'
+  printf 'SKIP Jaeger round-trip (Slides worker not deployed yet)\n'
+else
+  if ((rc == 0)); then run_pod "$trace_image" "$trace_script" '[]' || rc=1; fi
+  result "$rc" 'Jaeger Ready and OTLP HTTP span readable through query API inside cluster' 're-run 30; inspect Jaeger readiness, configuration and logs'
+fi
 # shellcheck disable=SC2016 # Expanded inside the check pod.
 kafka_script='set -euo pipefail
 umask 077
