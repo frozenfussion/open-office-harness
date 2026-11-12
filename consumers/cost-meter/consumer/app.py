@@ -20,6 +20,7 @@ from consumer.database import Database
 from consumer.events import Bus, Processor, Runner
 from consumer.identity import Identity
 from consumer.identity_error import IdentityError
+from consumer.tracing import instrument_app
 
 
 def cost_number(value: Decimal | float) -> float:
@@ -150,4 +151,5 @@ def create_app(config: Config | None = None) -> FastAPI:
             row["cost_usd"] = cost_number(row["cost_usd"])
         return result
 
+    instrument_app(app)
     return app

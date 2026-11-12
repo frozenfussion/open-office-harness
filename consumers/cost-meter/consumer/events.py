@@ -10,7 +10,9 @@ from uuid import UUID, uuid4, uuid5
 
 from confluent_kafka import Consumer, KafkaException, Producer
 from jsonschema import Draft202012Validator, FormatChecker, ValidationError
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
+from consumer import tracing
 from consumer.config import Config
 
 logger = logging.getLogger("consumer")
@@ -43,6 +45,8 @@ def outgoing(
     except ValueError, TypeError, AttributeError:
         incoming_id = str(uuid4())
     user_id = source.get("user_id")
+    if kind == "audit.event" and (current := tracing.trace_id()):
+        payload = {**payload, "trace_id": current}
     return {
         "event_id": str(uuid5(NAMESPACE, incoming_id + kind)),
         "type": kind,
@@ -79,24 +83,35 @@ class Bus:
 
     async def publish(self, topic: str, value: dict[str, Any]) -> None:
         SCHEMA.validate(value)
+        with tracing.span(
+            "send " + topic,
+            kind=SpanKind.PRODUCER,
+            attributes={
+                "messaging.destination.name": topic,
+                "messaging.operation.type": "send",
+                "ooh.correlation_id": value["correlation_id"],
+            },
+        ):
+            headers = tracing.headers()
 
-        def send() -> None:
-            failures = []
-            self.producer.produce(
-                topic,
-                key=value["correlation_id"],
-                value=json.dumps(value),
-                on_delivery=lambda error, message: (
-                    failures.append(error) if error else None
-                ),
-            )
-            if self.producer.flush(6) or failures:
-                raise RuntimeError("publish_failed")
+            def send() -> None:
+                failures = []
+                self.producer.produce(
+                    topic,
+                    key=value["correlation_id"],
+                    value=json.dumps(value),
+                    headers=headers,
+                    on_delivery=lambda error, message: (
+                        failures.append(error) if error else None
+                    ),
+                )
+                if self.producer.flush(6) or failures:
+                    raise RuntimeError("publish_failed")
 
-        try:
-            await asyncio.to_thread(send)
-        except KafkaException, BufferError:
-            raise RuntimeError("publish_failed") from None
+            try:
+                await asyncio.to_thread(send)
+            except KafkaException, BufferError:
+                raise RuntimeError("publish_failed") from None
 
 
 class Processor:
@@ -139,7 +154,24 @@ class Processor:
             ),
         )
 
-    async def process(self, topic: str, raw: bytes) -> None:
+    async def process(
+        self,
+        topic: str,
+        raw: bytes,
+        headers: list[tuple[str, bytes | str | None]] | None = None,
+    ) -> None:
+        with tracing.span(
+            "process " + topic,
+            kind=SpanKind.CONSUMER,
+            context=tracing.extract(headers),
+            attributes={
+                "messaging.destination.name": topic,
+                "messaging.operation.type": "process",
+            },
+        ) as current:
+            await self._process(topic, raw, current)
+
+    async def _process(self, topic: str, raw: bytes, current: Any) -> None:
         value: dict[str, Any] = {}
         try:
             parsed = json.loads(raw)
@@ -154,8 +186,12 @@ class Processor:
             if value["type"] != expected[topic]:
                 raise ValueError("wrong_type")
         except ValueError, UnicodeDecodeError, ValidationError:
+            current.set_attribute("ooh.error_code", "invalid_message")
+            current.set_status(Status(StatusCode.ERROR))
             await self.dlq(topic, raw, value, "invalid_message")
             return
+        current.set_attribute("ooh.correlation_id", value["correlation_id"])
+        current.set_attribute("ooh.user_id", value["user_id"])
         if value["event_id"] in self.seen:
             return
         for attempt in range(4):
@@ -172,6 +208,8 @@ class Processor:
                 KafkaException,
             ):
                 if attempt == 3:
+                    current.set_attribute("ooh.error_code", "handler_failed")
+                    current.set_status(Status(StatusCode.ERROR))
                     await self.dlq(topic, raw, value, "handler_failed")
                 else:
                     await self.sleep((1, 5, 15)[attempt])
@@ -223,7 +261,7 @@ class Runner:
                         )
                         continue
                     await self.processor.process(
-                        message.topic(), message.value() or b""
+                        message.topic(), message.value() or b"", message.headers()
                     )
                     await asyncio.to_thread(
                         self.bus.consumer.commit, message=message, asynchronous=False

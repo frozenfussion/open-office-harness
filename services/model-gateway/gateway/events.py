@@ -7,6 +7,9 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from confluent_kafka import KafkaException, Producer
+from opentelemetry.trace import SpanKind
+
+from gateway import tracing
 
 logger = logging.getLogger("gateway")
 
@@ -14,6 +17,8 @@ logger = logging.getLogger("gateway")
 def envelope(
     correlation_id: UUID, user_id: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
+    if current := tracing.trace_id():
+        payload = {**payload, "trace_id": current}
     return {
         "event_id": str(uuid4()),
         "type": "audit.event",
@@ -41,19 +46,30 @@ class Events:
             }
         )
 
-    def _publish(self, value: dict[str, Any]) -> None:
+    def _publish(self, value: dict[str, Any], headers: list[tuple[str, bytes]]) -> None:
         errors = []
         self.producer.produce(
             "audit.events",
             key=value["correlation_id"],
             value=json.dumps(value),
+            headers=headers,
             on_delivery=lambda error, message: errors.append(error) if error else None,
         )
         if self.producer.flush(1) or errors:
             raise RuntimeError("audit_unavailable")
 
     async def publish(self, value: dict[str, Any]) -> None:
-        try:
-            await asyncio.to_thread(self._publish, value)
-        except KafkaException, BufferError:
-            raise RuntimeError("audit_unavailable") from None
+        with tracing.span(
+            "send audit.events",
+            kind=SpanKind.PRODUCER,
+            attributes={
+                "messaging.destination.name": "audit.events",
+                "messaging.operation.type": "send",
+                "ooh.correlation_id": value["correlation_id"],
+            },
+        ):
+            headers = tracing.headers()
+            try:
+                await asyncio.to_thread(self._publish, value, headers)
+            except KafkaException, BufferError:
+                raise RuntimeError("audit_unavailable") from None

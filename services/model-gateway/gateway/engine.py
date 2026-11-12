@@ -12,7 +12,10 @@ from uuid import UUID, uuid4
 
 import httpx
 import psycopg
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
+from gateway import tracing
 from gateway.adapters import resolve
 from gateway.adapters.common import ProviderError, failure_info
 from gateway.database import Database
@@ -89,6 +92,13 @@ class Engine:
         correlation_id: UUID | None = None,
         classification: Classify | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
+        current = trace.get_current_span()
+        current.set_attribute("ooh.user_id", call.user_id)
+        current.set_attribute("ooh.purpose", call.purpose)
+        if call.tier is not None:
+            current.set_attribute("ooh.tier", call.tier)
+        if correlation_id is not None:
+            current.set_attribute("ooh.correlation_id", str(correlation_id))
         effects: list[tuple[Callable[[], Awaitable[None]], str]] = []
         result: dict[str, Any] = {}
         succeeded = False
@@ -131,7 +141,59 @@ class Engine:
                 )
             await self.dispatch(effects)
 
+    async def provider_output(
+        self, entry: Entry, key: str, call: Call, attempt: int, auto_retry: bool
+    ) -> AsyncIterator[dict[str, Any]]:
+        current = tracing.tracer().start_span(
+            "provider " + entry.api_type,
+            attributes={
+                "ooh.model_entry_id": str(entry.id),
+                "ooh.attempt": attempt,
+                "ooh.connection_type": entry.api_type,
+                "ooh.purpose": call.purpose,
+            },
+        )
+        try:
+            async with aclosing(
+                resolve(entry)(
+                    self.client,
+                    entry,
+                    key,
+                    call,
+                    **({"auto_tool_choice": True} if auto_retry else {}),
+                )
+            ) as output:
+                async for event in output:
+                    if event["type"] == "usage":
+                        current.set_attribute(
+                            "ooh.tokens", event["input_tokens"] + event["output_tokens"]
+                        )
+                    yield event
+            current.set_attribute("ooh.status", "ok")
+        except BaseException:
+            current.set_attribute("ooh.status", "failed")
+            current.set_attribute("ooh.error_code", "provider_failed")
+            current.set_status(Status(StatusCode.ERROR, "provider_failed"))
+            raise
+        finally:
+            current.end()
+
     async def classify(
+        self,
+        body: Classify,
+        correlation_id: UUID | None = None,
+        *,
+        provider_details: bool = False,
+    ) -> dict[str, Any]:
+        with tracing.span(
+            "classify",
+            attributes={"ooh.purpose": "classification", "ooh.user_id": body.user_id},
+        ):
+            return await self._classify(
+                body, correlation_id, provider_details=provider_details
+            )
+
+    async def _classify(
         self,
         body: Classify,
         correlation_id: UUID | None = None,
@@ -212,6 +274,7 @@ class Engine:
             )
         supported.sort(key=lambda e: (e.role != "main", e.priority, e.created_at))
         reasons = []
+        attempt = 0
         for entry in supported:
             start = time.monotonic()
             count, spent = await self.db.limits(entry, call)
@@ -245,23 +308,53 @@ class Engine:
             try:
                 key = await self.registry.key(entry)
                 provider_attempted = True
+                attempt += 1
                 if classification and entry.api_type == "jev_systemone":
-                    response = await self.client.post(
-                        entry.endpoint_url.rstrip("/") + "/v1/systemone",
-                        headers={"Authorization": "Bearer " + key} if key else {},
-                        json={
-                            "model": entry.model_id,
-                            "state": classification.text,
-                            "questions": {
-                                k: {"type": "noul", "instructions": v}
-                                for k, v in classification.questions.items()
-                            },
+                    with tracing.span(
+                        "provider " + entry.api_type,
+                        attributes={
+                            "ooh.model_entry_id": str(entry.id),
+                            "ooh.attempt": attempt,
+                            "ooh.connection_type": entry.api_type,
+                            "ooh.purpose": call.purpose,
                         },
-                        timeout=entry.timeout_seconds,
-                    )
-                    from gateway.adapters.common import check_response
+                    ) as provider_span:
+                        try:
+                            response = await self.client.post(
+                                entry.endpoint_url.rstrip("/") + "/v1/systemone",
+                                headers={"Authorization": "Bearer " + key}
+                                if key
+                                else {},
+                                json={
+                                    "model": entry.model_id,
+                                    "state": classification.text,
+                                    "questions": {
+                                        k: {"type": "noul", "instructions": v}
+                                        for k, v in classification.questions.items()
+                                    },
+                                },
+                                timeout=entry.timeout_seconds,
+                            )
+                            from gateway.adapters.common import check_response
 
-                    await check_response(response, key)
+                            await check_response(response, key)
+                            usage = response.json().get("usage") or {}
+                            provider_span.set_attribute(
+                                "ooh.tokens",
+                                usage.get("input_tokens", 0)
+                                + usage.get("output_tokens", 0),
+                            )
+                            provider_span.set_attribute("ooh.status", "ok")
+                        except BaseException:
+                            provider_span.set_attribute("ooh.status", "failed")
+                            provider_span.set_attribute(
+                                "ooh.error_code", "provider_failed"
+                            )
+                            provider_span.set_status(
+                                Status(StatusCode.ERROR, "provider_failed")
+                            )
+                            raise
+
                     answer = response.json()
                     scores = {
                         k: answer["answers"][k]["noul"]
@@ -277,14 +370,8 @@ class Engine:
                     while True:
                         try:
                             async with aclosing(
-                                resolve(entry)(
-                                    self.client,
-                                    entry,
-                                    key,
-                                    call,
-                                    **(
-                                        {"auto_tool_choice": True} if auto_retry else {}
-                                    ),
+                                self.provider_output(
+                                    entry, key, call, attempt, auto_retry
                                 )
                             ) as output:
                                 async for event in output:
@@ -318,6 +405,7 @@ class Engine:
                             ):
                                 raise
                             auto_retry = True
+                            attempt += 1
                     if classification:
                         answer = json.loads(text)
                         scores = {k: answer[k] for k in classification.questions}

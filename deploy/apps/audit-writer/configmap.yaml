@@ -8,3 +8,8 @@ data:
   AW_OIDC_ISSUER: https://auth.${DOMAIN}/realms/ooh
   AW_KAFKA_BOOTSTRAP: ooh-kafka-kafka-bootstrap.${PLATFORM_NAMESPACE}.svc:9092
   AW_KAFKA_USERNAME: audit-writer
+  OTEL_SERVICE_NAME: audit-writer
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.${PLATFORM_NAMESPACE}.svc:4318
+  OTEL_TRACES_SAMPLER: parentbased_always_on
+  OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: health

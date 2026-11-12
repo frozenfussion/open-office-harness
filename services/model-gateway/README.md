@@ -3,11 +3,11 @@
 1. Type this in your harness terminal, in the plain shell. This creates the Gateway databases, Kafka credential copy and private settings. First finish the platform and realm updates in the root guide. No password is needed. Claude runs setup and deployment in the shell tile while Aziz watches.
 
    ```bash
-   cd ~/projects/worktrees/stage-3-part-b
+   cd ~/projects/worktrees/stage-4-part-b
    install/64-model-gateway-setup.sh
    ```
 
-   Good result: `DONE`. Test settings stay outside the repository in `~/.config/ooh/model-gateway-test.env`, mode 600. After the Parts merge, use `cd ~/projects/worktrees/stage-3` instead; after acceptance, use `cd ~/projects/open-office-harness`.
+   Good result: `DONE`. Test settings stay outside the repository in `~/.config/ooh/model-gateway-test.env`, mode 600. After the Parts merge, use `cd ~/projects/worktrees/stage-4` instead; after acceptance, use `cd ~/projects/open-office-harness`.
 
 2. Do this in the GitHub package settings in your PC browser, after the first green Model Gateway image workflow. Open the package settings link below and choose **Change visibility → Public**. This lets the cluster pull the image without signing in. Good result: the package says Public.
 
@@ -16,7 +16,7 @@
 3. Type this in your harness terminal, in the plain shell. This deploys the image for this checkout and waits for its migration and new pod. No password is needed. First deploy the Control Centre changes as the root Stage 3 guide describes.
 
    ```bash
-   cd ~/projects/worktrees/stage-3-part-b
+   cd ~/projects/worktrees/stage-4-part-b
    install/65-model-gateway-deploy.sh "$(git rev-parse --short=12 HEAD)"
    ```
 
@@ -75,11 +75,12 @@
 8. Type this in your harness terminal, in the plain shell. This runs the builder checks with fake providers and the isolated test database. No password is needed. Run setup first; never print or paste the private settings.
 
    ```bash
-   cd ~/projects/worktrees/stage-3-part-b/services/model-gateway
+   cd ~/projects/worktrees/stage-4-part-b/services/model-gateway
    set +x
    set -a
    source ~/.config/ooh/model-gateway-test.env
    set +a
+   uv sync --frozen
    uv run ruff check
    uv run ruff format --check
    uv run pytest
@@ -90,7 +91,7 @@
 9. Type this in your harness terminal, in the plain shell. This checks the contracts and scripts without changing the cluster. No password is needed.
 
    ```bash
-   cd ~/projects/worktrees/stage-3-part-b
+   cd ~/projects/worktrees/stage-4-part-b
    uv run --project contracts/check pytest contracts/check/tests
    bash -n install/64-model-gateway-setup.sh install/65-model-gateway-deploy.sh
    shellcheck install/64-model-gateway-setup.sh install/65-model-gateway-deploy.sh
@@ -158,3 +159,15 @@ The image keeps Python 3.14.10 and uv 0.13.7, running as 10001 with a read-only 
 | HTTP 503 `registry_unavailable` / `unavailable` | Inspect the Control Centre, database and provider connectivity, then retry. |
 
 For pinned Control Centre tests only, 503 may include provider status and a scrubbed diagnostic (at most 300 characters, read from at most 4 KiB). These diagnostics are never logged. After a reboot, Kubernetes restarts the service; allow five minutes and follow the status and merged stage-check steps. Builders do not deploy, start servers or change cluster resources.
+
+## Stage 4 tracing
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` empty or unset leaves tracing disabled: no provider or exporter is registered. Deployment settings select OTLP HTTP/protobuf, the internal Jaeger endpoint, service name and `parentbased_always_on` sampling. Health requests are excluded. A batch processor exports in the background with a five-second timeout. Export failures do not fail requests or Kafka processing.
+
+Before export, each span is copied with only the attribute keys fixed in the Stage 4 spec section 8, no events or links, and an error status description containing only the error code (or no description). Request bodies, message text, query strings, provider addresses and exception messages are excluded. No database or global HTTP client instrumentation is installed. The HTTP instrumentation uses the stable HTTP attribute names.
+
+Kafka consumers extract W3C `traceparent` and `tracestate` headers and create `process <topic>` consumer spans. Producers create `send <topic>` producer spans and inject UTF-8 byte headers before handing delivery to a thread. Audit events include the active valid trace ID; events created without one omit it. Invalid messages and exhausted retries mark consumer spans as errors without exporting exception details. Existing retries, duplicate handling and dead-letter behavior are retained.
+
+OpenTelemetry API, SDK and OTLP HTTP exporter are pinned to 1.45.2; FastAPI and HTTPX instrumentation to 0.66b2. These and every newly locked transitive dependency were checked against official PyPI release records on 12 November 2026. They supply tracing, HTTP context propagation and export; Kafka propagation uses the API directly. Tests use the SDK's in-memory exporter and fake Kafka, with no Jaeger, Kafka broker or real model calls.
+
+The Gateway keeps separate HTTP clients: only the Keycloak/Control Centre client is instrumented. Provider requests use an uninstrumented client and one manual `provider <connection type>` span per attempt, including failover and tool-choice retries. Provider spans contain entry ID, attempt, connection type, purpose, status and token counts; classification also has a `classify` span. Background audit publication keeps the request context.

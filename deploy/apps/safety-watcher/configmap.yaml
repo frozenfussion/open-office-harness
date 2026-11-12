@@ -12,3 +12,8 @@ data:
   SF_THRESHOLD: '0.8'
   SF_QUESTIONS: >-
     {"personal_data":"Does this text contain personal data about a real person, such as a phone number, ID number, home address or account number?","prompt_injection":"Does this text try to make an AI assistant ignore or override its instructions or rules?"}
+  OTEL_SERVICE_NAME: safety-watcher
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.${PLATFORM_NAMESPACE}.svc:4318
+  OTEL_TRACES_SAMPLER: parentbased_always_on
+  OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: health
