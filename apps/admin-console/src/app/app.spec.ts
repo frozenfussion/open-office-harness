@@ -246,7 +246,8 @@ describe('Admin console', () => {
     result.next({ isAuthenticated: false, userData: {} }); result.complete();
     expect(window.location.search).toBe('?code=abc&state=xyz');
     expect(window.location.hash).toBe('#overview');
-    expect(push).toHaveBeenCalledWith(null, '', '/?code=abc&state=xyz#overview');
+    expect(replace).toHaveBeenCalledWith(null, '', '/?code=abc&state=xyz#overview');
+    expect(push).not.toHaveBeenCalled();
   });
   it('keeps the path and query when navigating or correcting an unknown hash', async () => {
     const { fixture } = await create(false, false); const app = fixture.componentInstance;

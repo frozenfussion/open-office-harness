@@ -30,10 +30,14 @@ export class App {
   private screenFromHash(): string { const value = window.location.hash.slice(1); return this.screens.includes(value) ? value : 'overview'; }
   screen = signal(this.screenFromHash());
   operationRequest: Request = <T>(path: string, method?: string, body?: unknown) => this.request<T>(path, method, body);
-  navigate(screen: string): void {
+  navigate(screen: string, replace = false): void {
     if (!this.screens.includes(screen)) return;
     this.screen.set(screen);
-    if (this.ready() && window.location.hash !== '#' + screen) window.history.pushState(null, '', window.location.pathname + window.location.search + '#' + screen);
+    if (this.ready() && window.location.hash !== '#' + screen) {
+      const url = window.location.pathname + window.location.search + '#' + screen;
+      if (replace) window.history.replaceState(null, '', url);
+      else window.history.pushState(null, '', url);
+    }
   }
   formatTime(value: string | null | undefined): string { return displayTime(value, this.displayTimeZone()); }
   pendingCount = signal(0);
@@ -71,7 +75,7 @@ export class App {
       this.ready.set(true);
       const intended = this.signedIn() ? sessionStorage.getItem('ooh-admin-signin-screen') : null;
       if (this.signedIn()) sessionStorage.removeItem('ooh-admin-signin-screen');
-      this.navigate(intended && this.screens.includes(intended) ? intended : this.screen());
+      this.navigate(intended && this.screens.includes(intended) ? intended : this.screen(), true);
       if (this.admin()) void this.load();
     }, error: () => { this.ready.set(true); this.error.set('Sign-in could not finish. Try signing in again.'); } });
   }
