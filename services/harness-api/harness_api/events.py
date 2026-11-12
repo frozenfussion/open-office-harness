@@ -15,6 +15,7 @@ from referencing import Registry, Resource
 
 from .config import Settings
 from .diagnostics import failure
+from .tracing import annotate_event, audit_context, kafka_span
 
 NAMESPACE = UUID("6f1d5b7e-3c1a-4b8e-9a52-1f0c8f3e2d10")
 
@@ -26,6 +27,8 @@ def envelope(
     payload: dict[str, Any],
     incoming: str | None = None,
 ) -> dict[str, Any]:
+    if kind == "audit.event":
+        payload = {**payload, **audit_context()}
     return {
         "event_id": str(uuid5(NAMESPACE, incoming + kind) if incoming else uuid4()),
         "type": kind,
@@ -86,6 +89,13 @@ class Kafka:
         return consumer
 
     async def publish(self, topic: str, event: dict[str, Any]) -> None:
+        with kafka_span(topic) as headers:
+            annotate_event(event)
+            await self._publish(topic, event, headers)
+
+    async def _publish(
+        self, topic: str, event: dict[str, Any], headers: list[tuple[str, bytes]]
+    ) -> None:
         def send() -> None:
             deliveries: list[Any] = []
             delivered = threading.Event()
@@ -99,6 +109,7 @@ class Kafka:
                 key=event["correlation_id"],
                 value=json.dumps(event),
                 on_delivery=on_delivery,
+                headers=headers,
             )
             while not delivered.is_set():
                 self.producer.poll(0.1)
@@ -162,31 +173,35 @@ class Kafka:
                         raise RuntimeError("consumer_error")
                     failure("kafka_error", "consumer_poll_error")
                     continue
-                raw = message.value().decode("utf-8", errors="replace")
-                event: dict[str, Any] = {}
-                try:
-                    event = json.loads(raw)
-                    self.schema.validate(event)
-                    expected = {
-                        "skill.results": "skill.result",
-                        "approvals.decided": "approval.decided",
-                    }
-                    if event["type"] != expected[message.topic()]:
-                        raise ValueError("wrong_type")
-                except ValueError, ValidationError:
-                    await self.dead_letter(message.topic(), raw, event, "bad_message")
-                else:
-                    for attempt in range(4):
-                        try:
-                            await handle(message.topic(), event)
-                            break
-                        except Exception:
-                            if attempt == 3:
-                                await self.dead_letter(
-                                    message.topic(), raw, event, "handling_failed"
-                                )
-                            else:
-                                await asyncio.sleep((1, 5, 15)[attempt])
+                with kafka_span(message.topic(), message.headers() or []):
+                    raw = message.value().decode("utf-8", errors="replace")
+                    event: dict[str, Any] = {}
+                    try:
+                        event = json.loads(raw)
+                        self.schema.validate(event)
+                        annotate_event(event)
+                        expected = {
+                            "skill.results": "skill.result",
+                            "approvals.decided": "approval.decided",
+                        }
+                        if event["type"] != expected[message.topic()]:
+                            raise ValueError("wrong_type")
+                    except ValueError, ValidationError:
+                        await self.dead_letter(
+                            message.topic(), raw, event, "bad_message"
+                        )
+                    else:
+                        for attempt in range(4):
+                            try:
+                                await handle(message.topic(), event)
+                                break
+                            except Exception:
+                                if attempt == 3:
+                                    await self.dead_letter(
+                                        message.topic(), raw, event, "handling_failed"
+                                    )
+                                else:
+                                    await asyncio.sleep((1, 5, 15)[attempt])
                 await asyncio.to_thread(
                     self.consumer.commit, message=message, asynchronous=False
                 )

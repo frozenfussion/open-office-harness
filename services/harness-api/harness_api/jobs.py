@@ -246,9 +246,17 @@ class Jobs:
                 (event["correlation_id"],),
             )
             job = await cursor.fetchone()
-            if job is None or job["status"] in {"completed", "failed", "rejected"}:
+            if job is None:
                 return
             payload = event["payload"]
+            revive = (
+                topic == "skill.results"
+                and job["status"] == "failed"
+                and (job["error"] or {}).get("code") == "worker_gave_up"
+                and payload["status"] == "completed"
+            )
+            if job["status"] in {"completed", "failed", "rejected"} and not revive:
+                return
             status, output, error = job["status"], None, None
             if topic == "skill.results":
                 if payload["skill"] != job["skill"]:

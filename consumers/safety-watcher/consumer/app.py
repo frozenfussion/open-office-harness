@@ -15,6 +15,7 @@ from consumer.events import Bus, Processor, Runner
 from consumer.identity import Identity
 from consumer.identity_error import IdentityError
 from consumer.safety import Safety
+from consumer.tracing import instrument_app, instrument_client
 
 
 async def caller(
@@ -38,6 +39,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         async with httpx.AsyncClient(
             timeout=30, follow_redirects=False, trust_env=False
         ) as client:
+            instrument_client(client)
             app.state.identity = Identity(settings, client)
             bus = Bus(settings)
             handler = Safety(settings, client, app.state.identity, bus)
@@ -72,4 +74,5 @@ def create_app(config: Config | None = None) -> FastAPI:
             return JSONResponse({"status": "down"}, status_code=503)
         return {"status": "ok"}
 
+    instrument_app(app)
     return app

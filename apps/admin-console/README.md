@@ -1,6 +1,6 @@
 # QUICK GUIDE
 
-1. **Set up the merged stage.** Follow the root README's Stage 3 order first. It
+1. **Set up the merged stage.** Follow the root README's Stage 4 order first. It
    covers realm sync, the existing database, Kafka and encryption Secrets, and
    the Control Centre service credential. Claude runs the non-sudo scripts in
    Aziz's shell tile. Keep credentials in Kubernetes Secrets. No credential is
@@ -8,12 +8,12 @@
 
 2. **Deploy or start the Control Centre.** Type this in your harness terminal,
    in the plain shell; Claude runs it while Aziz watches. No password is needed.
-   Be in the merged Stage 3 folder. This applies configuration and migrations,
+   Be in the merged Stage 4 folder. This applies configuration and migrations,
    then waits for the image of this commit. Its image workflow must be green.
    Good result: the new revision is Ready and the script ends with `DONE`.
 
    ```bash
-   cd ~/projects/worktrees/stage-3
+   cd ~/projects/worktrees/stage-4
    install/61-control-centre-deploy.sh
    ```
 
@@ -23,7 +23,7 @@
    Ready and `DONE`. After acceptance, use the main clone for everyday commands.
 
    ```bash
-   cd ~/projects/worktrees/stage-3
+   cd ~/projects/worktrees/stage-4
    install/69-admin-console-deploy.sh
    ```
 
@@ -36,7 +36,14 @@
    **Confirm problem** confirms a problem. **People & rights** has people across
    tiers and skills: change checks, then **Save**. Everyone grants also apply to
    approved people. **Audit** accepts the full request ID; select a row's request
-   ID to read its complete trail in time order. Details follow this guide.
+   ID to read its complete trail in time order. Choose **Trace** on a row to open
+   its span timeline; select a span for attributes. **Tracing is unavailable** means
+   Jaeger could not answer. **This trace has expired** means it is no longer in
+   Jaeger's memory; the audit rows remain. In **Failed messages**, filter by topic,
+   select a row, copy its request ID or read its original message and replay history.
+   Fix the cause first, then choose **Replay → Confirm replay**. A sent result
+   confirms delivery; the job card shows the eventual result. A disabled Replay
+   explains why the message cannot be replayed. Details follow this guide.
 
 5. **Add or test a model.** In the same browser, open **Models & tiers**, then
    **Add model**. Enter its title, purpose, connection type, endpoint, model ID,
@@ -92,7 +99,7 @@
     pass. No server or watcher starts.
 
     ```bash
-    cd ~/projects/worktrees/stage-3-part-d/apps/admin-console
+    cd ~/projects/worktrees/stage-4-part-d/apps/admin-console
     npm ci --no-audit --no-fund
     npx ng build
     npx ng test --watch=false
@@ -119,14 +126,14 @@
 | Overview shows a dash or Audit says unavailable | Inspect the helper's status and service credential audiences, then Refresh or Filter again. |
 | A decision or grant save fails | Read the error and retry. Successful grant changes have already been retained; only unsaved changes remain. |
 
-# Stage 3 screens
+# Admin screens
 
 Type this in your harness terminal, in the plain shell. No password is needed.
 This installs the locked packages, builds the console and runs the tests once.
 Good result: the build completes and all tests pass. No server is started.
 
 ```bash
-cd ~/projects/worktrees/stage-3-part-d/apps/admin-console
+cd ~/projects/worktrees/stage-4-part-d/apps/admin-console
 npm ci --no-audit --no-fund
 npx ng build
 npx ng test --watch=false
@@ -141,8 +148,8 @@ identities. A dash means the service that
 supplies a figure could not answer. Refresh reads the latest figures; system
 health is checked by the Control Centre every 30 seconds. Needs-attention links
 open Approvals or Models & tiers. Failed-message attention counts the past day;
-its time is the newest failed message's received time. Replaying messages and a
-Failed messages screen are outside this stage.
+its time is the newest failed message's received time. Its Open link goes to
+Failed messages.
 
 **Approvals** combines waiting sign-ups, model requests, skill requests, job
 approvals and safety flags. Select a row to read it. A sign-up needs a chat tier
@@ -182,6 +189,22 @@ setting, initially `Asia/Kuala_Lumpur`, with readable dates such as
 The console learns the zone from `X-Display-Time-Zone` on admin responses;
 changing zones does not require a separate browser configuration.
 Screen links keep their hash (`#overview`, `#approvals`, `#rights`, `#models`,
-`#audit`), so direct links and browser history open the corresponding screen.
+`#audit`, `#failed-messages`), so direct links and browser history open the corresponding screen.
 Address updates wait until the authentication check finishes and preserve the
 current path and query. The sign-in library handles callback parameters.
+
+# Trace timeline and failed messages
+
+Audit keeps its existing request trail. A row with a trace ID also offers Trace.
+The timeline sorts spans by start, indents by parent, and draws each duration on
+a common scale. Service, operation and OK/error chips stay visible; selecting a
+span shows its allow-listed attributes. Trace errors do not replace audit rows.
+
+Failed messages are newest first, with a topic filter and Load more. The detail
+pane renders the original message as escaped, read-only text, pretty-printing
+valid JSON. Replay asks for confirmation. Both successful and failed attempts
+appear in history; a failed attempt can be retried after fixing the cause.
+Chat dead letters contain IDs only and cannot be replayed; non-JSON originals
+cannot be replayed either. Replaying skill results or audit events also sends
+them to consumers that already handled them, which drop duplicates; the safety
+watcher may classify once more after a restart, making one paid call.

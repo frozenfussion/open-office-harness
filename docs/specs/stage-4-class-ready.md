@@ -222,6 +222,7 @@ AWS, Terraform, EKS (phase 2 spec); metrics and logs pipelines; database spans; 
 |---|---|---|
 | 1 | Spec review by Claude Code (25 findings): every finding resolved in section 15, which is binding and overrides any line above that disagrees | Spec author, 12 Nov |
 | 3 | Final check (34–36): resolved in section 15 "Final check additions"; section 9 and 6.4 lines corrected in place | Spec author, 12 Nov |
+| 4 | **User message id for `78` item 2 (asked by Codex C):** no Harness API change. After the chat stream ends, `78` reads `GET /api/conversations/{id}` (it returns messages with `id` and `role`) and takes the id of the newest `user` message as the correlation id | Spec author, 12 Nov 18:37 |
 | 2 | Spec re-review (findings 1, 9, 13 partly open; 26–33 new): resolved in section 15 "Re-review additions"; body lines corrected in place to match section 15 | Spec author, 12 Nov |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees)

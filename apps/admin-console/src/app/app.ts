@@ -26,7 +26,7 @@ export class App {
     return greeting();
   });
   givenName = signal(''); displayTimeZone = signal(defaultTimeZone);
-  private screens = ['overview', 'approvals', 'rights', 'models', 'audit'];
+  private screens = ['overview', 'approvals', 'rights', 'models', 'audit', 'failed-messages'];
   private screenFromHash(): string { const value = window.location.hash.slice(1); return this.screens.includes(value) ? value : 'overview'; }
   screen = signal(this.screenFromHash());
   operationRequest: Request = <T>(path: string, method?: string, body?: unknown) => this.request<T>(path, method, body);
@@ -93,8 +93,8 @@ export class App {
     const response = await fetch(window.oohConfig.apiBase + path, { method, signal, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const zone = response.headers?.get('X-Display-Time-Zone');
     if (zone && validTimeZone(zone)) this.displayTimeZone.set(zone);
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.message || 'The request failed. Try again.');
+    const result = response.ok ? await response.json() : await response.json().catch(() => null);
+    if (!response.ok) throw Object.assign(new Error(result?.message || 'The request failed. Try again.'), { status: response.status });
     return result as T;
   }
   async load(): Promise<void> {

@@ -24,6 +24,13 @@ for namespace in "$PLATFORM_NAMESPACE" cert-manager; do
   jq -e '[.items[] | select(.status.phase != "Succeeded")] | length > 0 and all(.[]; any(.status.conditions[]?; .type == "Ready" and .status == "True"))' <<< "$pods" >/dev/null 2>&1 || rc=1
   result "$rc" "pods $namespace" 'pods are not Ready; inspect pod status and logs'
 done
+for name in model-gateway slides-worker; do
+  replicas="$(kubectl -n "$APPS_NAMESPACE" get deployment "$name" --ignore-not-found -o jsonpath='{.spec.replicas}')"
+  if [[ "$replicas" == 0 ]]; then result 1 "$name scaled to 0 (run install/79-demo.sh restore)" 'restore the demo before checking'; fi
+done
+jaeger_pods="$(kubectl -n "$PLATFORM_NAMESPACE" get pods -l app=jaeger -o json)"
+restarts="$(jq '[.items[].status.containerStatuses[]?.restartCount] | add // 0' <<< "$jaeger_pods")"
+if ((restarts > 0)); then printf 'INFO jaeger restarted %s times\n' "$restarts"; fi
 for entry in "$PLATFORM_NAMESPACE auth" "$APPS_NAMESPACE harness" "$APPS_NAMESPACE admin"; do
   read -r namespace name <<< "$entry"
   rc=0
@@ -131,6 +138,43 @@ run_pod() {
   check_pod=''
   return "$rc"
 }
+rc=0
+jaeger="$(kubectl -n "$PLATFORM_NAMESPACE" get deployment jaeger -o json)" || rc=1
+jq -e '.metadata.generation <= (.status.observedGeneration // 0) and .spec.replicas == 1 and .status.updatedReplicas == 1 and .status.readyReplicas == 1 and .status.availableReplicas == 1' <<< "$jaeger" >/dev/null || rc=1
+trace_image="$(kubectl -n "$APPS_NAMESPACE" get deployment slides-worker --ignore-not-found -o jsonpath='{.spec.template.spec.containers[0].image}')" || rc=1
+trace_script="$(cat <<'POD'
+python - <<'PYCODE'
+import json, secrets, time, urllib.request
+try:
+    trace = secrets.token_hex(16)
+    now = time.time_ns()
+    payload = {'resourceSpans':[{'resource':{'attributes':[{'key':'service.name','value':{'stringValue':'platform-check'}}]}, 'scopeSpans':[{'spans':[{'traceId':trace,'spanId':secrets.token_hex(8),'name':'platform check','kind':1,'startTimeUnixNano':str(now),'endTimeUnixNano':str(now+1000000)}]}]}]}
+    request = urllib.request.Request('http://jaeger:4318/v1/traces', data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        assert response.status == 200
+    for attempt in range(30):
+        try:
+            with urllib.request.urlopen('http://jaeger:16686/api/v3/traces/'+trace, timeout=5) as response:
+                result = json.load(response)
+            spans = [s for r in result['result']['resourceSpans'] for scope in r.get('scopeSpans',[]) for s in scope.get('spans',[])]
+            assert any(s['traceId'] == trace for s in spans)
+            break
+        except Exception:
+            time.sleep(1)
+    else:
+        raise RuntimeError('trace not found')
+except Exception:
+    raise SystemExit('Jaeger check failed') from None
+PYCODE
+POD
+)"
+if [[ -z "$trace_image" ]]; then
+  result "$rc" 'Jaeger Ready' 're-run 30; inspect Jaeger readiness, configuration and logs'
+  printf 'SKIP Jaeger round-trip (Slides worker not deployed yet)\n'
+else
+  if ((rc == 0)); then run_pod "$trace_image" "$trace_script" '[]' || rc=1; fi
+  result "$rc" 'Jaeger Ready and OTLP HTTP span readable through query API inside cluster' 're-run 30; inspect Jaeger readiness, configuration and logs'
+fi
 # shellcheck disable=SC2016 # Expanded inside the check pod.
 kafka_script='set -euo pipefail
 umask 077

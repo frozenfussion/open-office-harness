@@ -228,3 +228,28 @@ def test_invalid_summary_ranges_are_rejected(query: dict[str, str]) -> None:
     )
     assert response.status_code == 400
     assert response.json()["code"] == "invalid_input"
+
+
+def test_trace_filter_is_validated_passed_and_returned() -> None:
+    client, key, config = setup()
+    selected = "a" * 32
+    received = []
+
+    async def trail(filters: dict, before_id: int | None, limit: int) -> list:
+        received.append(filters["trace_id"])
+        return [{"trace_id": filters["trace_id"]}]
+
+    client.app.state.db.trail = trail
+    headers = {"Authorization": "Bearer " + token(key, config)}
+    response = client.get("/v1/trail", params={"trace_id": selected}, headers=headers)
+    assert response.status_code == 200 and response.json() == [{"trace_id": selected}]
+    assert received == [selected]
+    for invalid in ("0" * 32, "A" * 32, "a" * 31, "bad", "a" * 33):
+        assert (
+            client.get(
+                "/v1/trail", params={"trace_id": invalid}, headers=headers
+            ).status_code
+            == 400
+        )
+    assert received == [selected]
+    assert client.get("/v1/trail", params={"trace_id": selected}).status_code == 401

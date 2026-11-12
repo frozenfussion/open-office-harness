@@ -49,6 +49,13 @@
 
 6. **Deploy, start, stop, restart, inspect logs, or recover after reboot.** Follow the repository's top-level README Quick Guide, maintained by Part C. The deployed service starts under Kubernetes; the builders do not start a server or change the cluster. The image takes `migrate` in its init container and serves port 8080 publicly and port 8081 internally in its main container. The Docker build context is `services/control-centre`.
 
+7. **Read a trace or replay a failed message.** On your PC, open the Admin Console,
+   sign in as an administrator, and choose **Audit → Trace** on a row. For recovery,
+   choose **Failed messages**, select a row, fix the cause, then **Replay → Confirm replay**.
+   A sent result confirms Kafka delivery; watch the job for completion. A failed
+   result is retained in replay history. Traces can expire after a Jaeger restart;
+   audit rows and replay history remain.
+
 If `dotnet` is missing or reports a different SDK, finish the home-folder SDK installation in the stage spec first; this package requires SDK `10.0.403`. If package restore fails, check network access and retry the build. If a database test fails to connect, finish Part B's database setup and rerun the tests. If a database test rejects the database name or role, rerun the setup script; do not substitute live settings. If migrations fail, retain their error message without connection strings for review; never edit a migration already applied. The service reads environment variables only and reports a missing variable by name, without its value.
 
 # Control Centre
@@ -108,7 +115,7 @@ settings privately and checks the model snapshot. Good result: no pending model
 changes. This command does not apply a migration or change the cluster.
 
 ```bash
-cd ~/projects/worktrees/stage-3-part-d/services/control-centre
+cd ~/projects/worktrees/stage-4-part-d/services/control-centre
 (
   set -euo pipefail
   trap 'dotnet build-server shutdown' EXIT
@@ -335,7 +342,7 @@ This builds the Control Centre and runs its tests without compiler daemons.
 Good result: zero warnings or errors, then every test passes.
 
 ```bash
-cd ~/projects/worktrees/stage-3-part-d/services/control-centre
+cd ~/projects/worktrees/stage-4-part-d/services/control-centre
 DOTNET_CLI_USE_MSBUILD_SERVER=0 dotnet build --disable-build-servers -p:UseSharedCompilation=false -warnaserror
 DOTNET_CLI_USE_MSBUILD_SERVER=0 dotnet test --no-build
 ```
@@ -346,7 +353,7 @@ The connection below is an unused, local tooling placeholder, with no password.
 Good result: no formatting changes and no pending model changes.
 
 ```bash
-cd ~/projects/worktrees/stage-3-part-d/services/control-centre
+cd ~/projects/worktrees/stage-4-part-d/services/control-centre
 DOTNET_CLI_USE_MSBUILD_SERVER=0 MSBUILDDISABLENODEREUSE=1 UseSharedCompilation=false dotnet format --verify-no-changes --no-restore
 CC_DB_MIGRATE_CONNECTION='Host=127.0.0.1;Database=controlcentre_test' DOTNET_CLI_USE_MSBUILD_SERVER=0 dotnet ef migrations has-pending-model-changes --project ControlCentre --no-build
 ```
@@ -370,7 +377,7 @@ One Kafka consumer in group `control-centre` subscribes to `approvals.requested`
 and all six contract dead-letter topics. Dead letters are deduplicated by their
 broker topic, partition and offset, including unreadable messages. Their original
 content is available only through administrator routes and is never logged. A
-storage failure leaves the broker offset uncommitted. There is no replay action.
+storage failure leaves the broker offset uncommitted. Administrators can replay through the Stage 4 route described below.
 Approval creation and decision audits contain only IDs, action, risk, status,
 decider and note; the safety excerpt remains in the approval itself.
 
@@ -451,3 +458,77 @@ and [ConsumeResult reference](https://docs.confluent.io/platform/current/clients
 This Part sends no provider requests and introduces no provider field names;
 classification test fields follow the Gateway contract. Provider adapter field
 verification belongs to Part B.
+
+# Stage 4 tracing and replay
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` enables tracing; an empty or missing value registers
+no tracer provider or exporter. The ConfigMap supplies the service name, HTTP
+protobuf protocol and parent-based always-on sampler. Export uses a batch
+processor and a five-second timeout, outside the request path. No database spans
+are collected. The health routes and health poller's requests are excluded.
+Outgoing calls to our services and Keycloak are marked for instrumentation;
+Jaeger queries and other addresses are excluded. Ingress requests identified by
+`X-Forwarded-For` ignore incoming trace context. Internal requests retain it.
+
+The SDK reads `OTEL_TRACES_SAMPLER`; code does not override it. A processor keeps
+only the exact Stage 4 section 8 tag keys and clears status descriptions unless
+an error code is available. A `BaseExporter<Activity>` wrapper projects public
+Activity data into export records that have no events, baggage or links. It
+preserves trace, span and parent IDs, timing, service name and allowed tags.
+The batch exporter sends those records as OTLP HTTP/protobuf with a five-second
+timeout. No private runtime field or reflection is used, and an export failure
+returns failure to the SDK without throwing through a request.
+
+The event-free protobuf projection follows the official
+[OTLP trace schema](https://github.com/open-telemetry/opentelemetry-proto/blob/v1.9.0/opentelemetry/proto/trace/v1/trace.proto)
+and [attribute schema](https://github.com/open-telemetry/opentelemetry-proto/blob/v1.9.0/opentelemetry/proto/common/v1/common.proto).
+Tests inspect the actual outgoing bytes, including IDs, parent links, timestamps,
+typed attributes, service, status and absence of the events field. They also
+exercise exporter failure, environment-controlled sampling and a deterministic
+fake-host error, waiting up to five seconds for TestServer to finish its span.
+
+Kafka sends and consumers propagate W3C headers. Outbox rows retain traceparent
+and tracestate, and their eventual send spans continue the originating trace.
+Audit event payloads include a valid current trace ID when present.
+
+The forward `TracingAndReplay` migration adds the outbox context and append-only
+`dead_letter_replays`. Its triggers forbid update, delete and truncate for both
+roles; the application receives SELECT and INSERT only. Rollback refuses data
+removal. Failed approval deliveries no longer become processed event IDs. Broker
+redeliveries deduplicate by a stable outbox ID based on topic and broker position;
+a newly published replay can process the original approval event.
+
+The admin trace proxy validates the trace ID and reduces Jaeger's v3 OTLP JSON
+into sorted spans, allowing only the section 8 attributes. Its fixture is copied
+from [Jaeger 2.23.0's own GetTrace snapshot](https://github.com/jaegertracing/jaeger/blob/v2.23.0/cmd/jaeger/internal/extension/jaegerquery/internal/apiv3/snapshots/GetTrace.json).
+Tests use that exact snapshot plus synthetic service, timestamp and attribute
+fields to exercise conversion and filtering. Unknown traces return
+`404 trace_not_found`; failed or missing Jaeger returns `503 tracing_unavailable`.
+Audit rows continue to load independently. `trace_id` is forwarded as a trail
+filter and preserved on trail rows.
+
+Replay publishes the stored message unchanged to its source topic and waits for
+delivery. The original event ID and correlation key remain unchanged; trace
+headers come from the administrator's replay request. A successful replay
+returns `202 sent`; Kafka failure returns `503 kafka_unavailable` and records a
+failed replay row. Both outcomes append the `dead_letter.replayed` audit action
+with IDs and topic only. Unknown IDs return 404. Chat dead letters and non-JSON
+originals return `409 not_replayable`. A JSON original also needs its original
+request ID to preserve the Kafka key; a missing or invalid ID is refused.
+The dead-letter list adds replay count,
+last replay time, replayability and replay history without modifying the letter.
+Replay rows for all IDs on a page are loaded in one query and grouped in memory;
+a page uses two reads regardless of its row count.
+
+New direct packages, each pinned to 1.21.0 and checked on NuGet on 12 Nov 2026:
+[OpenTelemetry.Extensions.Hosting](https://www.nuget.org/packages/OpenTelemetry.Extensions.Hosting/1.21.0)
+for host integration,
+[OpenTelemetry.Instrumentation.AspNetCore](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.AspNetCore/1.21.0)
+for server spans,
+[OpenTelemetry.Instrumentation.Http](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Http/1.21.0)
+for internal HTTP spans. OTLP export uses the in-repo event-free encoder
+`OtlpHttpSpanExporter`, configured by plain endpoint, protocol and timeout settings.
+The official `OpenTelemetry.Exporter.OpenTelemetryProtocol` package is not used.
+This encoder was chosen by the builder to meet the spec author fix list
+(wrapper, no private field); it was not a decision by Aziz. Tests use a local
+in-memory exporter class, with no additional package. No UI dependency or container image version changes.

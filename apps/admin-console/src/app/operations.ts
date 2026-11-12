@@ -20,8 +20,12 @@ export interface Column { key: string; title: string; }
 export interface TrailRow {
   id: number; occurred_at: string; producer: string; correlation_id: string; user_id: string;
   actor: string; action: string; target: string; outcome: string; scores?: Record<string, number>;
-  person?: string; model?: string; tokens?: number; cost_usd?: number;
+  trace_id?: string | null; person?: string; model?: string; tokens?: number; cost_usd?: number;
 }
+export interface Replay { id: string; replayed_at: string; replayed_by: string; target_topic: string; outcome: string; error_code?: string; }
+export interface DeadLetter { id: string; topic: string; error_code: string; error_message: string; received_at: string; correlation_id?: string; original_message: string; replay_count: number; last_replayed_at?: string; replayable: boolean; replay_history: Replay[]; }
+export interface Span { span_id: string; parent_span_id?: string; service: string; name: string; kind: string | number; start: string; duration_ms: number; status: string; attributes: Record<string, unknown>; }
+export interface SpanRow { span: Span; depth: number; offset: number; width: number; }
 @Component({ selector: 'admin-operations', imports: [FormsModule], templateUrl: './operations.html', styleUrl: './operations.css' })
 export class Operations implements OnChanges {
   private tasks = inject(PendingTasks);
@@ -32,6 +36,11 @@ export class Operations implements OnChanges {
   persons = signal<Person[]>([]); columns = signal<Column[]>([]); grants = signal<Grant[]>([]);
   changes = signal<Record<string, { user: string; right: string; checked: boolean }>>({});
   trail = signal<TrailRow[]>([]); error = signal(''); busy = signal(false);
+  deadLetters = signal<DeadLetter[]>([]); deadLetter = signal<DeadLetter | null>(null); topic = ''; deadMore = signal(false);
+  confirmReplay = signal(false); replayResult = signal('');
+  traceSpans = signal<SpanRow[]>([]); traceMessage = signal(''); traceLoading = signal(false); selectedSpan = signal<Span | null>(null);
+  traceRow = signal<number | null>(null);
+  private traceSequence = 0;
   note = ''; tier: number | undefined; tiers = signal<number[]>([]);
   requestId = ''; person = ''; action = ''; inTrace = signal(false); more = signal(false);
   ngOnChanges(changes: SimpleChanges): void { if (changes['screen'] || changes['request']) this.tasks.run(() => this.load()); }
@@ -45,6 +54,7 @@ export class Operations implements OnChanges {
         case 'approvals': await this.loadDecisions(); break;
         case 'rights': await this.loadRights(); break;
         case 'audit': await this.filter(); break;
+        case 'failed-messages': await this.loadDeadLetters(); break;
       }
     } catch (e) { this.failure(e); }
   }
@@ -123,6 +133,61 @@ export class Operations implements OnChanges {
     this.requestId = id; this.person = ''; this.action = ''; this.inTrace.set(true); await this.filter();
     while (this.more() && !this.error()) await this.filter(true);
     this.trail.update(rows => [...rows].sort((a, b) => a.occurred_at.localeCompare(b.occurred_at) || a.id - b.id));
+  }
+  async loadDeadLetters(append = false): Promise<void> {
+    this.error.set('');
+    try {
+      const query = new URLSearchParams({ limit: '200' });
+      if (this.topic) query.set('topic', this.topic);
+      const last = this.deadLetters().at(-1);
+      if (append && last) query.set('before', last.received_at + ',' + last.id);
+      const rows = await this.request()<DeadLetter[]>('/admin/dead-letters?' + query.toString());
+      this.deadMore.set(rows.length === 200); this.deadLetters.set(append ? [...this.deadLetters(), ...rows] : rows);
+    } catch (e) { this.failure(e); }
+  }
+  selectDeadLetter(row: DeadLetter): void { this.deadLetter.set(row); this.confirmReplay.set(false); this.replayResult.set(''); }
+  replayReason(row: DeadLetter): string { return row.topic === 'dlq.chat.messages' ? 'Chat dead letters contain IDs only.' : 'The original message needs valid JSON and a request ID.'; }
+  original(row: DeadLetter): string { try { return this.json(JSON.parse(row.original_message)); } catch { return row.original_message; } }
+  async copyRequest(id: string): Promise<void> { try { await navigator.clipboard.writeText(id); } catch { this.error.set('Could not copy. Select and copy the request ID.'); } }
+  async replay(): Promise<void> {
+    const row = this.deadLetter(); if (!row?.replayable || !this.confirmReplay() || this.busy()) return;
+    this.busy.set(true); this.replayResult.set(''); this.confirmReplay.set(false);
+    try {
+      const result = await this.request()<{ outcome: string }>('/admin/dead-letters/' + encodeURIComponent(row.id) + '/replay', 'POST', {});
+      if (this.deadLetter()?.id === row.id) this.replayResult.set(result.outcome === 'sent' ? 'Replay sent. The job will update when processing finishes.' : 'Replay failed.');
+    } catch (e) { if (this.deadLetter()?.id === row.id) this.replayResult.set(e instanceof Error ? e.message : 'Replay failed.'); }
+    finally {
+      await this.loadDeadLetters();
+      while (this.deadMore() && !this.error() && !this.deadLetters().some(x => x.id === row.id)) await this.loadDeadLetters(true);
+      const selected = this.deadLetter();
+      if (selected) this.deadLetter.set(this.deadLetters().find(x => x.id === selected.id) ?? selected);
+      this.busy.set(false);
+    }
+  }
+  closeTrace(): void { ++this.traceSequence; this.traceRow.set(null); this.traceLoading.set(false); this.traceSpans.set([]); this.traceMessage.set(''); this.selectedSpan.set(null); }
+  async openTrace(id: string, rowId: number): Promise<void> {
+    this.traceRow.set(rowId);
+    const sequence = ++this.traceSequence;
+    this.traceMessage.set(''); this.traceSpans.set([]); this.selectedSpan.set(null); this.traceLoading.set(true);
+    try {
+      const result = await this.request()<{ trace_id: string; spans: Span[] }>('/admin/traces/' + encodeURIComponent(id));
+      if (sequence !== this.traceSequence) return;
+      const spans = [...result.spans].sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+      const begin = Math.min(...spans.map(x => Date.parse(x.start))); const end = Math.max(...spans.map(x => Date.parse(x.start) + x.duration_ms));
+      const total = Math.max(end - begin, 0.001); const byId = new Map(spans.map(x => [x.span_id, x]));
+      this.traceSpans.set(spans.map(span => {
+        let parent = span.parent_span_id; let depth = 0; const seen = new Set([span.span_id]);
+        while (parent && byId.has(parent) && !seen.has(parent)) { seen.add(parent); depth++; parent = byId.get(parent)!.parent_span_id; }
+        return { span, depth, offset: (Date.parse(span.start) - begin) / total * 100, width: Math.max(span.duration_ms / total * 100, 0.2) };
+      }));
+      if (!spans.length) this.traceMessage.set('Trace not found');
+    } catch (e) {
+      if (sequence === this.traceSequence) {
+        const status = (e as { status?: number } | null)?.status;
+        this.traceMessage.set(status === 401 ? 'Your session has expired, sign in again'
+          : status === 404 ? 'Trace not found' : 'Tracing is unavailable');
+      }
+    } finally { if (sequence === this.traceSequence) this.traceLoading.set(false); }
   }
   json(value: unknown): string { return JSON.stringify(value, null, 2); }
   figure(n: number | null | undefined): string { return n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: 6 }); }

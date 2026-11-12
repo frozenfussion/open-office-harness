@@ -7,7 +7,7 @@
    sign-in credentials without printing them.
 
    ```bash
-   cd ~/projects/worktrees/stage-3
+   cd ~/projects/worktrees/stage-4
    bash install/72-slides-worker-setup.sh
    ```
 
@@ -20,7 +20,7 @@
    model calls are made.
 
    ```bash
-   cd ~/projects/worktrees/stage-3-part-a/workers/slides
+   cd ~/projects/worktrees/stage-4-part-a/workers/slides
    uv sync --frozen
    uv run ruff check .
    uv run ruff format --check .
@@ -28,7 +28,7 @@
    ```
 
    Good result: both Ruff checks pass and all tests pass. At the merge, use
-   `cd ~/projects/worktrees/stage-3/workers/slides` instead.
+   `cd ~/projects/worktrees/stage-4/workers/slides` instead.
 
 3. Deploy after the Slides worker image workflow is green and Aziz has made
    the `ooh-slides-worker` GitHub package public. The merged worktree must
@@ -39,7 +39,7 @@
    its Slides manifest; it makes no model calls.
 
    ```bash
-   cd ~/projects/worktrees/stage-3
+   cd ~/projects/worktrees/stage-4
    bash install/73-slides-worker-deploy.sh "$(git rev-parse --short=12 HEAD)"
    ```
 
@@ -107,7 +107,7 @@
    makes a few short paid model calls.
 
    ```bash
-   cd ~/projects/worktrees/stage-3
+   cd ~/projects/worktrees/stage-4
    bash install/77-check-stage-3.sh "$(git rev-parse --short=12 HEAD)"
    ```
 
@@ -146,7 +146,7 @@ schema goes straight to `dlq.skill.requests.slides`. Invalid Slides input and
 unknown skills return a failed `skill.result`. Other failures get three retries
 (after 1, 5 and 15 seconds); exhaustion publishes a dead letter and a failed
 result so the person is told. Outgoing ids are UUID v5 from incoming id plus
-outgoing type, using the namespace fixed in the spec.
+outgoing type and result status (for results and audit), using the fixed namespace.
 
 The Gateway supplies slide text as strict JSON. One correction call is allowed
 for a bad shape. Each Gateway call keeps its own time limit; there is no shared
@@ -174,3 +174,30 @@ mode 0755; it does not claim fsGroup ownership of the volume.
 
 Both producers use a 10,000 ms message delivery timeout. Each publish waits for
 its own delivery callback; it never purges other pending messages. A single surrounding JSON code fence is removed before deck validation.
+
+## Tracing and replay (Stage 4)
+
+The ConfigMap supplies `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_PROTOCOL`
+(`http/protobuf`), `OTEL_EXPORTER_OTLP_ENDPOINT` and
+`OTEL_TRACES_SAMPLER` (`parentbased_always_on`). An empty or unset endpoint
+leaves tracing off: no provider or exporter is created. Health is excluded.
+ASGI send/receive spans are excluded, so streamed chunks do not each create a span. HTTP instrumentation uses the fixed modern method
+and status-code attribute names. The SDK reads `OTEL_TRACES_SAMPLER`; if the
+service name is absent it defaults to `slides-worker`.
+Spans export through a batch processor with a five-second export timeout;
+export failures do not fail requests. Only the fixed attribute list is exported;
+events, exception details and status descriptions are removed (an explicit error
+code may remain). No database instrumentation is installed.
+
+Each package instruments its own HTTP client, never every client globally.
+Kafka sends and receives propagate W3C `traceparent` and `tracestate` headers.
+Their spans carry readable correlation, user and skill ids after consumer
+message validation. Dead letters for invalid messages omit those span attributes.
+The worker consumer also carries the job id from the correlation id.
+Audit events include the current nonzero trace id when there is one.
+Open a trace from Audit in the Admin Console after deploying the merged stage.
+Jaeger stores traces in memory; restarting it clears traces but keeps audit rows.
+
+Results and audit events derive their UUID v5 ids from the incoming event id,
+event type and status. A failed result and completed replay have different ids;
+repeated completed requests keep the same ids and reuse the finished file.

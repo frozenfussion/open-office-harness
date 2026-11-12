@@ -11,6 +11,7 @@ public sealed class DeadLetterConsumer(CentreDb db)
   public static readonly string[] Topics = ["dlq.skill.requests.slides", "dlq.skill.results", "dlq.approvals.requested", "dlq.approvals.decided", "dlq.audit.events", "dlq.chat.messages"];
   public async Task Handle(KafkaRecord record, CancellationToken ct)
   {
+    using var span = Tracing.Start(record.Topic, System.Diagnostics.ActivityKind.Consumer, Tracing.Header(record.Headers, "traceparent") ?? "", Tracing.Header(record.Headers, "tracestate"));
     var position = (ConsumeResult<string, string>)record.Position;
     var partition = position.Partition.Value; var offset = position.Offset.Value;
     if (await db.DeadLetters.AnyAsync(x => x.Topic == record.Topic && x.Partition == partition && x.Offset == offset, ct)) return;

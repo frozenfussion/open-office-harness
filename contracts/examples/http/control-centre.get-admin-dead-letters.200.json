@@ -7,6 +7,9 @@
     "received_at": "2026-11-11T00:00:00Z",
     "error_code": "Synthetic",
     "error_message": "Synthetic",
-    "original_message": "Synthetic"
+    "original_message": "Synthetic",
+    "replay_count": 0,
+    "replayable": true,
+    "replay_history": []
   }
 ]

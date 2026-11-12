@@ -27,13 +27,15 @@ cleanup() {
 }
 trap cleanup EXIT
 # shellcheck disable=SC2034 # The renderer reads this through indirect variable expansion.
+JAEGER_CONFIG_SHA256="$(sha256sum deploy/platform/tracing/configmap.yaml | cut -d ' ' -f 1)"
+# shellcheck disable=SC2034 # Used by the renderer through indirect expansion.
 KEYCLOAK_THEME_SHA256="$(sha256sum deploy/platform/keycloak/theme/* | sha256sum | cut -d ' ' -f 1)"
 email="$(jq -Rn --arg value "$LETSENCRYPT_EMAIL" '$value')"
 render() {
   local source="$1" target="$2" line variable value token
   mkdir -p "$(dirname "$target")"
   while IFS= read -r line || [[ -n "$line" ]]; do
-    for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE KAFKA_STORAGE POSTGRES_STORAGE FILES_STORAGE LETSENCRYPT_EMAIL KEYCLOAK_THEME_SHA256; do
+    for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE KAFKA_STORAGE POSTGRES_STORAGE FILES_STORAGE LETSENCRYPT_EMAIL KEYCLOAK_THEME_SHA256 JAEGER_CONFIG_SHA256; do
       value="${!variable}"
       [[ "$variable" != LETSENCRYPT_EMAIL ]] || value="$email"
       token="\${$variable}"
@@ -120,6 +122,8 @@ wait_keycloak() {
   stop "Keycloak rollout is not Ready on the current revision after 10 minutes; inspect the Keycloak CR, StatefulSet and pod, then re-run step 6"
 }
 kubectl apply -f "$tmp/deploy/platform/namespaces.yaml"
+kubectl apply -f "$tmp/deploy/platform/tracing/"
+kubectl -n "$PLATFORM_NAMESPACE" rollout status deployment/jaeger --timeout=300s
 retain_existing
 # Bind a fresh file claim before protecting its PV.
 kubectl apply -f "$tmp/deploy/platform/storage/files-pvc.yaml"

@@ -15,6 +15,9 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageReference Include="Confluent.Kafka" Version="2.16.0" />
     <PackageReference Include="JsonSchema.Net" Version="9.6.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.21.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.21.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.21.0" />
     <EmbeddedResource Include="Platform/Schemas/*.json" />
   </ItemGroup>
 </Project>

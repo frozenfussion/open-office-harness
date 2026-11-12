@@ -8,6 +8,10 @@ describe('safe Markdown and maths', () => {
     expect(result.fragment.querySelector('h1')?.textContent).toBe('Heading');
     expect(result.fragment.querySelectorAll('li').length).toBe(2);
     expect(result.fragment.querySelectorAll('td').length).toBe(2);
+    const wrapper = result.fragment.querySelector('.ooh-table-scroll')!;
+    expect(wrapper.querySelector('table')).not.toBeNull();
+    expect(wrapper.getAttribute('tabindex')).toBe('0');
+    expect(wrapper.getAttribute('aria-label')).toBe('Chat table');
     expect(result.fragment.querySelector('p code')?.textContent).toBe('inline');
     expect(result.fragment.querySelector('pre code')?.textContent).toBe('const n = 1;');
     expect(result.codeBlocks).toEqual(['const n = 1;']);

@@ -65,10 +65,11 @@ class Database:
         values += [payload[k] for k in ("actor", "action", "target", "outcome")]
         values += [payload.get(k) for k in ("model", "tokens", "cost_usd")]
         values.append(Jsonb(payload["scores"]) if "scores" in payload else None)
+        values.append(payload.get("trace_id"))
         try:
             async with await psycopg.AsyncConnection.connect(self.connection) as db:
                 await db.execute(
-                    "INSERT INTO trail(event_id,occurred_at,user_id,producer,correlation_id,actor,action,target,outcome,model,tokens,cost_usd,scores) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (event_id) DO NOTHING",
+                    "INSERT INTO trail(event_id,occurred_at,user_id,producer,correlation_id,actor,action,target,outcome,model,tokens,cost_usd,scores,trace_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (event_id) DO NOTHING",
                     values,
                 )
         except psycopg.Error:
@@ -78,7 +79,7 @@ class Database:
         self, filters: dict[str, Any], before_id: int | None, limit: int
     ) -> list[dict[str, Any]]:
         clauses, values = [], []
-        for key in ("correlation_id", "user_id", "actor", "action"):
+        for key in ("correlation_id", "user_id", "actor", "action", "trace_id"):
             if filters.get(key) is not None:
                 clauses.append(key + " = %s")
                 values.append(filters[key])

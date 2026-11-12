@@ -64,7 +64,7 @@ All principals below are created by Stage 3. Topic writes grant Write and Descri
 | ooh-smoke | ooh.smoke | ooh.smoke | ooh-smoke |
 | harness-api | skill.requests.slides, approvals.requested, audit.events, chat.messages, dlq.skill.results, dlq.approvals.decided | skill.results, approvals.decided | harness-api |
 | slides-worker | skill.results, audit.events, dlq.skill.requests.slides | skill.requests.slides | slides-worker |
-| control-centre | approvals.decided, audit.events, dlq.approvals.requested | approvals.requested, dlq.skill.requests.slides, dlq.skill.results, dlq.approvals.requested, dlq.approvals.decided, dlq.audit.events, dlq.chat.messages | control-centre |
+| control-centre | approvals.decided, audit.events, dlq.approvals.requested, approvals.requested, skill.requests.slides, skill.results | approvals.requested, dlq.skill.requests.slides, dlq.skill.results, dlq.approvals.requested, dlq.approvals.decided, dlq.audit.events, dlq.chat.messages | control-centre |
 | ooh-stage-check | approvals.requested, skill.requests.slides, chat.messages | approvals.decided, audit.events, skill.results | ooh-stage-check |
 | audit-writer | audit.events, dlq.audit.events | audit.events | audit-writer |
 | safety-watcher | approvals.requested, audit.events, dlq.skill.results, dlq.chat.messages | chat.messages, skill.results | safety-watcher |
@@ -114,3 +114,16 @@ worker may call /v1/call only non-streamed and without pinning a model entry;
 the safety watcher may call /v1/classify. Both receive ooh-model-gateway audience
 mappers. No worker receives registry keys. The check client's admin role is used
 only while its shared lock is held.
+
+## Stage 4 trace access and replay
+
+Jaeger has no public route or identity client. Only an authenticated admin can
+read traces through `GET /api/admin/traces/{trace_id}` on the Control Centre;
+the browser never calls the internal Jaeger Service. The Control Centre also
+requires admin rights for `POST /api/admin/dead-letters/{id}/replay` and records
+the admin's subject ID in the append-only replay history. Kafka writes in the
+table above permit replay to source topics; chat dead letters contain IDs only
+and cannot be replayed. W3C trace headers confer no permissions. Public ingress
+calls with `X-Forwarded-For` discard incoming trace context; internal calls keep
+it. The temporary check client retains its existing rights and is disabled and
+rotated after checks; worker-down and restore never enable it.

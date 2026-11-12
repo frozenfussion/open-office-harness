@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: ${PLATFORM_NAMESPACE}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+      annotations:
+        ooh/config-hash: "${JAEGER_CONFIG_SHA256}"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: jaeger
+        image: cr.jaegertracing.io/jaegertracing/jaeger:2.23.0
+        args: ["--config", "/config/config.yaml"]
+        ports:
+        - name: otlp-http
+          containerPort: 4318
+        - name: query
+          containerPort: 16686
+        - name: health
+          containerPort: 13133
+        readinessProbe:
+          httpGet:
+            path: /status
+            port: health
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /status
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: jaeger-config

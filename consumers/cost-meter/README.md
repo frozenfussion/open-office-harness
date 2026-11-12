@@ -3,11 +3,11 @@
 1. Type this in your harness terminal, in the plain shell. Claude runs this while Aziz watches. It prepares the consumer databases, private test settings and credential copies. No password is needed. Finish platform apply and realm sync first, as the root guide describes.
 
    ```bash
-   cd ~/projects/worktrees/stage-3-part-b
+   cd ~/projects/worktrees/stage-4-part-b
    install/74-consumers-setup.sh
    ```
 
-   Good result: `DONE`. Existing passwords are preserved; nothing is printed. After the merge use `cd ~/projects/worktrees/stage-3`; after acceptance use `cd ~/projects/open-office-harness`.
+   Good result: `DONE`. Existing passwords are preserved; nothing is printed. After the merge use `cd ~/projects/worktrees/stage-4`; after acceptance use `cd ~/projects/open-office-harness`.
 
 2. Do this in your PC browser after each first green image build. Make the three GitHub packages Public in their settings. Good result: each package says Public and pulls anonymously.
 
@@ -16,7 +16,7 @@
 3. Type this in your harness terminal, in the plain shell. Claude runs it while Aziz watches. It checks all three public images before applying any consumer manifests, then waits for the new revisions and database migrations. No password is needed. Deploy the Control Centre and Gateway first as the root guide describes.
 
    ```bash
-   cd ~/projects/worktrees/stage-3-part-b
+   cd ~/projects/worktrees/stage-4-part-b
    install/75-consumers-deploy.sh "$(git rev-parse --short=12 HEAD)"
    ```
 
@@ -75,11 +75,12 @@
 8. Type this in your harness terminal, in the plain shell. It runs the package checks with fake Kafka and model calls. No password is needed. Run setup first; never print the private settings.
 
    ```bash
-   cd ~/projects/worktrees/stage-3-part-b/consumers/cost-meter
+   cd ~/projects/worktrees/stage-4-part-b/consumers/cost-meter
    set +x
    set -a
    source ~/.config/ooh/cost-meter-test.env
    set +a
+   uv sync --frozen
    uv run ruff check
    uv run ruff format --check
    uv run pytest
@@ -90,7 +91,7 @@
 9. Type this in your harness terminal, in the plain shell. It checks scripts and contracts without changing the cluster. No password is needed.
 
    ```bash
-   cd ~/projects/worktrees/stage-3-part-b
+   cd ~/projects/worktrees/stage-4-part-b
    bash -n install/74-consumers-setup.sh install/75-consumers-deploy.sh
    shellcheck install/74-consumers-setup.sh install/75-consumers-deploy.sh
    uv run --project contracts/check pytest contracts/check/tests
@@ -144,3 +145,13 @@ Versions match the stage's pinned stack: FastAPI 0.162.2, uvicorn 0.54.0, pydant
 | HTTP 503 / health down / consumer_stopped | Kubernetes restarts a stopped consumer automatically. If failure repeats, inspect database, Kafka and pod status and correct the cause. |
 
 Builders do not execute setup, deployment or service-control commands. The merged stage run checks live readiness, actual memory use, paid provider calls and reboot recovery.
+
+## Stage 4 tracing
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` empty or unset leaves tracing disabled: no provider or exporter is registered. Deployment settings select OTLP HTTP/protobuf, the internal Jaeger endpoint, service name and `parentbased_always_on` sampling. Health requests are excluded. A batch processor exports in the background with a five-second timeout. Export failures do not fail requests or Kafka processing.
+
+Before export, each span is copied with only the attribute keys fixed in the Stage 4 spec section 8, no events or links, and an error status description containing only the error code (or no description). Request bodies, message text, query strings, provider addresses and exception messages are excluded. No database or global HTTP client instrumentation is installed. The HTTP instrumentation uses the stable HTTP attribute names.
+
+Kafka consumers extract W3C `traceparent` and `tracestate` headers and create `process <topic>` consumer spans. Producers create `send <topic>` producer spans and inject UTF-8 byte headers before handing delivery to a thread. Audit events include the active valid trace ID; events created without one omit it. Invalid messages and exhausted retries mark consumer spans as errors without exporting exception details. Existing retries, duplicate handling and dead-letter behavior are retained.
+
+OpenTelemetry API, SDK and OTLP HTTP exporter are pinned to 1.45.2; FastAPI and HTTPX instrumentation to 0.66b2. These and every newly locked transitive dependency were checked against official PyPI release records on 12 November 2026. They supply tracing, HTTP context propagation and export; Kafka propagation uses the API directly. Tests use the SDK's in-memory exporter and fake Kafka, with no Jaeger, Kafka broker or real model calls.

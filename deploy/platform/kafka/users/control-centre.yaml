@@ -39,6 +39,7 @@ spec:
         name: approvals.requested
         patternType: literal
       operations:
+      - Write
       - Read
       - Describe
     - resource:
@@ -75,6 +76,20 @@ spec:
         patternType: literal
       operations:
       - Read
+      - Describe
+    - resource:
+        type: topic
+        name: skill.requests.slides
+        patternType: literal
+      operations:
+      - Write
+      - Describe
+    - resource:
+        type: topic
+        name: skill.results
+        patternType: literal
+      operations:
+      - Write
       - Describe
     - resource:
         type: group

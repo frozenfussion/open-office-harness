@@ -557,3 +557,64 @@ async def test_routing_persisted_without_entering_model_history(
     history = await store.history(identifier)
     assert history[-1]["reasoning_state"] == state
     assert "routing" not in history[-1]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "status,code,revives",
+    [
+        ("failed", "worker_gave_up", True),
+        ("failed", "bad_model_output", False),
+        ("rejected", "worker_gave_up", False),
+        ("completed", None, False),
+    ],
+)
+async def test_only_worker_gave_up_can_complete_after_replay(
+    store: Store, db_user: str, h: Any, status: str, code: str | None, revives: bool
+) -> None:
+    from psycopg.types.json import Jsonb
+
+    from harness_api.events import JobEvents, envelope
+    from harness_api.jobs import Jobs
+
+    notifications = JobEvents()
+    import asyncio
+
+    queue = asyncio.Queue()
+    notifications.subscribers[db_user] = {queue}
+    jobs = Jobs(store.connection, h.app.state.upstream, h.publisher, notifications)
+    conversation = await store.create(db_user)
+    result, _ = await jobs.start(
+        db_user, conversation, {"name": "slides", "arguments": {"topic": "Example"}}
+    )
+    while not queue.empty():
+        queue.get_nowait()
+    identifier = UUID(result["job_id"])
+    async with await psycopg.AsyncConnection.connect(store.connection) as db:
+        await db.execute(
+            "UPDATE jobs SET status=%s,error=%s WHERE id=%s",
+            (
+                status,
+                Jsonb({"code": code, "message": "Example"}) if code else None,
+                identifier,
+            ),
+        )
+    completed = envelope(
+        "skill.result",
+        str(identifier),
+        db_user,
+        {
+            "skill": "slides",
+            "status": "completed",
+            "error": None,
+            "output": {"file_key": "outputs/slides/example.pptx"},
+        },
+    )
+    await jobs.handle("skill.results", completed)
+    await jobs.handle("skill.results", completed)
+    row = await jobs.get(identifier, db_user)
+    assert row["status"] == ("completed" if revives else status)
+    assert queue.qsize() == int(revives)
+    if revives:
+        assert queue.get_nowait()["type"] == "job.completed"
+        assert row["error"] is None
