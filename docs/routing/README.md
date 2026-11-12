@@ -20,6 +20,7 @@ per classifier** of the same 20 labelled questions:
 | Jev | 0.02–0.04 | 0.78–0.98 |
 | DeepSeek | 0.00–0.02 | 0.93–1.00 |
 
-The 0.5 threshold sits in the middle of the observed gap between the tier 1
-and tier 2 scores. The calibration file is copied unchanged from the supplied
-labelled set.
+Run it with `{"temperature": 0}` in the classifier entry's extra request settings, where the provider accepts it.
+
+The 0.5 threshold lies inside the observed gap (tier 1 at most 0.04, tier 2 at least 0.78).
+The calibration file is copied unchanged from the supplied labelled set.
