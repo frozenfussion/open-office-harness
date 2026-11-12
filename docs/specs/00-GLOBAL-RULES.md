@@ -43,7 +43,7 @@ When Codex needs something only Aziz may do, it writes the exact commands into a
 - Control Centre: C# on .NET 10 (LTS), ASP.NET Core, EF Core with migrations, PostgreSQL. One deployable, built as a modular monolith.
 - Harness API, Model Gateway, skill workers, read-only consumers: Python 3.14.
 - Workspace and Admin Console: two separate Angular 22 apps.
-- Sign-in: Keycloak (OIDC). Messaging: Apache Kafka (KRaft, no ZooKeeper) run by the Strimzi operator. Database: PostgreSQL 18 run by the CloudNativePG operator. Files: a Kubernetes volume `ooh-files` on the Droplet disk now (agreed 09 Nov 2026: no Spaces, no S3 server); Amazon S3 on AWS in Stage 6.
+- Sign-in: Keycloak (OIDC). Messaging: Apache Kafka (KRaft, no ZooKeeper) run by the Strimzi operator. Database: PostgreSQL 18 run by the CloudNativePG operator. Files: a Kubernetes volume `ooh-files` on the Droplet disk now (agreed 09 Nov 2026: no Spaces, no S3 server); AWS storage in Stage 4 phase 2.
 - Runs on Kubernetes: k3s on the DigitalOcean Droplet now, AWS EKS later, with the same manifests and different values. Container images are built by GitHub Actions (`.github/workflows/`) and go to `ghcr.io/frozenfussion/ooh-<name>`, tagged with the git short hash (agreed 09 Nov 2026: free for a public repo, nothing added to the Droplet).
 - Exact versions are fixed and dated in each stage spec.
 
@@ -72,14 +72,14 @@ open-office-harness/
   deploy/
     platform/            cluster pieces: cert-manager, Strimzi + Kafka, CloudNativePG + PostgreSQL, Keycloak, ingress
     apps/                our services' manifests (from Stage 1)
-    values/              do.yaml (Droplet), aws.yaml (EKS, Stage 6)
+    values/              do.yaml (Droplet), aws (EKS, Stage 4 phase 2)
   install/               scripts Aziz runs (setup, secrets, deploy, checks)
   .github/workflows/     image builds (GitHub Actions)                              — from Stage 1
   services/              control-centre (C#), harness-api, model-gateway (Python)   — from Stage 1
   workers/               one folder per skill worker                                — from Stage 3
   consumers/             audit-writer, safety-watcher, cost-meter                   — from Stage 3
   apps/                  workspace, admin-console (Angular)                         — from Stage 4
-  infra/terraform/aws/   AWS stack                                                  — Stage 6
+  infra/terraform/aws/   AWS stack                                                  — Stage 4 phase 2
 ```
 Each service, worker, consumer and app is its own package with its own lock file and its own Dockerfile. No shared code folder unless a spec creates one.
 
