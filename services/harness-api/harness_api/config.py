@@ -24,7 +24,7 @@ class Settings:
     kafka_password: str = field(default="", repr=False)
     files_root: str = "/files"
     route_tier_question: str = ""
-    route_tier_threshold: float = 0.7
+    route_tier_threshold: float = 0.5
     route_up_tier: int = 2
     route_skill_threshold: float = 0.8
     route_timeout_seconds: float = 30
@@ -37,7 +37,7 @@ class Settings:
             ),
             route_tier_question=os.environ.get("HA_ROUTE_TIER_QUESTION", ""),
             route_tier_threshold=float(
-                os.environ.get("HA_ROUTE_TIER_THRESHOLD", "0.7")
+                os.environ.get("HA_ROUTE_TIER_THRESHOLD", "0.5")
             ),
             route_up_tier=int(os.environ.get("HA_ROUTE_UP_TIER", "2")),
             route_skill_threshold=float(

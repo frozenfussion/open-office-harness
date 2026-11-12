@@ -1,0 +1,12 @@
+{"rule": "Is this a request that needs careful multi-step reasoning, such as a rigorous proof or hard maths, complex code, debugging or architecture design, or a deep expert analysis or comparison with trade-offs, rather than a fact, short writing, a translation, a summary or an everyday question?",
+"tier1": ["What is two plus two? Answer briefly.","What is the capital of France?","Translate 'good morning' into Malay.","Write a two-line thank-you note to a colleague.","What time zone is Kuala Lumpur in?","Give me a synonym for 'happy'.","What does HTTP status 404 mean?","Convert 5 km to miles.","List three tips for giving a good presentation.","What is Kafka, in one sentence?"],
+"tier2": ["Prove that every finite integral domain is a field. Give a rigorous proof using injectivity and surjectivity, and explain why finiteness is essential.",
+"Design an exactly-once event pipeline on Kafka and PostgreSQL for payments, covering idempotency, ordering, retries and dead letters, with the failure cases.",
+"Derive the time complexity of Dijkstra's algorithm with a binary heap and with a Fibonacci heap, and explain when each is better.",
+"Find and explain the race condition in a C# service where two threads update a shared dictionary and a cache without locks, and give a correct fix.",
+"Compare a modular monolith and microservices for a 40-engineer team building an energy-trading platform; give the trade-offs and a recommendation with reasons.",
+"Two PostgreSQL transactions update the same two rows in opposite order and one fails with a deadlock. Explain exactly why, and design a fix that keeps correctness under load.",
+"Plan a zero-downtime Kubernetes rollout of a service whose new version needs a database schema change, including the migration steps, rollback and the failure cases.",
+"Prove step by step that the halting problem is undecidable.",
+"Compare write-through, write-back and cache-aside caching for an API with heavy writes, including consistency trade-offs, and recommend one with reasons.",
+"Explain why a naive backtracking recursive-descent parser for arithmetic can take exponential time, and redesign it to run in linear time with a proof sketch."]}

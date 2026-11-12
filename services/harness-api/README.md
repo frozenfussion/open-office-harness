@@ -224,8 +224,15 @@ from the merged Stage 3 worktree after Parts B–D are present.
 ## Auto routing
 
 Only `tier: "auto"` invokes routing; omitted/null and explicit numeric tiers keep
-existing behavior. The ConfigMap supplies `HA_ROUTE_TIER_QUESTION`,
-`HA_ROUTE_TIER_THRESHOLD` (0.7), `HA_ROUTE_UP_TIER` (2),
+existing behavior. `HA_ROUTE_TIER_QUESTION` holds Aziz's rule: careful multi-step
+reasoning (rigorous proofs or hard maths, complex code, debugging or architecture
+design, deep expert analysis or comparisons with trade-offs), rather than facts,
+short writing, translations, summaries or everyday questions. The exact question
+stays in settings, with no text default in code. The
+[calibration set and measurements](../../docs/routing/README.md) explain the 0.5
+threshold; re-run the set when the classifier, question or threshold changes.
+The ConfigMap supplies `HA_ROUTE_TIER_QUESTION`,
+`HA_ROUTE_TIER_THRESHOLD` (0.5), `HA_ROUTE_UP_TIER` (2),
 `HA_ROUTE_SKILL_THRESHOLD` (0.8), and `HA_ROUTE_TIMEOUT_SECONDS` (30 seconds).
 The routing call has its own overall deadline; expiry uses the existing
 routing-unavailable note and lowest allowed tier. Route audit publishing uses

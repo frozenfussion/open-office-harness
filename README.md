@@ -112,12 +112,17 @@ phase 2. These steps also apply after merging the routing Part.
    ```
 
    To tune Auto routing, edit `deploy/apps/harness-api/configmap.yaml`:
-   `HA_ROUTE_TIER_QUESTION` asks whether advanced reasoning is needed;
-   `HA_ROUTE_TIER_THRESHOLD` is 0.7, `HA_ROUTE_UP_TIER` is 2, and
+   `HA_ROUTE_TIER_QUESTION` contains Aziz's rule for careful multi-step reasoning
+   (rigorous proofs or hard maths, complex code, debugging or architecture design,
+   deep expert analysis or comparisons with trade-offs), rather than facts, short
+   writing, translations, summaries or everyday questions.
+   `HA_ROUTE_TIER_THRESHOLD` is 0.5, `HA_ROUTE_UP_TIER` is 2, and
    `HA_ROUTE_SKILL_THRESHOLD` is 0.8 by default. `HA_ROUTE_TIMEOUT_SECONDS`
    limits the routing call to 30 seconds by default; a timeout uses the lowest
    allowed tier with the routing-unavailable note. Scores at or above a threshold
-   qualify. Skill questions come from allowed skills' descriptions. Keep these
+   qualify. The [calibration rule, labelled set and measured scores](docs/routing/README.md)
+   document this choice; re-run the set when the classifier, question or threshold
+   changes. Skill questions come from allowed skills' descriptions. Keep these
    settings in the ConfigMap. Type this in your harness terminal, Shell tile,
    plain shell. This loads the routing settings; good result: Ready and `DONE`.
 
