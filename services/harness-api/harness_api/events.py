@@ -178,8 +178,8 @@ class Kafka:
                     event: dict[str, Any] = {}
                     try:
                         event = json.loads(raw)
-                        annotate_event(event)
                         self.schema.validate(event)
+                        annotate_event(event)
                         expected = {
                             "skill.results": "skill.result",
                             "approvals.decided": "approval.decided",

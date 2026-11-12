@@ -158,12 +158,17 @@ def kafka_span(topic: str, headers: Any = None) -> Iterator[list[tuple[str, byte
 def annotate_event(event: Any, job: bool = False) -> None:
     if not isinstance(event, dict):
         return
+    payload = event.get("payload")
+    if event.get("type") == "dlq.entry" and isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict) and error.get("code") == "bad_message":
+            # These envelope ids may have come from the rejected source message.
+            return
     span = trace.get_current_span()
     for field in ("correlation_id", "user_id"):
         value = event.get(field)
         if isinstance(value, str) and value:
             span.set_attribute("ooh." + field, value)
-    payload = event.get("payload")
     skill = payload.get("skill") if isinstance(payload, dict) else None
     if isinstance(skill, str) and skill:
         span.set_attribute("ooh.skill", skill)

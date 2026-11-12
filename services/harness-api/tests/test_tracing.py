@@ -346,3 +346,61 @@ async def test_stream_has_one_server_span_without_chunk_spans(spans: Any) -> Non
     assert len(finished) == 1
     assert finished[0].kind == trace.SpanKind.SERVER
     assert not any("http send" in s.name or "http receive" in s.name for s in finished)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("topic", ["skill.results", "approvals.decided"])
+async def test_invalid_message_ids_never_export(spans: Any, topic: str) -> None:
+    import json
+
+    from test_review_fixes import Consumer, Message, result
+
+    from harness_api.events import validator
+
+    _, exporter = spans
+    event = json.loads(result().content)
+    event["user_id"] = "PRIVATE_REJECTED_TEXT"
+    event["correlation_id"] = "PRIVATE_REJECTED_TEXT"
+    event["payload"]["skill"] = "PRIVATE_REJECTED_TEXT"
+    message = Message(json.dumps(event))
+    message.topic = lambda: topic
+    sent = []
+
+    class Producer:
+        def produce(self, topic: str, **kwargs: Any) -> None:
+            sent.append((topic, kwargs))
+            kwargs["on_delivery"](None, None)
+
+    stop = asyncio.Event()
+    kafka = object.__new__(Kafka)
+    kafka.consumer = Consumer([message], stop)
+    kafka.schema = validator()
+    kafka.producer = Producer()
+    kafka.send_pool = ThreadPoolExecutor(max_workers=1)
+    kafka.send_slots = asyncio.BoundedSemaphore(1)
+
+    async def handle(topic: str, event: dict[str, Any]) -> None:
+        pytest.fail("Invalid message reached the handler")
+
+    try:
+        await kafka.run(handle, stop)
+    finally:
+        await kafka.close()
+    assert [t for t, _ in sent] == ["dlq." + topic]
+    finished = exporter.get_finished_spans()
+    assert {s.kind for s in finished} == {
+        trace.SpanKind.CONSUMER,
+        trace.SpanKind.PRODUCER,
+    }
+    for span in finished:
+        assert "ooh.user_id" not in span.attributes
+        assert "ooh.correlation_id" not in span.attributes
+        assert "ooh.skill" not in span.attributes
+        assert "PRIVATE_REJECTED_TEXT" not in str(
+            (
+                span.name,
+                dict(span.attributes),
+                span.status.description,
+                span.events,
+            )
+        )

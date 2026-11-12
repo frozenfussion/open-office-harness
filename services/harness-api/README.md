@@ -268,7 +268,8 @@ code may remain). No database instrumentation is installed.
 
 Each package instruments its own HTTP client, never every client globally.
 Kafka sends and receives propagate W3C `traceparent` and `tracestate` headers.
-Their spans carry readable correlation, user and skill ids.
+Their spans carry readable correlation, user and skill ids after consumer
+message validation. Dead letters for invalid messages omit those span attributes.
 Audit events include the current nonzero trace id when there is one.
 Open a trace from Audit in the Admin Console after deploying the merged stage.
 Jaeger stores traces in memory; restarting it clears traces but keeps audit rows.

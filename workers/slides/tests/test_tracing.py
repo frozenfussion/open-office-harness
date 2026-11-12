@@ -168,7 +168,10 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-def test_runtime_consumer_gateway_and_real_producer(spans: Any, tmp_path: Path) -> None:
+@pytest.mark.parametrize("invalid", [False, True])
+def test_runtime_consumer_gateway_and_real_producer(
+    spans: Any, tmp_path: Path, invalid: bool
+) -> None:
     import json
 
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
@@ -180,6 +183,10 @@ def test_runtime_consumer_gateway_and_real_producer(spans: Any, tmp_path: Path) 
 
     tracer, exporter = spans
     event = request()
+    if invalid:
+        event["user_id"] = "PRIVATE_REJECTED_TEXT"
+        event["correlation_id"] = "PRIVATE_REJECTED_TEXT"
+        event["payload"]["skill"] = "PRIVATE_REJECTED_TEXT"
     with tracer.start_as_current_span("request"):
         with tracing.kafka_span("skill.requests.slides") as incoming:
             pass
@@ -256,6 +263,23 @@ def test_runtime_consumer_gateway_and_real_producer(spans: Any, tmp_path: Path) 
     client.close()
     finished = exporter.get_finished_spans()
     consumed = next(s for s in finished if s.kind == trace.SpanKind.CONSUMER)
+    if invalid:
+        assert not calls
+        assert [t for t, _ in sent] == ["dlq.skill.requests.slides"]
+        for span in finished:
+            assert "ooh.user_id" not in span.attributes
+            assert "ooh.correlation_id" not in span.attributes
+            assert "ooh.skill" not in span.attributes
+            assert "ooh.job_id" not in span.attributes
+            assert "PRIVATE_REJECTED_TEXT" not in str(
+                (
+                    span.name,
+                    dict(span.attributes),
+                    span.status.description,
+                    span.events,
+                )
+            )
+        return
     request_send = next(s for s in finished if s.name == "send skill.requests.slides")
     assert consumed.attributes["ooh.correlation_id"] == event["correlation_id"]
     assert consumed.attributes["ooh.job_id"] == event["correlation_id"]

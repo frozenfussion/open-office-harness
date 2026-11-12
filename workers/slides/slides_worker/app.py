@@ -88,13 +88,9 @@ class Runtime:
                     )
                     continue
                 with kafka_span(message.topic(), message.headers() or []):
-                    raw = message.value().decode("utf-8", errors="replace")
-                    try:
-                        event = json.loads(raw)
-                    except ValueError:
-                        event = None
-                    annotate_event(event, job=True)
-                    self.worker.process(raw)
+                    self.worker.process(
+                        message.value().decode("utf-8", errors="replace")
+                    )
                 self.kafka.consumer.commit(message=message, asynchronous=False)
         except Exception:
             self.fatal = True

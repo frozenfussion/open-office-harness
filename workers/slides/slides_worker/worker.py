@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from referencing import Registry, Resource
 
 from .config import Settings
-from .tracing import audit_context
+from .tracing import annotate_event, audit_context
 
 NAMESPACE = UUID("6f1d5b7e-3c1a-4b8e-9a52-1f0c8f3e2d10")
 MAX_POLL_INTERVAL_MS = 7_400_000
@@ -328,6 +328,7 @@ class Worker:
         try:
             event = json.loads(raw)
             self.schema.validate(event)
+            annotate_event(event, job=True)
             if event["type"] != "skill.requested":
                 raise ValueError("wrong_type")
         except ValueError, ValidationError:
