@@ -10,6 +10,11 @@ import { ChatModels } from './chat-models';
 import { Jobs } from './jobs';
 import { JobCard } from './job-card';
 
+const savedConversationKey = 'ooh.pending-conversation';
+function conversationId(value: string | null): string | null {
+  return value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value) ? value : null;
+}
+
 export function greeting(date = new Date()): string {
   const hour = date.getHours();
   return hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
@@ -80,8 +85,14 @@ export class App implements OnInit, OnDestroy {
     }));
   }
   ngOnDestroy(): void { this.jobs.stop(); this.subscription.unsubscribe(); this.streams.forEach(stream => stream.abort()); }
-  signIn(): void { this.auth.authorize(); }
-  requestAccess(): void { this.auth.authorize(undefined, {customParams: {prompt: 'create'}}); }
+  private saveConversation(): void {
+    const id = conversationId(new URL(window.location.href).searchParams.get('conversation'));
+    try {
+      if (id) sessionStorage.setItem(savedConversationKey, id); else sessionStorage.removeItem(savedConversationKey);
+    } catch { /* Sign-in still works when browser storage is unavailable. */ }
+  }
+  signIn(): void { this.saveConversation(); this.auth.authorize(); }
+  requestAccess(): void { this.saveConversation(); this.auth.authorize(undefined, {customParams: {prompt: 'create'}}); }
   signOut(): void { this.jobs.stop(); this.streams.forEach(stream => stream.abort()); this.auth.logoff().subscribe(); }
   async copyId(): Promise<void> {
     try { await navigator.clipboard.writeText(this.me()?.user_id || ''); this.copied.set(true); }
@@ -116,7 +127,12 @@ export class App implements OnInit, OnDestroy {
       this.me.set(me);
       this.tier = me.chat_tiers[0] ?? null;
       await this.refreshList();
-      const id = new URL(window.location.href).searchParams.get('conversation');
+      let saved: string | null = null;
+      try {
+        saved = conversationId(sessionStorage.getItem(savedConversationKey));
+        sessionStorage.removeItem(savedConversationKey);
+      } catch { /* Use the address when browser storage is unavailable. */ }
+      const id = conversationId(new URL(window.location.href).searchParams.get('conversation')) ?? saved;
       if (id) await this.open(id);
     } catch (error) { this.failure(error); }
     finally { this.loading.set(false); }

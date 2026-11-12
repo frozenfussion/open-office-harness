@@ -3,6 +3,15 @@ import { inject, Injectable, signal } from '@angular/core';
 import { Api, ApiError, Job } from './api';
 import { JobEvent } from './sse';
 
+function canRevive(existing: Job, incoming: Job): boolean {
+  return existing.status === 'failed' && existing.error?.code === 'worker_gave_up' && incoming.status === 'completed';
+}
+function mergeJob(existing: Job | undefined, incoming: Job): Job {
+  if (!existing || !['completed', 'failed', 'rejected'].includes(existing.status)) return incoming;
+  if (canRevive(existing, incoming)) return incoming;
+  return {...incoming, ...existing};
+}
+
 export function reconnectDelay(attempt: number): number { return [1000, 2000, 5000, 10000][Math.min(attempt, 3)]; }
 export function jobLabel(status: Job['status']): string {
   return {awaiting_approval: 'Waiting for approval', queued: 'Queued', completed: 'Ready', failed: 'Failed', rejected: 'Not approved'}[status];
@@ -26,8 +35,11 @@ export class Jobs {
     const revision = this.revision;
     const rows = await this.api.jobs();
     if (generation !== this.generation) return;
-    // An event received during the fetch must win over the older snapshot.
-    this.rows.update(old => revision === this.revision ? rows : [...old, ...rows.filter(row => !old.some(item => item.job_id === row.job_id))]);
+    // Keep events received during the fetch, allowing a replay completion to revive a failed row.
+    this.rows.update(old => revision === this.revision ? rows.map(row => mergeJob(old.find(item => item.job_id === row.job_id), row)) : [...old.map(row => {
+      const incoming = rows.find(item => item.job_id === row.job_id);
+      return incoming && canRevive(row, incoming) ? incoming : row;
+    }), ...rows.filter(row => !old.some(item => item.job_id === row.job_id))]);
     this.more.set(rows.length === 50);
   }
   async loadMore(): Promise<void> {
@@ -44,16 +56,15 @@ export class Jobs {
     this.revision++;
     this.rows.update(rows => {
       const existing = rows.find(row => row.job_id === job.job_id);
-      const terminal = existing && ['completed', 'failed', 'rejected'].includes(existing.status);
-      return [terminal ? {...job, ...existing} : job, ...rows.filter(row => row.job_id !== job.job_id)];
+      return [mergeJob(existing, job), ...rows.filter(row => row.job_id !== job.job_id)];
     });
   }
   receive(event: JobEvent): void {
     this.revision++;
-    this.rows.update(rows => rows.map(row => row.job_id !== event.correlation_id ? row : {
+    this.rows.update(rows => rows.map(row => row.job_id !== event.correlation_id ? row : mergeJob(row, {
       ...row, status: event.type === 'job.failed' ? (event.error?.code === 'approval_rejected' ? 'rejected' : 'failed') : event.type.slice(4) as Job['status'],
       output: event.output, error: event.error,
-    }));
+    })));
     if (!this.rows().some(row => row.job_id === event.correlation_id)) void this.reload().catch(() => this.notice.set('Jobs could not be refreshed.'));
   }
   private async listen(controller: AbortController, generation: number): Promise<void> {

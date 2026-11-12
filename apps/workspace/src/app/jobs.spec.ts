@@ -48,9 +48,41 @@ describe('Jobs', () => {
     store.receive({type:'job.completed',correlation_id:job.job_id,skill:'slides',output:{file_key:'outputs/test.pptx',mime:'test',summary:'Ready'},error:null});
     resolve([job]); await pending; expect(store.rows()[0].status).toBe('completed');
     store.receive({type:'job.failed',correlation_id:job.job_id,skill:'slides',output:null,error:{code:'approval_rejected',message:'Not approved'}});
+    expect(store.rows()[0].status).toBe('completed');
+    store.add({...job, job_id: 'second'});
+    store.receive({type:'job.failed',correlation_id:'second',skill:'slides',output:null,error:{code:'approval_rejected',message:'Not approved'}});
     expect(store.rows()[0].status).toBe('rejected');
     expect(['awaiting_approval','queued','completed','failed','rejected'].map(status => jobLabel(status as Job['status'])))
       .toEqual(['Waiting for approval','Queued','Ready','Failed','Not approved']);
+  });
+  it('keeps a newer Queued event over an older approval snapshot', async () => {
+    let resolve!: (rows: Job[]) => void;
+    TestBed.configureTestingModule({providers: [{provide: Api, useValue: {jobs: () => new Promise<Job[]>(done => resolve = done)}}]});
+    const store = TestBed.inject(Jobs); store.add({...job, status: 'awaiting_approval'});
+    const pending = store.reload();
+    store.receive({type: 'job.queued', correlation_id: job.job_id, skill: 'slides', output: null, error: null});
+    resolve([{...job, status: 'awaiting_approval'}]); await pending;
+    expect(store.rows()[0].status).toBe('queued');
+  });
+  it.each(['event', 'reload', 'add', 'overlapping reload'])('revives only worker_gave_up jobs via %s', async source => {
+    let resolve!: (rows: Job[]) => void;
+    TestBed.configureTestingModule({providers: [{provide: Api, useValue: {jobs: () => new Promise<Job[]>(done => resolve = done)}}]});
+    const store = TestBed.inject(Jobs);
+    for (const [status, code, expected] of [
+      ['failed', 'worker_gave_up', 'completed'], ['failed', 'other', 'failed'], ['rejected', 'approval_rejected', 'rejected'],
+    ] as const) {
+      store.stop(); store.add({...job, status, error: {code, message: 'Test failure'}});
+      const completed: Job = {...job, status: 'completed', output: {file_key: 'outputs/slides/test.pptx', mime: 'test', summary: 'Ready'}, error: null};
+      if (source === 'event') store.receive({type:'job.completed',correlation_id:job.job_id,skill:'slides',output:completed.output,error:null});
+      else if (source === 'add') store.add(completed);
+      else {
+        const pending = store.reload();
+        if (source === 'overlapping reload') store.add({...job, status, error: {code, message: 'Test failure'}});
+        resolve([completed]); await pending;
+      }
+      expect(store.rows()[0].status).toBe(expected);
+      if (expected === 'completed') expect(store.rows()[0].error).toBeNull();
+    }
   });
   it('stops retrying when access is refused', async () => {
     vi.useFakeTimers(); const events = vi.fn().mockRejectedValue(new ApiError(403,'Access removed'));

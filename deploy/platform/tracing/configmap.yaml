@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-config
+  namespace: ${PLATFORM_NAMESPACE}
+data:
+  config.yaml: |
+    extensions:
+      jaeger_storage:
+        backends:
+          memory:
+            memory:
+              max_traces: 20000
+      jaeger_query:
+        storage:
+          traces: memory
+        http:
+          endpoint: 0.0.0.0:16686
+      healthcheckv2:
+        use_v2: true
+        http:
+          endpoint: 0.0.0.0:13133
+          status:
+            enabled: true
+            path: /status
+    receivers:
+      otlp:
+        protocols:
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 800
+        spike_limit_mib: 150
+      batch: {}
+    exporters:
+      jaeger_storage_exporter:
+        trace_storage: memory
+    service:
+      extensions: [jaeger_storage, jaeger_query, healthcheckv2]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [jaeger_storage_exporter]
