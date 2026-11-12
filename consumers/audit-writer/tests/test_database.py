@@ -176,3 +176,44 @@ async def test_summary_range_is_half_open_and_crosses_utc_midnight(
         assert result["day"] == "2099-05-10"
         assert result["by_action"] == {"model.call": 2}
         assert result["distinct_users"] == 2
+
+
+@pytest.mark.anyio
+async def test_trace_storage_filter_nullable_and_constraint(
+    connections: Connections, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await migrate(connections.owner)
+    connect = psycopg.AsyncConnection.connect
+    async with (
+        await connect(connections.app, row_factory=psycopg.rows.dict_row) as db,
+        db.transaction(force_rollback=True),
+    ):
+
+        async def borrowed(*args: Any, **kwargs: Any) -> Borrowed:
+            return Borrowed(db)
+
+        monkeypatch.setattr(psycopg.AsyncConnection, "connect", borrowed)
+        store = Database(connections.app)
+        traced = event()
+        selected = uuid4().hex
+        traced["payload"]["trace_id"] = selected
+        await store.handle("audit.events", traced)
+        plain = event()
+        await store.handle("audit.events", plain)
+        rows = await store.trail({"trace_id": selected}, None, 50)
+        assert len(rows) == 1 and rows[0]["trace_id"] == selected
+        assert str(rows[0]["event_id"]) == traced["event_id"]
+        rows = await store.trail({"correlation_id": plain["correlation_id"]}, None, 50)
+        assert len(rows) == 1 and rows[0]["trace_id"] is None
+        for bad in ("0" * 32, "ABCDEF" * 5 + "AB", "bad", "f" * 33):
+            invalid = event()
+            invalid["payload"]["trace_id"] = bad
+            with pytest.raises(RuntimeError, match="database_failed"):
+                async with db.transaction():
+                    await store.handle("audit.events", invalid)
+        index = await (
+            await db.execute(
+                "SELECT indexname FROM pg_indexes WHERE tablename='trail' AND indexname='trail_trace_id'"
+            )
+        ).fetchone()
+        assert index is not None

@@ -97,6 +97,7 @@ async def test_insert_idempotency_filters_and_utc_aggregates(
         monkeypatch.setattr(psycopg.AsyncConnection, "connect", borrowed)
         store = Database(connections.app)
         value = event()
+        value["payload"]["trace_id"] = "1" * 32
         value["occurred_at"] = "2099-03-04T23:59:59Z"
         await store.handle("audit.events", value)
         await store.handle("audit.events", value)

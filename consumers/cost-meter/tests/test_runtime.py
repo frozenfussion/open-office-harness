@@ -18,6 +18,9 @@ class Message:
     def topic(self) -> str:
         return "audit.events"
 
+    def headers(self) -> list[tuple[str, bytes]]:
+        return []
+
     def value(self) -> bytes:
         return b"synthetic"
 
@@ -56,7 +59,7 @@ async def test_nonfatal_kafka_error_logged_and_polling_continues(
     handled, exits = [], []
 
     class Handler:
-        async def process(self, topic: str, raw: bytes) -> None:
+        async def process(self, topic: str, raw: bytes, headers: Any = None) -> None:
             handled.append(raw)
             runner.stopping = True
 
@@ -83,7 +86,7 @@ async def test_permanently_stopped_consumer_exits_one_after_logging(
     exits = []
 
     class Handler:
-        async def process(self, topic: str, raw: bytes) -> None:
+        async def process(self, topic: str, raw: bytes, headers: Any = None) -> None:
             raise RuntimeError("synthetic-private-dlq-error")
 
     class Bus:

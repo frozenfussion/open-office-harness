@@ -42,6 +42,13 @@
         "minimum": 0,
         "maximum": 1
       }
+    },
+    "trace_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "not": {
+        "const": "00000000000000000000000000000000"
+      }
     }
   },
   "required": [

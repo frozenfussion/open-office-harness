@@ -20,6 +20,7 @@ from gateway.events import Events
 from gateway.identity import Identity
 from gateway.models import Call, Classify, GatewayError
 from gateway.registry import Registry
+from gateway.tracing import instrument_app, instrument_client
 
 
 class GatewayStreamingResponse(StreamingResponse):
@@ -64,13 +65,19 @@ def create_app(config: Config | None = None) -> FastAPI:
         # HTTP library diagnostics include remote addresses; provider configuration is private.
         for name in ("httpx", "httpcore"):
             logging.getLogger(name).setLevel(logging.CRITICAL)
-        async with httpx.AsyncClient(
-            timeout=15, follow_redirects=False, trust_env=False
-        ) as client:
+        async with (
+            httpx.AsyncClient(
+                timeout=15, follow_redirects=False, trust_env=False
+            ) as client,
+            httpx.AsyncClient(
+                timeout=15, follow_redirects=False, trust_env=False
+            ) as provider_client,
+        ):
             app.state.db = Database(settings.db)
+            instrument_client(client)
             app.state.identity = Identity(settings, client)
             app.state.engine = Engine(
-                client,
+                provider_client,
                 Registry(settings, client, app.state.identity),
                 app.state.db,
                 Events(
@@ -209,4 +216,5 @@ def create_app(config: Config | None = None) -> FastAPI:
             body, x_correlation_id, provider_details=pinned_test
         )
 
+    instrument_app(app)
     return app

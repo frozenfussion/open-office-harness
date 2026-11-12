@@ -11,3 +11,8 @@ data:
   GW_CONTROL_CENTRE_URL: http://control-centre.${APPS_NAMESPACE}.svc:8081
   GW_KAFKA_BOOTSTRAP: ooh-kafka-kafka-bootstrap.${PLATFORM_NAMESPACE}.svc:9092
   GW_KAFKA_USERNAME: model-gateway
+  OTEL_SERVICE_NAME: model-gateway
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.${PLATFORM_NAMESPACE}.svc:4318
+  OTEL_TRACES_SAMPLER: parentbased_always_on
+  OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: health

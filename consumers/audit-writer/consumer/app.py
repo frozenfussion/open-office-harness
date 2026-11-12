@@ -21,6 +21,7 @@ from consumer.database import Database
 from consumer.events import Bus, Processor, Runner
 from consumer.identity import Identity
 from consumer.identity_error import IdentityError
+from consumer.tracing import instrument_app
 
 
 def cost_number(value: Decimal | float) -> float:
@@ -131,6 +132,9 @@ def create_app(config: Config | None = None) -> FastAPI:
     async def trail(
         request: Request,
         correlation_id: UUID | None = None,
+        trace_id: Annotated[
+            str | None, Query(pattern=re.compile(r"^(?!0{32}$)[0-9a-f]{32}$"))
+        ] = None,
         user_id: Annotated[str | None, Query(min_length=1)] = None,
         actor: Annotated[str | None, Query(min_length=1)] = None,
         action: Annotated[str | None, Query(min_length=1)] = None,
@@ -140,6 +144,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         rows = await request.app.state.db.trail(
             {
                 "correlation_id": correlation_id,
+                "trace_id": trace_id,
                 "user_id": user_id,
                 "actor": actor,
                 "action": action,
@@ -170,4 +175,5 @@ def create_app(config: Config | None = None) -> FastAPI:
             return await request.app.state.db.counts(selected_day)
         return await request.app.state.db.counts(selected_day, bounds=bounds)
 
+    instrument_app(app)
     return app
