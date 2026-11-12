@@ -5,6 +5,11 @@ metadata:
   name: slides-worker-config
   namespace: ${APPS_NAMESPACE}
 data:
+  OTEL_SERVICE_NAME: slides-worker
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.${PLATFORM_NAMESPACE}.svc:4318
+  OTEL_TRACES_SAMPLER: parentbased_always_on
+  OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: health
   SW_OIDC_ISSUER: https://auth.${DOMAIN}/realms/ooh
   SW_CLIENT_ID: ooh-slides-worker
   SW_GATEWAY_URL: http://model-gateway.${APPS_NAMESPACE}.svc:8080

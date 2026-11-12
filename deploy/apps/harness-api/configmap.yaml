@@ -5,6 +5,11 @@ metadata:
   name: harness-api-config
   namespace: ${APPS_NAMESPACE}
 data:
+  OTEL_SERVICE_NAME: harness-api
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.${PLATFORM_NAMESPACE}.svc:4318
+  OTEL_TRACES_SAMPLER: parentbased_always_on
+  OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: health
   HA_OIDC_ISSUER: https://auth.${DOMAIN}/realms/ooh
   HA_OIDC_AUDIENCE: ooh-harness-api
   HA_CLIENT_ID: ooh-harness-api

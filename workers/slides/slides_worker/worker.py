@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from referencing import Registry, Resource
 
 from .config import Settings
+from .tracing import audit_context
 
 NAMESPACE = UUID("6f1d5b7e-3c1a-4b8e-9a52-1f0c8f3e2d10")
 MAX_POLL_INTERVAL_MS = 7_400_000
@@ -56,8 +57,11 @@ class Model(Protocol):
 def envelope(
     kind: str, incoming: dict[str, Any], payload: dict[str, Any]
 ) -> dict[str, Any]:
+    suffix = payload.get("status", payload.get("outcome", ""))
+    if kind == "audit.event":
+        payload = {**payload, **audit_context()}
     return {
-        "event_id": str(uuid5(NAMESPACE, incoming["event_id"] + kind)),
+        "event_id": str(uuid5(NAMESPACE, incoming["event_id"] + kind + suffix)),
         "type": kind,
         "version": 1,
         "occurred_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),

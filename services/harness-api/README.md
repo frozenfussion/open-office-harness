@@ -5,18 +5,18 @@
    Type this in your harness terminal, in the plain shell. Claude runs it while Aziz watches. No password is needed. This creates the databases and saves private test settings. Run platform apply and realm sync first. Existing credentials are kept.
 
    ```bash
-   cd ~/projects/worktrees/stage-3-part-a
+   cd ~/projects/worktrees/stage-4-part-a
    bash install/66-harness-api-setup.sh
    ```
 
-   Good result: `DONE`. Test settings are saved in `~/.config/ooh/harness-api-test.env`, mode 600. Never paste or print that file. For the combined stage deployment, use `cd ~/projects/worktrees/stage-3` instead; after acceptance use `cd ~/projects/open-office-harness`.
+   Good result: `DONE`. Test settings are saved in `~/.config/ooh/harness-api-test.env`, mode 600. Never paste or print that file. For the combined stage deployment, use `cd ~/projects/worktrees/stage-4` instead; after acceptance use `cd ~/projects/open-office-harness`.
 
 2. **Run the builder checks.**
 
    Type this in your harness terminal, in the plain shell. No password is needed. This loads only the private test database settings and checks the service. Run it after setup prints `DONE`.
 
    ```bash
-   cd ~/projects/worktrees/stage-3-part-a/services/harness-api
+   cd ~/projects/worktrees/stage-4-part-a/services/harness-api
    set +x
    set -a
    source "$HOME/.config/ooh/harness-api-test.env"
@@ -36,7 +36,7 @@
    Type this in your harness terminal, in the plain shell. Claude runs it while Aziz watches. No password is needed. This deploys the image for the current commit, runs migrations, and waits for that revision to be ready.
 
    ```bash
-   cd ~/projects/worktrees/stage-3
+   cd ~/projects/worktrees/stage-4
    bash install/67-harness-api-deploy.sh "$(git rev-parse --short=12 HEAD)"
    ```
 
@@ -107,11 +107,12 @@
     Type this in your harness terminal, in the plain shell. No password is needed. This checks the combined stage after reboot.
 
     ```bash
-    cd ~/projects/worktrees/stage-3
+    cd ~/projects/worktrees/stage-4
     bash install/40-check-platform.sh
     bash install/62-check-control-centre.sh
     bash install/70-check-stage-2.sh
     bash install/77-check-stage-3.sh "$(git rev-parse --short=12 HEAD)"
+    bash install/78-check-stage-4.sh "$(git rev-parse --short=12 HEAD)"
     ```
 
     Good result: each prints only passing checks and ends with `DONE`. Each run of the Stage 2 check makes short paid model calls. Aziz then signs in to the Workspace and checks chat and history.
@@ -250,3 +251,28 @@ Migration `0004_message_routing.sql` adds nullable routing JSON to messages.
 Completed Auto answers store and return `{tier,scores,skill?,note?}` without
 exposing private reasoning. A forced tool that was not applied and produced no
 tool call adds "The model chose not to use <skill title>." to the note.
+
+## Tracing and replay (Stage 4)
+
+The ConfigMap supplies `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_PROTOCOL`
+(`http/protobuf`), `OTEL_EXPORTER_OTLP_ENDPOINT` and
+`OTEL_TRACES_SAMPLER` (`parentbased_always_on`). An empty or unset endpoint
+leaves tracing off: no provider or exporter is created. Health is excluded.
+Spans export through a batch processor with a five-second export timeout;
+export failures do not fail requests. Only the fixed attribute list is exported;
+events, exception details and status descriptions are removed (an explicit error
+code may remain). No database instrumentation is installed.
+
+Each package instruments its own HTTP client, never every client globally.
+Kafka sends and receives propagate W3C `traceparent` and `tracestate` headers.
+Audit events include the current nonzero trace id when there is one.
+Open a trace from Audit in the Admin Console after deploying the merged stage.
+Jaeger stores traces in memory; restarting it clears traces but keeps audit rows.
+
+Requests carrying `X-Forwarded-For` have incoming trace context removed before
+OpenTelemetry starts the HTTP span; in-cluster requests continue their context.
+Kafka header injection happens before the publishing thread is scheduled.
+Routing, streaming and title calls share the request trace.
+A completed Slides result can revive only a failed job with error code
+`worker_gave_up`. Other final states remain final. A revived job emits
+`job.completed` and clears its previous error.

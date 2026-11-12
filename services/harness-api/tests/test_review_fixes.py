@@ -37,6 +37,9 @@ class Message:
     def value(self) -> bytes:
         return self.content.encode()
 
+    def headers(self) -> list[tuple[str, bytes]]:
+        return []
+
     def topic(self) -> str:
         return "skill.results"
 

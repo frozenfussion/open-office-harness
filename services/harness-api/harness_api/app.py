@@ -35,6 +35,7 @@ from .events import JobEvents, Kafka, Publisher, envelope
 from .jobs import Jobs, download_path
 from .routing import route
 from .store import MAX_THINKING_CHARS, Store
+from .tracing import instrument
 from .upstream import GatewayStream, Upstream
 
 TITLE_TIMEOUT_SECONDS = 20
@@ -781,6 +782,7 @@ def create_app(
         query(request)
         raise ApiError(503, "not_built_yet", "Uploads are not built yet.")
 
+    instrument(app, http, public=True)
     return app
 
 

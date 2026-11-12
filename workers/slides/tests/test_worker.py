@@ -144,6 +144,12 @@ def test_slow_gateway_poll_budget_and_health(tmp_path: Path) -> None:
     event = request()
 
     class Message:
+        def topic(self) -> str:
+            return "skill.requests.slides"
+
+        def headers(self) -> list[tuple[str, bytes]]:
+            return []
+
         def value(self) -> bytes:
             return json.dumps(event).encode()
 
@@ -288,6 +294,12 @@ def test_consumer_nonfatal_errors_and_process_exit(
             return failure == "fatal"
 
     class Message:
+        def topic(self) -> str:
+            return "skill.requests.slides"
+
+        def headers(self) -> list[tuple[str, bytes]]:
+            return []
+
         def __init__(self, error: Error | None) -> None:
             self.poll_error = error
 
@@ -394,3 +406,19 @@ def test_worker_producer_waits_for_own_callback(
             kafka.publish("skill.results", {"correlation_id": str(uuid4())})
     assert not kafka.producer.pending
     assert kafka.producer.polls == (3 if mode == "delayed" else 1)
+
+
+def test_failed_then_replayed_result_and_audit_ids(tmp_path: Path) -> None:
+    model, publisher = Model(), Publisher()
+    worker = Worker(str(tmp_path), model, publisher, sleep=lambda seconds: None)
+    event = request()
+    model.fail = True
+    worker.process(json.dumps(event))
+    model.fail = False
+    worker.process(json.dumps(event))
+    worker.process(json.dumps(event))
+    for topic in ["skill.results", "audit.events"]:
+        rows = [e for t, e in publisher.events if t == topic]
+        assert len(rows) == 3
+        assert rows[0]["event_id"] != rows[1]["event_id"]
+        assert rows[1]["event_id"] == rows[2]["event_id"]
