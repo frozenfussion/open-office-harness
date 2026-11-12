@@ -75,7 +75,7 @@ async def test_simple_auto_correlations_storage_and_audit(h: Harness) -> None:
 async def test_high_score_requires_right_and_falls_back(
     h: Harness, decision: Any
 ) -> None:
-    classifier(h, needs_tier2=0.7)
+    classifier(h, needs_tier2=0.5)
 
     def check(request: httpx.Request) -> httpx.Response:
         if json.loads(request.content)["target"] == "2":
@@ -408,11 +408,13 @@ async def test_slow_classifier_times_out_then_answers_lowest_tier(h: Harness) ->
     assert stored["routing"] == done["routing"]
 
 
-async def test_routing_timeout_default_and_environment_setting(
+async def test_routing_defaults_and_environment_settings(
     h: Harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from harness_api.config import Settings
 
+    assert h.app.state.upstream.settings.route_tier_threshold == 0.5
+    monkeypatch.delenv("HA_ROUTE_TIER_THRESHOLD", raising=False)
     assert h.app.state.upstream.settings.route_timeout_seconds == 30
     for name, value in {
         "HA_DB_CONNECTION": "unused",
@@ -426,3 +428,6 @@ async def test_routing_timeout_default_and_environment_setting(
     }.items():
         monkeypatch.setenv(name, value)
     assert Settings.from_env().route_timeout_seconds == 12.5
+    assert Settings.from_env().route_tier_threshold == 0.5
+    monkeypatch.setenv("HA_ROUTE_TIER_THRESHOLD", "0.6")
+    assert Settings.from_env().route_tier_threshold == 0.6
