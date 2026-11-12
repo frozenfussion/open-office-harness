@@ -1,3 +1,41 @@
+# Stage 4 phase 1 - accepted (12 Nov 2026)
+
+Aziz accepted Stage 4 phase 1 on **12 Nov 2026, 22:56 MYT**, at `stage-4` commit
+`7c721a4de601` (all nine images built and deployed with that tag). Tag `class-start`.
+Merge into `main` waits for Aziz's yes.
+
+## What was built
+
+- OpenTelemetry tracing from every service into Jaeger inside the cluster; attribute allow-list; Kafka `traceparent` headers; public requests always start a new trace; `trace_id` on every audit row.
+- Admin Console: Trace view on the Audit screen (opens under the clicked row, with Close); Failed messages screen with Replay (`POST /api/admin/dead-letters/{id}/replay`, `dead_letter_replays` table, audit row for every replay).
+- Class demos `install/79-demo.sh` (duplicate, worker-down, dead-letter) and check `install/78-check-stage-4.sh`.
+- Workspace: a saved chat link (`/?conversation=<id>`) opens that chat after sign-in; words in chat tables never break mid-word.
+
+## What was checked
+
+| Check | Result |
+|---|---|
+| `40`, `62`, `70`, `77`, `78` at `ec1973f72c4f` | PASS before and after `sudo reboot` (198 PASS, 0 FAIL) |
+| Three demos in the browser | duplicate, worker-down, dead-letter with Replay: all worked |
+| Browser | Audit trace for a chat and a Slides job; saved link through sign-in; invalid saved link ignored; whole words in tables, also at phone width |
+| Independent audit (`reviews/stage-4-audit.md`) | found an outside trace id adopted by the Control Centre, plus smaller issues; fixed in one fix round (`3ef4adb`, `7c721a4`), review and re-review with no findings |
+| `40`, `62`, `70`, `77`, `78` at `7c721a4de601` | 199 PASS, 0 FAIL; forged `traceparent` through the admin address refused and absent from Jaeger |
+| Clean worktree | contract tests 18 passed (`ec1973f`, contracts unchanged since); `bash -n`, `shellcheck` clean; `kubeconform -strict` 0 invalid |
+
+## Recorded deviation
+
+- The Control Centre sends traces with its own small OTLP HTTP/protobuf sender (`PrivateSpanExporter.cs`) instead of the `OpenTelemetry.Exporter.OpenTelemetryProtocol` package; it reads `OTEL_EXPORTER_OTLP_PROTOCOL` and warns once if it is not `http/protobuf`.
+
+## Open for later
+
+- Gateway "send audit.events" spans end after their parent (cosmetic, timeline bars run past it).
+- Any pod in the cluster can read Jaeger's query API (the spec does not forbid it).
+- Jaeger keeps traces in memory; a restart empties it (fine for class, not for production).
+- The audit row for chat-title calls shows the person as `title-<user id>`.
+- Phase 2 (AWS via Terraform, tag `eks-ready`): spec `stage-4b-aws.md` still to write.
+
+---
+
 # Stage 3 - accepted (12 Nov 2026)
 
 Aziz accepted Stage 3 on **12 Nov 2026, 15:36 MYT**, at `stage-3` commit
