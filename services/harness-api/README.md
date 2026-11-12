@@ -258,6 +258,9 @@ The ConfigMap supplies `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_PROTOCOL`
 (`http/protobuf`), `OTEL_EXPORTER_OTLP_ENDPOINT` and
 `OTEL_TRACES_SAMPLER` (`parentbased_always_on`). An empty or unset endpoint
 leaves tracing off: no provider or exporter is created. Health is excluded.
+ASGI send/receive spans are excluded, so streamed chunks do not each create a span. HTTP instrumentation uses the fixed modern method
+and status-code attribute names. The SDK reads `OTEL_TRACES_SAMPLER`; if the
+service name is absent it defaults to `harness-api`.
 Spans export through a batch processor with a five-second export timeout;
 export failures do not fail requests. Only the fixed attribute list is exported;
 events, exception details and status descriptions are removed (an explicit error
@@ -265,6 +268,7 @@ code may remain). No database instrumentation is installed.
 
 Each package instruments its own HTTP client, never every client globally.
 Kafka sends and receives propagate W3C `traceparent` and `tracestate` headers.
+Their spans carry readable correlation, user and skill ids.
 Audit events include the current nonzero trace id when there is one.
 Open a trace from Audit in the Admin Console after deploying the merged stage.
 Jaeger stores traces in memory; restarting it clears traces but keeps audit rows.
@@ -272,7 +276,8 @@ Jaeger stores traces in memory; restarting it clears traces but keeps audit rows
 Requests carrying `X-Forwarded-For` have incoming trace context removed before
 OpenTelemetry starts the HTTP span; in-cluster requests continue their context.
 Kafka header injection happens before the publishing thread is scheduled.
-Routing, streaming and title calls share the request trace.
+Routing, streaming and title calls share the request trace. The chat server
+span carries the conversation id and selected tier (including a fallback tier).
 A completed Slides result can revive only a failed job with error code
 `worker_gave_up`. Other final states remain final. A revived job emits
 `job.completed` and clears its previous error.

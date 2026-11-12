@@ -15,7 +15,6 @@ from opentelemetry.sdk.trace.export import (
     SpanExporter,
     SpanExportResult,
 )
-from opentelemetry.sdk.trace.sampling import ALWAYS_ON, ParentBased
 from opentelemetry.trace import SpanKind, Status
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
@@ -67,13 +66,15 @@ class FilteringExporter(SpanExporter):
 
 def configure() -> TracerProvider | None:
     global provider
+    os.environ.setdefault("OTEL_SEMCONV_STABILITY_OPT_IN", "http")
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
     if not endpoint:
         return None
     if provider is None:
         provider = TracerProvider(
-            resource=Resource.create({"service.name": os.environ["OTEL_SERVICE_NAME"]}),
-            sampler=ParentBased(ALWAYS_ON),
+            resource=Resource.create(
+                {"service.name": os.getenv("OTEL_SERVICE_NAME", "slides-worker")}
+            ),
         )
         provider.add_span_processor(
             BatchSpanProcessor(
@@ -93,7 +94,10 @@ def instrument(app: Any, client: Any) -> None:
         return
     HTTPXClientInstrumentor.instrument_client(client, tracer_provider=configured)
     FastAPIInstrumentor.instrument_app(
-        app, tracer_provider=configured, excluded_urls="health"
+        app,
+        tracer_provider=configured,
+        excluded_urls="health",
+        exclude_spans=["receive", "send"],
     )
 
 
@@ -126,3 +130,20 @@ def kafka_span(topic: str, headers: Any = None) -> Iterator[list[tuple[str, byte
             span.set_attribute("ooh.error_code", "handling_failed")
             span.set_status(Status(trace.StatusCode.ERROR))
             raise
+
+
+def annotate_event(event: Any, job: bool = False) -> None:
+    if not isinstance(event, dict):
+        return
+    span = trace.get_current_span()
+    for field in ("correlation_id", "user_id"):
+        value = event.get(field)
+        if isinstance(value, str) and value:
+            span.set_attribute("ooh." + field, value)
+    payload = event.get("payload")
+    skill = payload.get("skill") if isinstance(payload, dict) else None
+    if isinstance(skill, str) and skill:
+        span.set_attribute("ooh.skill", skill)
+    correlation = event.get("correlation_id")
+    if job and isinstance(correlation, str) and correlation:
+        span.set_attribute("ooh.job_id", correlation)

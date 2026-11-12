@@ -67,11 +67,26 @@ def test_kafka_parent_and_filter(spans: Any) -> None:
         ),
     ) as parent:
         with tracing.kafka_span("skill.requests.slides") as headers:
+            tracing.annotate_event(
+                {
+                    "correlation_id": "job-id",
+                    "user_id": "test-user",
+                    "payload": {"skill": "slides", "text": "PRIVATE_MARKER"},
+                }
+            )
             assert dict(headers)["traceparent"].decode().split("-")[1] == format(
                 parent.get_span_context().trace_id, "032x"
             )
         assert dict(headers)["tracestate"] == b"test=demo"
         with tracing.kafka_span("skill.requests.slides", headers):
+            tracing.annotate_event(
+                {
+                    "correlation_id": "job-id",
+                    "user_id": "test-user",
+                    "payload": {"skill": "slides", "text": "PRIVATE_MARKER"},
+                },
+                job=True,
+            )
             assert (
                 trace.get_current_span().get_span_context().trace_state.to_header()
                 == "test=demo"
@@ -85,6 +100,12 @@ def test_kafka_parent_and_filter(spans: Any) -> None:
                 parent.get_span_context().trace_id, "032x"
             )
     published, consumed, root = exporter.get_finished_spans()
+    for span in (published, consumed):
+        assert span.attributes["ooh.correlation_id"] == "job-id"
+        assert span.attributes["ooh.user_id"] == "test-user"
+        assert span.attributes["ooh.skill"] == "slides"
+        assert "PRIVATE_MARKER" not in str(dict(span.attributes))
+    assert consumed.attributes["ooh.job_id"] == "job-id"
     assert consumed.parent.span_id == published.context.span_id
     assert published.parent.span_id == root.context.span_id
     assert published.kind == trace.SpanKind.PRODUCER
@@ -132,6 +153,9 @@ async def test_http_roots_children_and_private_errors(spans: Any) -> None:
     assert any(s.kind == trace.SpanKind.CLIENT and s.parent for s in finished)
     assert any(s.status.status_code == trace.StatusCode.ERROR for s in finished)
     for span in finished:
+        if span.kind in {trace.SpanKind.SERVER, trace.SpanKind.CLIENT}:
+            assert span.attributes["http.request.method"] == "GET"
+            assert span.attributes["http.response.status_code"] in {200, 500}
         assert not span.events
         assert set(span.attributes) <= tracing.ALLOWED
         assert "PRIVATE_MARKER" not in str(
@@ -233,6 +257,10 @@ def test_runtime_consumer_gateway_and_real_producer(spans: Any, tmp_path: Path) 
     finished = exporter.get_finished_spans()
     consumed = next(s for s in finished if s.kind == trace.SpanKind.CONSUMER)
     request_send = next(s for s in finished if s.name == "send skill.requests.slides")
+    assert consumed.attributes["ooh.correlation_id"] == event["correlation_id"]
+    assert consumed.attributes["ooh.job_id"] == event["correlation_id"]
+    assert consumed.attributes["ooh.user_id"] == event["user_id"]
+    assert consumed.attributes["ooh.skill"] == "slides"
     assert consumed.parent.span_id == request_send.context.span_id
     assert all(s.context.trace_id == consumed.context.trace_id for s in finished)
     assert len(calls) == 2
@@ -243,6 +271,10 @@ def test_runtime_consumer_gateway_and_real_producer(spans: Any, tmp_path: Path) 
     assert {t for t, _ in sent} == {"skill.results", "audit.events"}
     for topic, kwargs in sent:
         producer = next(s for s in finished if s.name == "send " + topic)
+        assert producer.attributes["ooh.correlation_id"] == event["correlation_id"]
+        assert producer.attributes["ooh.user_id"] == event["user_id"]
+        if topic == "skill.results":
+            assert producer.attributes["ooh.skill"] == "slides"
         assert producer.parent.span_id == consumed.context.span_id
         assert dict(kwargs["headers"])["traceparent"].decode().split("-")[1] == format(
             consumed.context.trace_id, "032x"
@@ -251,3 +283,57 @@ def test_runtime_consumer_gateway_and_real_producer(spans: Any, tmp_path: Path) 
             assert json.loads(kwargs["value"])["payload"]["trace_id"] == format(
                 consumed.context.trace_id, "032x"
             )
+
+
+@pytest.mark.parametrize(
+    "sampler,recording", [("always_off", False), ("always_on", True)]
+)
+def test_configure_reads_sampler_and_defaults_service_name(
+    monkeypatch: pytest.MonkeyPatch, sampler: str, recording: bool
+) -> None:
+    monkeypatch.setattr(tracing, "provider", None)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://unused.test")
+    monkeypatch.setenv("OTEL_TRACES_SAMPLER", sampler)
+    monkeypatch.delenv("OTEL_slides-worker", raising=False)
+    monkeypatch.delenv("OTEL_SEMCONV_STABILITY_OPT_IN", raising=False)
+    exporter = InMemorySpanExporter()
+    monkeypatch.setattr(tracing, "OTLPSpanExporter", lambda **kwargs: exporter)
+    provider = tracing.configure()
+    assert provider is not None
+    assert tracing.os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] == "http"
+    assert provider.resource.attributes["service.name"] == "slides-worker"
+    try:
+        with provider.get_tracer("test").start_as_current_span("request") as span:
+            assert span.is_recording() is recording
+    finally:
+        provider.shutdown()
+
+
+@pytest.mark.anyio
+async def test_stream_has_one_server_span_without_chunk_spans(spans: Any) -> None:
+    from collections.abc import AsyncIterator
+
+    from fastapi.responses import StreamingResponse
+
+    _, exporter = spans
+    app = FastAPI()
+
+    async def chunks() -> AsyncIterator[str]:
+        for _ in range(50):
+            yield "data: example\n\n"
+
+    @app.get("/stream")
+    async def stream() -> StreamingResponse:
+        return StreamingResponse(chunks(), media_type="text/event-stream")
+
+    async with httpx.AsyncClient() as internal:
+        tracing.instrument(app, internal)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://app.test"
+        ) as client:
+            response = await client.get("/stream")
+    assert response.text.count("data: example") == 50
+    finished = exporter.get_finished_spans()
+    assert len(finished) == 1
+    assert finished[0].kind == trace.SpanKind.SERVER
+    assert not any("http send" in s.name or "http receive" in s.name for s in finished)

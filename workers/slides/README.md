@@ -181,6 +181,9 @@ The ConfigMap supplies `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_PROTOCOL`
 (`http/protobuf`), `OTEL_EXPORTER_OTLP_ENDPOINT` and
 `OTEL_TRACES_SAMPLER` (`parentbased_always_on`). An empty or unset endpoint
 leaves tracing off: no provider or exporter is created. Health is excluded.
+ASGI send/receive spans are excluded, so streamed chunks do not each create a span. HTTP instrumentation uses the fixed modern method
+and status-code attribute names. The SDK reads `OTEL_TRACES_SAMPLER`; if the
+service name is absent it defaults to `slides-worker`.
 Spans export through a batch processor with a five-second export timeout;
 export failures do not fail requests. Only the fixed attribute list is exported;
 events, exception details and status descriptions are removed (an explicit error
@@ -188,6 +191,8 @@ code may remain). No database instrumentation is installed.
 
 Each package instruments its own HTTP client, never every client globally.
 Kafka sends and receives propagate W3C `traceparent` and `tracestate` headers.
+Their spans carry readable correlation, user and skill ids.
+The worker consumer also carries the job id from the correlation id.
 Audit events include the current nonzero trace id when there is one.
 Open a trace from Audit in the Admin Console after deploying the merged stage.
 Jaeger stores traces in memory; restarting it clears traces but keeps audit rows.

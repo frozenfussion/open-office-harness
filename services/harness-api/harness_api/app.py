@@ -15,6 +15,7 @@ import psycopg
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from opentelemetry import trace
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -613,6 +614,8 @@ def create_app(
     ) -> StreamingResponse:
         query(request)
         user_id = claims["sub"]
+        span = trace.get_current_span()
+        span.set_attribute("ooh.conversation_id", str(id))
         await database.conversation(id, user_id)
         rights, skills = await upstream.permissions(user_id)
         tiers = rights.chat_tiers
@@ -621,6 +624,7 @@ def create_app(
                 403, "no_tier", "You have no chat tier yet. An admin can grant one."
             )
         tier = body.tier if isinstance(body.tier, int) else tiers[0]
+        span.set_attribute("ooh.tier", tier)
         await upstream.check(user_id, tier)
         tools = upstream.tools(skills)
         history = await database.history(id)
@@ -637,6 +641,7 @@ def create_app(
                 upstream, user_id, body.content, tiers[0], skills, correlation
             )
             tier = routing["tier"]
+            span.set_attribute("ooh.tier", tier)
             note = routing.get("note")
             if routing.get("skill"):
                 tool_choice = {"name": routing["skill"]}
@@ -663,6 +668,7 @@ def create_app(
                 record_failure("gateway_error", error.code, tier)
                 original = tier
                 tier = lower[0]
+                span.set_attribute("ooh.tier", tier)
                 await upstream.check(user_id, tier)
                 note = (
                     f"tier {original} is over its daily budget; "

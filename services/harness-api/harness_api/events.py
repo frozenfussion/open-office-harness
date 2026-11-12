@@ -15,7 +15,7 @@ from referencing import Registry, Resource
 
 from .config import Settings
 from .diagnostics import failure
-from .tracing import audit_context, kafka_span
+from .tracing import annotate_event, audit_context, kafka_span
 
 NAMESPACE = UUID("6f1d5b7e-3c1a-4b8e-9a52-1f0c8f3e2d10")
 
@@ -90,6 +90,7 @@ class Kafka:
 
     async def publish(self, topic: str, event: dict[str, Any]) -> None:
         with kafka_span(topic) as headers:
+            annotate_event(event)
             await self._publish(topic, event, headers)
 
     async def _publish(
@@ -177,6 +178,7 @@ class Kafka:
                     event: dict[str, Any] = {}
                     try:
                         event = json.loads(raw)
+                        annotate_event(event)
                         self.schema.validate(event)
                         expected = {
                             "skill.results": "skill.result",

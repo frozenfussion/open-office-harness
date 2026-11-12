@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 
 from .config import Settings
 from .diagnostics import JsonFormatter
-from .tracing import instrument, kafka_span
+from .tracing import annotate_event, instrument, kafka_span
 from .worker import MAX_POLL_INTERVAL_MS, Gateway, Worker
 
 
@@ -44,6 +44,7 @@ class Kafka:
 
     def publish(self, topic: str, event: dict[str, Any]) -> None:
         with kafka_span(topic) as headers:
+            annotate_event(event)
             deliveries: list[Any] = []
             delivered = threading.Event()
 
@@ -87,9 +88,13 @@ class Runtime:
                     )
                     continue
                 with kafka_span(message.topic(), message.headers() or []):
-                    self.worker.process(
-                        message.value().decode("utf-8", errors="replace")
-                    )
+                    raw = message.value().decode("utf-8", errors="replace")
+                    try:
+                        event = json.loads(raw)
+                    except ValueError:
+                        event = None
+                    annotate_event(event, job=True)
+                    self.worker.process(raw)
                 self.kafka.consumer.commit(message=message, asynchronous=False)
         except Exception:
             self.fatal = True
