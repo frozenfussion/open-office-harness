@@ -51,7 +51,7 @@ api() {
 # Refuse to create another first admin once a permanent administrator exists.
 admins="$(api "$base/admin/realms/ooh/roles/ooh-admin/users?max=-1")" || exit 1
 [[ "$(jq '[.[] | select(.serviceAccountClientId == null and ((.username // "") | startswith("service-account-") | not))] | length' <<< "$admins")" == 0 ]] || { printf 'First admin already exists; no changes made\nDONE\n'; exit 0; }
-existing="$(api --get --data-urlencode "username=$username" --data-urlencode exact=true "$base/admin/realms/ooh/users")" || exit 1
+existing="$(api --get --data-urlencode username@/dev/fd/4 --data-urlencode exact=true "$base/admin/realms/ooh/users" 4< <(printf '%s' "$username"))" || exit 1
 count="$(jq 'length' <<< "$existing")"
 if [[ "$count" != 0 ]]; then
   jq -e 'length == 1 and .[0].attributes["ooh-first-admin"] == ["true"]' <<< "$existing" >/dev/null || stop "username already exists; inspect the account before retrying; it will not be overwritten"
@@ -63,7 +63,7 @@ payload="$(printf '%s\0%s\0%s' "$username" "$email" "$password" |
 request --config /dev/fd/3 -X POST -H 'Content-Type: application/json' --data-binary @- "$base/admin/realms/ooh/users" 3< <(printf 'header = "Authorization: Bearer %s"\n' "$token") <<< "$payload" >/dev/null || exit 1
 fi
 unset password confirmation payload
-users="$(api --get --data-urlencode "username=$username" --data-urlencode exact=true "$base/admin/realms/ooh/users")" || exit 1
+users="$(api --get --data-urlencode username@/dev/fd/4 --data-urlencode exact=true "$base/admin/realms/ooh/users" 4< <(printf '%s' "$username"))" || exit 1
 id="$(jq -er 'if length == 1 then .[0].id else error("user lookup failed") end' <<< "$users")"
 role="$(api "$base/admin/realms/ooh/roles/ooh-admin" | jq -c '[{id:.id,name:.name}]')" || exit 1
 request --config /dev/fd/3 -X POST -H 'Content-Type: application/json' --data-binary @- "$base/admin/realms/ooh/users/$id/role-mappings/realm" 3< <(printf 'header = "Authorization: Bearer %s"\n' "$token") <<< "$role" >/dev/null || exit 1
