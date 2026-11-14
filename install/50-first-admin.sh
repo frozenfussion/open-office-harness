@@ -23,8 +23,8 @@ api() {
     curl --config - --connect-timeout 10 --max-time 30 -fsS "$@" 2>/dev/null
 }
 # Refuse to create another first admin once a permanent administrator exists.
-admins="$(api "$base/admin/realms/ooh/roles/ooh-admin/users?max=1")"
-[[ "$(jq 'length' <<< "$admins")" == 0 ]] || { printf 'First admin already exists; no changes made\nDONE\n'; exit 0; }
+admins="$(api "$base/admin/realms/ooh/roles/ooh-admin/users?max=-1")"
+[[ "$(jq '[.[] | select(.serviceAccountClientId == null and ((.username // "") | startswith("service-account-") | not))] | length' <<< "$admins")" == 0 ]] || { printf 'First admin already exists; no changes made\nDONE\n'; exit 0; }
 read -r -p 'First admin username: ' username
 read -r -p 'First admin email: ' email
 read -r -s -p 'First admin password (hidden): ' password; printf '\n'
