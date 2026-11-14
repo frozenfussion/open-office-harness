@@ -285,7 +285,9 @@ session is readable by every process running as the same Unix user.
    username, email and a new password (hidden, typed twice). This is not the
    sudo password and not the Droplet admin's password. This administrator is
    separate from the Droplet. Only an existing human administrator skips this
-   step; service accounts do not count. Good result: `DONE` and sign-in works at
+   step after the details are entered; service accounts do not count. The
+   admin token is fetched only after all input, so time spent typing does not
+   consume its lifetime. Good result: `DONE` and sign-in works at
    `https://admin.aws.faysalaziz.com` after the apps are deployed.
 
    ```bash
@@ -844,9 +846,9 @@ install/70-check-stage-2.sh
 
 9. **Update sign-in and sign-out settings.** Type this in your harness terminal, Shell tile,
    plain shell. No password. This updates existing Keycloak clients, including
-   logout redirects, Test connection audience, registration, user profile,
-   password policy and English texts. It never creates a client. Registration
-   opens by default. Run this only after the new Control Centre and Harness
+   logout redirects, Test connection audience, registration, user profile and
+   English texts. It also clears all password-strength policies. It never
+   creates a client. Registration opens by default. Run this only after the new Control Centre and Harness
    are Ready. Good result: verified settings and clients, then `DONE`.
 
    ```bash
@@ -979,8 +981,8 @@ company account**. On Keycloak's login page, **Need access? Request access** ope
 the registration form. The apps keep their single sign-in button; passwords
 are entered only in Keycloak. Enter first name, last name, work email (also the
 username), an optional organisation or team, an optional reason of at most 300 characters,
-and a chosen password twice. Passwords must be 12–128 characters and cannot be
-the username or email. There is no email verification or password-reset mail.
+and a chosen password twice. Passwords have no length or strength policy and
+may match the username or email. There is no email verification or password-reset mail.
 
 After registration the Workspace shows
 `Thanks, <first name>. Your request is waiting for approval.` It shows no chat or conversations. At 100 waiting
@@ -1421,7 +1423,9 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
    No sudo password. Good result: `First admin created`, then `DONE`.
    Open <https://auth.faysalaziz.com/realms/ooh/account>, sign in and change the
    password when asked. A repeat run leaves an existing human administrator
-   unchanged; service accounts do not count.
+   unchanged after the details are entered; service accounts do not count.
+   All details are collected before fetching the admin token. Passwords have
+   no strength or length policy.
 
    ```bash
    cd ~/projects/open-office-harness
@@ -1524,7 +1528,8 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
 | Keycloak crashes with `--optimized flag was used for first ever server start` | Stop the waiting apply script with Ctrl+C. The stock image requires `startOptimized: false`, which is set in the manifest. Re-run step 6 with the corrected manifest; existing resources and secrets are reused. |
 | Keycloak keeps crashing on an old StatefulSet revision after the manifest fix | Follow the one-time Keycloak pod recovery below, then repeat step 6. |
 | `step failed; see README` | Read the immediately preceding tool error. Check operator/pod events, connectivity, storage and memory; send the error to Codex. No changes are rolled back or deleted. |
-| `admin request failed` | Check Keycloak readiness and bootstrap secret; re-run step 8. A partly created marked first-admin account gets its role completed without changing its password. |
+| `Keycloak refused request (HTTP ...)` | Read the Keycloak reason shown after the status; correct the rejected detail and retry. Passwords and tokens are redacted. |
+| `admin request failed` / `Keycloak request could not reach the server` | Check Keycloak readiness and bootstrap secret; re-run step 8. A partly created marked first-admin account gets its role completed without changing its password. |
 | `username/email/password missing or passwords differ` | Repeat step 8 with nonempty username, valid email and matching passwords. |
 | `username already exists` | Ask Aziz to inspect that account; the script will not overwrite an unrelated account. |
 | `FAIL pods` | Check pending/crashing pods, memory, storage and operator logs. Completed jobs are excluded. |
