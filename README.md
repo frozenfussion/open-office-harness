@@ -1,5 +1,27 @@
 # QUICK GUIDE
 
+**New here? Read [docs/OVERVIEW.md](docs/OVERVIEW.md) first.** It explains the
+whole project on one page, with diagrams: the parts, the two places it runs
+(DigitalOcean Droplet and AWS EKS), the versions you can check out, known
+issues, and how it was built.
+
+open-office-harness is an office AI harness: people chat with AI models and
+ask for skills, an administrator decides who may use what and sees every
+action afterwards. Licence AGPL-3.0.
+
+This guide is the step-by-step part. The newest stage is first; to build the
+Droplet system from nothing, start at Stage 0 near the end and work upwards.
+
+| Section | What it covers |
+|---|---|
+| [Stage 4](#stage-4--traces-replay-and-class-demos) | Traces, replay of failed messages, the class demos |
+| [AWS copy](#aws-copy--stage-4-phase-2) | The same system on AWS EKS with Terraform: build, check, destroy |
+| [Stage 3](#stage-3--skills-jobs-and-admin-screens) | Skills on Kafka, jobs, audit, cost, safety, routing |
+| [Stage 2](#stage-2--talk-to-ai) | Chat: Model Gateway, Harness API, Workspace, models screen |
+| [Stage 1](#stage-1--control-centre) | Control Centre: rights and approvals |
+| [Stage 0](#stage-0--foundation) | The platform: Kubernetes, certificates, Kafka, PostgreSQL, Keycloak |
+| [What is where](#what-is-where) and [Versions](#versions) | Folder map and exact versions |
+
 ## Stage 4 — Traces, replay and class demos
 
 Claude runs the scripts in the harness terminal, Shell tile, plain shell while
@@ -198,11 +220,13 @@ session is readable by every process running as the same Unix user.
 
 1. **Install the tools, then sign in.** Type this in your harness terminal,
    Shell tile, plain shell. This installs the pinned tools without sudo, then
-   starts AWS sign-in. Good result: `DONE` from both scripts. Aziz approves the
-   browser request and types the authentication code in his browser, as the
-   sign-in script instructs. Never type or paste it in the Shell tile or chat;
-   Claude does not handle the code. Always use this sign-in script: it records
-   the sign-in time.
+   starts AWS sign-in. Good result: `DONE` from both scripts. Claude opens the
+   link the script prints; Aziz approves in the browser, copies the code AWS
+   shows with the page's "Copy verification code" button and pastes only that
+   code into the waiting script in the Shell tile. Never put the code in chat;
+   Claude does not read it. Each code belongs to one sign-in: for a new attempt
+   run the script again and use the new page. Always use this sign-in script:
+   it records the sign-in time.
 
    ```bash
    cd ~/projects/worktrees/stage-4b
@@ -411,9 +435,15 @@ session is readable by every process running as the same Unix user.
     AWS copy's databases, topics, files and address logs are intentionally
     removed; the Droplet is untouched. Good result: no leftovers and `DONE`.
     The state bucket and budget stay. Destroy logs out of AWS at the end.
+    Known issue (15 Nov 2026): the destroy script does not yet remove Kafka's
+    node pool, so run the `kubectl` line below first; without it the script
+    stops with `pods still mount data disks`. Measured on 15 Nov 2026: 20
+    minutes from `yes` to `DONE`.
 
     ```bash
     cd ~/projects/worktrees/stage-4b
+    install/83-aws-login.sh
+    kubectl --kubeconfig="$HOME/.kube/ooh-aws.config" -n ooh-platform delete kafkanodepool dual-role
     install/85-aws-destroy.sh
     ```
 
@@ -471,6 +501,10 @@ session is readable by every process running as the same Unix user.
 | DNS lookup, CNAME or HTTP front-door failure | Check the three CNAME values, TTL, load balancer readiness and inbound ports 80/443. Never point the AWS names at the Droplet. |
 | File binding / storage / PV retention failure | Check EBS CSI, its region and Pod Identity role, `ooh-gp3`, encryption, Delete policy and file-pod identity 10001. Droplet remains local-path, Retain, identity 1001. |
 | Certificate pending | Check DNS and inbound port 80, then cert-manager events. Wait out a reported rate limit. |
+| `pods still mount data disks` (destroy) | Known issue: delete Kafka's node pool with the `kubectl` line in step 11, then rerun the destroy. |
+| `Failed to decode the verification code` | The pasted text was not the complete code. Run the sign-in script again and paste the code from the new page, copied with the page's button. |
+| `State parameter ... does not match expected value` | The pasted code came from an earlier sign-in page. Run the sign-in script again and use only the newest page. |
+| `ExpiredTokenException` in the middle of a script | The AWS session ended. Run the sign-in script again and rerun the stopped script; nothing is lost. |
 | `AWS sign-in expired` or sign-in time missing/older than 11 hours | Run the sign-in script again; Aziz authenticates. Retry the stopped script. |
 | Account differs from state bucket | Stop. Check the account and private backend settings before retrying. |
 | Root access / admin proof failed | Stop before creating the node. Ask Aziz about destroying the control plane and the proposed sign-in change. |
@@ -1585,6 +1619,9 @@ kubectl -n ooh-platform delete pod ooh-keycloak-0
 | `install/ooh.env.example` | Template for private local settings in `~/.config/ooh/do.env` |
 | `install/00` through `install/50` scripts | Server check, operators, secrets, apply, realm sync, checks, first admin |
 | `docs/specs/` | Stage spec and global rules |
+| `docs/OVERVIEW.md` | One-page introduction with diagrams: parts, both deployment targets, versions, known issues, how it was built |
+| `docs/ARCHITECTURE.md`, `docs/STATUS.md` | Parts and flows in detail; what is built, checked and open |
+| `infra/terraform/aws/` | Terraform for the AWS copy (bootstrap, cluster, addons) |
 | `contracts/` | Module agreements and contract checks (Part A) |
 
 Secrets exist in Kubernetes only; interactive inputs are held in process memory.

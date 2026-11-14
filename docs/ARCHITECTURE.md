@@ -1,5 +1,8 @@
 # open-office-harness architecture
 
+For a one-page introduction with diagrams of the parts, the Kafka topics and both
+deployment targets, read [OVERVIEW.md](OVERVIEW.md) first. This page holds the detail.
+
 ![Modules and synchronous/asynchronous flows](images/architecture-v0.2.png)
 
 Stage 3 adds asynchronous Slides jobs, the audit writer, cost meter and safety
