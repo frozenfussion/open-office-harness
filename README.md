@@ -284,7 +284,8 @@ session is readable by every process running as the same Unix user.
    administrator details privately. It asks for the AWS first administrator's
    username, email and a new password (hidden, typed twice). This is not the
    sudo password and not the Droplet admin's password. This administrator is
-   separate from the Droplet. Good result: `DONE` and sign-in works at
+   separate from the Droplet. Only an existing human administrator skips this
+   step; service accounts do not count. Good result: `DONE` and sign-in works at
    `https://admin.aws.faysalaziz.com` after the apps are deployed.
 
    ```bash
@@ -1419,7 +1420,8 @@ On a fresh server, finish the Stage 0 setup below first; the apply/check order i
    plain shell. This asks for username, email and password twice (password hidden).
    No sudo password. Good result: `First admin created`, then `DONE`.
    Open <https://auth.faysalaziz.com/realms/ooh/account>, sign in and change the
-   password when asked. A repeat run leaves an existing administrator unchanged.
+   password when asked. A repeat run leaves an existing human administrator
+   unchanged; service accounts do not count.
 
    ```bash
    cd ~/projects/open-office-harness
