@@ -8,7 +8,7 @@ trap 'stop "Stage 3 check could not continue; fix the last FAIL or inspect readi
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source deploy/values/do.env
+source "$ROOT/install/lib/target.sh"
 # shellcheck source=install/lib/stage-check.sh
 source install/lib/stage-check.sh
 [[ $# == 1 && "$1" =~ ^[a-f0-9]{12}$ ]] || stop 'usage: install/77-check-stage-3.sh <12-character image tag>'
@@ -29,7 +29,7 @@ cleanup() {
   [[ -z "$check_pod" ]] || kubectl -n "$check_namespace" delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   rm -rf -- "$tmp"
 }
-trap cleanup EXIT
+trap 'cleanup; ooh_target_cleanup' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 stage_check_begin || stop 'temporary check client could not start'

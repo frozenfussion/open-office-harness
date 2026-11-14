@@ -8,7 +8,7 @@ stop() { printf 'STOP: %s\n' "$*" >&2; exit 1; }
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source deploy/values/do.env
+source "$ROOT/install/lib/target.sh"
 # shellcheck source=install/lib/stage-check.sh
 source install/lib/stage-check.sh
 for tool in kubectl curl jq flock python3; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
@@ -45,6 +45,7 @@ cleanup() {
   remove_grant || { printf 'STOP: remove this run\047s temporary check-user tier grant in People & rights\n' >&2; rc=1; }
   stage_check_end || rc=1
   rm -rf -- "$tmp"
+  ooh_target_cleanup
   exit "$rc"
 }
 trap cleanup EXIT

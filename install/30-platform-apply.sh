@@ -7,17 +7,21 @@ trap 'stop "step failed; see README troubleshooting and re-run this script"' ERR
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
-[[ -f "$HOME/.config/ooh/do.env" ]] || stop "local settings missing; copy install/ooh.env.example as described in README"
-# shellcheck source=/dev/null
-source "$HOME/.config/ooh/do.env"
+source "$ROOT/install/lib/target.sh"
+if [[ "${1:-}" == --check && ! -f "$OOH_LOCAL/do.env" ]]; then
+  LETSENCRYPT_EMAIL=render@example.invalid
+else
+  [[ -f "$OOH_LOCAL/do.env" ]] || stop "local settings missing; copy install/ooh.env.example as described in README"
+  # shellcheck source=/dev/null
+  source "$OOH_LOCAL/do.env"
+fi
 [[ -n "${LETSENCRYPT_EMAIL:-}" ]] || stop "local setting LETSENCRYPT_EMAIL is empty; fill it in as described in README"
 [[ "$LETSENCRYPT_EMAIL" == *@*.* && "$LETSENCRYPT_EMAIL" != *[[:space:]]* ]] || stop "contact email is invalid; correct local settings"
 
 [[ "$LETSENCRYPT_EMAIL" != *[\"\\]* ]] || stop "contact email contains unsupported characters; correct local settings"
 [[ $# == 0 || ( $# == 1 && "$1" == --check ) ]] || stop "usage: install/30-platform-apply.sh [--check]"
-for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE KAFKA_STORAGE POSTGRES_STORAGE FILES_STORAGE; do
-  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/do.env"
+for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE KAFKA_STORAGE POSTGRES_STORAGE FILES_STORAGE STORAGE_CLASS; do
+  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/$OOH_TARGET.env"
 done
 tmp="$(mktemp -d)"
 binding_pod=''
@@ -25,7 +29,7 @@ cleanup() {
   if [[ -n "$binding_pod" ]]; then kubectl -n "$APPS_NAMESPACE" delete pod "$binding_pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true; fi
   rm -rf -- "$tmp"
 }
-trap cleanup EXIT
+trap 'cleanup; ooh_target_cleanup' EXIT
 # shellcheck disable=SC2034 # The renderer reads this through indirect variable expansion.
 JAEGER_CONFIG_SHA256="$(sha256sum deploy/platform/tracing/configmap.yaml | cut -d ' ' -f 1)"
 # shellcheck disable=SC2034 # Used by the renderer through indirect expansion.
@@ -35,22 +39,24 @@ render() {
   local source="$1" target="$2" line variable value token
   mkdir -p "$(dirname "$target")"
   while IFS= read -r line || [[ -n "$line" ]]; do
-    for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE KAFKA_STORAGE POSTGRES_STORAGE FILES_STORAGE LETSENCRYPT_EMAIL KEYCLOAK_THEME_SHA256 JAEGER_CONFIG_SHA256; do
+    for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE KAFKA_STORAGE POSTGRES_STORAGE FILES_STORAGE STORAGE_CLASS FILES_POD_UID LETSENCRYPT_EMAIL KEYCLOAK_THEME_SHA256 JAEGER_CONFIG_SHA256; do
       value="${!variable}"
       [[ "$variable" != LETSENCRYPT_EMAIL ]] || value="$email"
       token="\${$variable}"
       line="${line//"$token"/"$value"}"
     done
+    [[ ! "$line" =~ \$\{[A-Z][A-Z0-9_]*\} ]] || stop "unknown deployment token ${BASH_REMATCH[0]} in $source"
     printf '%s\n' "$line"
   done < "$source" > "$target"
 }
 while IFS= read -r -d '' file; do
   render "$file" "$tmp/$file"
 done < <(find deploy/platform -type f -name '*.yaml' -print0)
-kubectl -n "$PLATFORM_NAMESPACE" create configmap ooh-keycloak-theme \
+kubectl --kubeconfig=/dev/null -n "$PLATFORM_NAMESPACE" create configmap ooh-keycloak-theme \
   --from-file=deploy/platform/keycloak/theme/ --dry-run=client -o yaml > "$tmp/deploy/platform/keycloak/theme-configmap.yaml"
 if [[ "${1:-}" == --check ]]; then
   kubeconform -strict -summary -skip ClusterIssuer,Kafka,KafkaNodePool,KafkaTopic,KafkaUser,Cluster,DatabaseRole,Database,Keycloak,KeycloakRealmImport "$tmp/deploy/platform"
+  (cd "$tmp"; find deploy/platform -type f -name '*.yaml' -print0 | sort -z | xargs -0 sha256sum)
   printf 'DONE\n'
   exit 0
 fi
@@ -58,6 +64,7 @@ for secret in keycloak-db keycloak-bootstrap; do
   kubectl -n "$PLATFORM_NAMESPACE" get secret "$secret" >/dev/null || stop "required secret missing; run install/20-platform-secrets.sh"
 done
 retain_claims() {
+  [[ "$RETAIN_VOLUMES" == true ]] || return 0
   local namespace="$1" selector="$2" claims volume
   claims="$(kubectl -n "$namespace" get pvc -l "$selector" -o json)"
   while IFS= read -r volume; do
@@ -66,6 +73,7 @@ retain_claims() {
   done < <(jq -r '.items[] | select(.status.phase == "Bound") | .spec.volumeName' <<< "$claims")
 }
 retain_existing() {
+  [[ "$RETAIN_VOLUMES" == true ]] || return 0
   retain_claims "$PLATFORM_NAMESPACE" strimzi.io/cluster=ooh-kafka
   retain_claims "$PLATFORM_NAMESPACE" cnpg.io/cluster=ooh-pg
   local claim volume
@@ -80,11 +88,11 @@ bind_files() {
   local phase
   phase="$(kubectl -n "$APPS_NAMESPACE" get pvc ooh-files -o jsonpath='{.status.phase}')"
   [[ "$phase" != Bound ]] || return 0
-  # local-path waits for a first consumer before creating the PV we must protect.
+  # Both storage classes wait for a first consumer before creating the PV.
   binding_pod="ooh-files-bind-$(date +%s)-$RANDOM"
-  printf 'Waiting for the file claim to bind before setting its PV to Retain\n'
-  jq -n --arg name "$binding_pod" --arg namespace "$APPS_NAMESPACE" '{apiVersion:"v1",kind:"Pod",metadata:{name:$name,namespace:$namespace},spec:{restartPolicy:"Never",activeDeadlineSeconds:120,automountServiceAccountToken:false,securityContext:{runAsNonRoot:true,runAsUser:1001,runAsGroup:1001,fsGroup:1001,seccompProfile:{type:"RuntimeDefault"}},containers:[{name:"bind",image:"ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie",command:["/bin/bash","-c","true"],resources:{requests:{cpu:"10m",memory:"32Mi"},limits:{cpu:"100m",memory:"64Mi"}},securityContext:{readOnlyRootFilesystem:true,allowPrivilegeEscalation:false,capabilities:{drop:["ALL"]}},volumeMounts:[{name:"files",mountPath:"/files"}]}],volumes:[{name:"files",persistentVolumeClaim:{claimName:"ooh-files"}}]}}' | kubectl create -f - >/dev/null
-  kubectl -n "$APPS_NAMESPACE" wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$binding_pod" --timeout=150s || stop "file claim binding failed; inspect ooh-files PVC and local-path provisioner before retrying"
+  printf 'Waiting for the file claim to bind\n'
+  jq -n --arg name "$binding_pod" --arg namespace "$APPS_NAMESPACE" --argjson uid "$FILES_POD_UID" '{apiVersion:"v1",kind:"Pod",metadata:{name:$name,namespace:$namespace},spec:{restartPolicy:"Never",activeDeadlineSeconds:120,automountServiceAccountToken:false,securityContext:{runAsNonRoot:true,runAsUser:$uid,runAsGroup:$uid,fsGroup:$uid,seccompProfile:{type:"RuntimeDefault"}},containers:[{name:"bind",image:"ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie",command:["/bin/bash","-c","true"],resources:{requests:{cpu:"10m",memory:"32Mi"},limits:{cpu:"100m",memory:"64Mi"}},securityContext:{readOnlyRootFilesystem:true,allowPrivilegeEscalation:false,capabilities:{drop:["ALL"]}},volumeMounts:[{name:"files",mountPath:"/files"}]}],volumes:[{name:"files",persistentVolumeClaim:{claimName:"ooh-files"}}]}}' | kubectl create -f - >/dev/null
+  kubectl -n "$APPS_NAMESPACE" wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$binding_pod" --timeout=150s || stop "file claim binding failed; inspect ooh-files PVC and $STORAGE_CLASS provisioner before retrying"
   kubectl -n "$APPS_NAMESPACE" wait --for=jsonpath='{.status.phase}'=Bound pvc/ooh-files --timeout=30s
   kubectl -n "$APPS_NAMESPACE" delete pod "$binding_pod" --ignore-not-found --wait=false >/dev/null
   binding_pod=''
@@ -182,7 +190,7 @@ done
 for entry in "$PLATFORM_NAMESPACE auth" "$APPS_NAMESPACE harness" "$APPS_NAMESPACE admin"; do
   read -r namespace name <<< "$entry"
   printf 'Waiting for certificate on %s (staging proves outside access)\n' "$name"
-  kubectl -n "$namespace" wait --for=condition=Ready "certificate/$name-tls" --timeout=300s || stop "certificate pending for $name; check DNS points to $PUBLIC_IP and cloud firewall allows inbound TCP 80 and 443; inspect cert-manager events before retrying"
+  kubectl -n "$namespace" wait --for=condition=Ready "certificate/$name-tls" --timeout=300s || stop "certificate pending for $name; check DNS for $DOMAIN and inbound TCP 80 and 443 on the $OOH_TARGET front door; inspect cert-manager events before retrying"
 done
 for entry in "$PLATFORM_NAMESPACE auth" "$APPS_NAMESPACE harness" "$APPS_NAMESPACE admin"; do
   read -r namespace name <<< "$entry"

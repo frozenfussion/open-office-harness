@@ -3,7 +3,11 @@
 Files are retained on the existing `ooh-files` Kubernetes volume (20Gi,
 namespace `ooh-apps`, local-path storage, PV reclaim policy Retain). The Slides
 worker mounts it read-write at `/files`; the Harness mounts it read-only there.
-EKS storage is Stage 6; workers and the Harness will keep the same paths.
+Stage 4 phase 2's AWS EKS copy uses the same manifests with different values:
+an encrypted EBS gp3 `ooh-files` volume through `ooh-gp3`, mounted at the same
+paths. The copy has separate check/test data and reclaim policy Delete; it is
+destroyed after acceptance with Aziz's approval. The Droplet's retained data
+and storage behaviour stay unchanged.
 
 | Content | Key layout |
 |---|---|

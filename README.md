@@ -178,6 +178,289 @@ Replace `MERGED_IMAGE_TAG` below with that commit's first 12 characters.
 The Stage 3 guide below remains the setup and everyday operations reference.
 For Stage 4 deployment and checks use the order above.
 
+## AWS copy — Stage 4 phase 2
+
+The AWS copy runs the same nine images as the class system, tag `7c721a4de601`,
+on EKS in Singapore. The Droplet stays the main class system.
+The copy costs about **USD 0.42/hour or USD 10.10/day**, plus traffic (about
+USD 0.30 for each full image pull). Forgotten for a month, about USD 310.
+Destroy it after the checks. Terraform builds and removes AWS resources;
+Kafka, PostgreSQL and Keycloak still run inside Kubernetes.
+
+Claude runs these commands in the Shell tile while Aziz watches. No command in
+this guide asks for a terminal password. Aziz handles browser authentication,
+the first administrator's details, provider keys, and approval of costs. Run
+from the reviewed, merged `stage-4b` worktree, after both Parts are reviewed.
+Never run the AWS steps while a Codex builder is working: the short-lived root
+session is readable by every process running as the same Unix user.
+
+1. **Install the tools, then sign in.** Type this in your harness terminal,
+   Shell tile, plain shell. This installs the pinned tools without sudo, then
+   starts AWS sign-in. Good result: `DONE` from both scripts. Aziz approves the
+   browser request and types the authentication code himself; Claude does not
+   handle the code. Always use this sign-in script: it records the sign-in time.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4b
+   install/80-aws-tools.sh
+   install/83-aws-login.sh
+   ```
+
+2. **Make the state bucket and budget.** Type this in your harness terminal,
+   Shell tile, plain shell. This shows the plan and its cost before building.
+   On the first run Aziz supplies the budget email privately. After Aziz's yes
+   in chat, Claude types `yes` at the script prompt. Good result: `DONE`.
+   Aziz must click the AWS confirmation email immediately; otherwise budget
+   alerts may never arrive. This email rule still needs live confirmation.
+   The USD 40 budget warns at 50%, 80%, 100% actual and 100% forecast;
+   it does not stop spending. Alerts may arrive 8–24 hours late. Read the AWS
+   Billing page at every progress update too.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4b
+   install/81-aws-bootstrap.sh
+   ```
+
+3. **Build the cluster and front door.** Type this in your harness terminal,
+   Shell tile, plain shell. This takes about 20–30 minutes. Terraform prints
+   resource progress and waits for the control plane, node, add-ons and load
+   balancer. Good result: `DONE` and the three CNAME records to add.
+   The total cost appears before the first prompt. Aziz's one yes covers the
+   three shown build steps at the fixed expected cost; Claude types `yes` at
+   each script prompt. Any unexpected paid resource, replacement or failed
+   root-access proof stops for a new decision. Do not bypass that stop.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4b
+   install/82-aws-cluster.sh
+   ```
+
+4. **Point the three names at AWS.** Do this in the DigitalOcean control panel.
+   Claude adds these records after Aziz's yes. In the `faysalaziz.com` zone,
+   use type **CNAME**, TTL **300**, and the load balancer hostname printed by
+   the cluster script as the value for every row. Keep the Droplet's records.
+
+   | Record name | Value |
+   |---|---|
+   | `harness.aws` | Load balancer hostname printed by the cluster script |
+   | `admin.aws` | Same hostname |
+   | `auth.aws` | Same hostname |
+
+   Type this in your harness terminal, Shell tile, plain shell. This waits for
+   the records and checks HTTP reaches Traefik. Good result: three DNS `PASS`
+   lines, HTTP `PASS`, then `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4b
+   install/84-aws-dns.sh
+   ```
+
+5. **Install the platform.** Type this in your harness terminal, Shell tile,
+   plain shell. This selects AWS, checks its identity before any cluster work,
+   installs the same operators, makes new secrets and empty databases, and
+   requests staging certificates followed by production certificates.
+   Good result: every script ends with `DONE`; the platform check prints `PASS`.
+   The first line of each platform/app script must say `TARGET aws (EKS copy)`.
+   Each run freezes its kubeconfig; child scripts reuse it. A different endpoint
+   or node provider stops the run before it can change the wrong system.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4b
+   export OOH_TARGET=aws
+   install/00-check-server.sh
+   install/10-platform-operators.sh
+   install/20-platform-secrets.sh
+   install/30-platform-apply.sh
+   install/35-realm-sync.sh
+   install/40-check-platform.sh
+   ```
+
+6. **Create the first administrator.** Type this in your harness terminal,
+   Shell tile, plain shell. Aziz runs this step himself and types the requested
+   administrator details privately. This is the new AWS administrator, separate
+   from the Droplet. Good result: `DONE` and sign-in works at
+   `https://admin.aws.faysalaziz.com` after the apps are deployed.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4b
+   export OOH_TARGET=aws
+   install/50-first-admin.sh
+   ```
+
+7. **Prepare and deploy the apps in this order.** Type this in your harness
+   terminal, Shell tile, plain shell. This makes each service's private settings,
+   runs migrations and installs the class images. Good result: each script
+   ends with `DONE`, with the intended image tag. Run one script at a time:
+   one node has little spare CPU during an update.
+   Realm sync also runs inside platform apply. Keep the early sync above and
+   repeat it after the Control Centre and Harness are Ready, as the Stage 2
+   fresh-install guide requires, before deploying the browser apps.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4b
+   export OOH_TARGET=aws
+   install/59-control-centre-databases.sh
+   install/60-control-centre-secrets.sh
+   install/63-control-centre-keys.sh
+   install/71-control-centre-oidc.sh
+   install/61-control-centre-deploy.sh 7c721a4de601
+   install/64-model-gateway-setup.sh
+   install/65-model-gateway-deploy.sh 7c721a4de601
+   install/66-harness-api-setup.sh
+   install/67-harness-api-deploy.sh 7c721a4de601
+   install/35-realm-sync.sh
+   install/68-workspace-deploy.sh 7c721a4de601
+   install/69-admin-console-deploy.sh 7c721a4de601
+   install/72-slides-worker-setup.sh
+   install/73-slides-worker-deploy.sh 7c721a4de601
+   install/74-consumers-setup.sh
+   install/75-consumers-deploy.sh 7c721a4de601
+   ```
+
+   Aziz signs in at `https://admin.aws.faysalaziz.com`. In Models & tiers,
+   configure tier 1, tier 2 and classification, entering provider keys himself.
+   Give his account the Slides grant in People & rights. Keys never go into
+   chat, a terminal command, a report or a repository file.
+   AWS test database settings and the certificate email live under
+   `~/.config/ooh/aws/`; the Droplet's settings stay under `~/.config/ooh/`.
+   The check lock stays shared, so checks for the two systems cannot overlap.
+
+8. **Check the copy and try it in the browser.** Type this in your harness
+   terminal, Shell tile, plain shell. These include small paid model calls.
+   Good result: `PASS` (plus the checks' allowed `INFO`/`SKIP` lines), then `DONE`.
+   The AWS check reminds Aziz to confirm his budget email. Record actual
+   results in the stage report; a local render pass does not prove live AWS.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4b
+   export OOH_TARGET=aws
+   install/62-check-control-centre.sh
+   install/70-check-stage-2.sh
+   install/77-check-stage-3.sh 7c721a4de601
+   install/78-check-stage-4.sh 7c721a4de601
+   install/86-check-aws.sh
+   ```
+
+   Aziz opens `https://harness.aws.faysalaziz.com` and
+   `https://admin.aws.faysalaziz.com`: sign in, chat on tier 1 and Auto, make and
+   download a Slides deck, and open a trace in Audit. All three web names must
+   have valid certificates. An independent read-only audit follows.
+
+9. **Prove a lost node recovers.** Type this in your harness terminal,
+   Shell tile, plain shell, only after Aziz's yes. This ends the worker instance
+   and waits up to 25 minutes for its replacement and disks. The script prints
+   the measured recovery time; copy that actual time into the instructor notes
+   (not measured during the Part B build). Good result: `DONE`, followed by
+   passing platform, Control Centre and AWS checks without manual cluster fixes.
+
+   ```bash
+   cd ~/projects/worktrees/stage-4b
+   export OOH_TARGET=aws
+   install/86-check-aws.sh --replace-node
+   install/40-check-platform.sh
+   install/62-check-control-centre.sh
+   install/86-check-aws.sh
+   ```
+
+10. **Everyday status and logs.** Type this in your harness terminal,
+    Shell tile, plain shell. These read AWS explicitly; exporting `OOH_TARGET`
+    selects install scripts but does not change an interactive kubectl context.
+    Good result: Ready pods and JSON application logs. Read the AWS Billing
+    page and budget at each update. AWS restarts pods automatically after node
+    recovery; use the replacement check above for the recovery proof.
+
+    ```bash
+    cd ~/projects/worktrees/stage-4b
+    export OOH_TARGET=aws
+    kubectl --kubeconfig="$HOME/.kube/ooh-aws.config" get pods -A
+    kubectl --kubeconfig="$HOME/.kube/ooh-aws.config" -n ooh-apps logs deployment/harness-api --tail=30
+    ```
+
+    Type this in your harness terminal, Shell tile, plain shell. These are
+    offline syntax, lint and render checks; no AWS sign-in is needed. Good
+    result: no lint errors and both renders end with `DONE`, hashes and zero
+    invalid manifests. The standard schema check skips these operator kinds:
+    ClusterIssuer, Kafka, KafkaNodePool, KafkaTopic, KafkaUser, Cluster,
+    DatabaseRole, Database, Keycloak and KeycloakRealmImport. It preserves
+    Keycloak's lower-case placeholders.
+
+    ```bash
+    cd ~/projects/worktrees/stage-4b
+    bash -n install/lib/target.sh
+    shellcheck -x install/*.sh install/lib/*.sh
+    OOH_TARGET=do install/30-platform-apply.sh --check
+    OOH_TARGET=aws install/30-platform-apply.sh --check
+    ```
+
+11. **Destroy after acceptance, then check the bill.** Type this in your
+    harness terminal, Shell tile, plain shell. After Aziz accepts the stage,
+    the reviewed merge is tagged `eks-ready`; after his separate yes Claude
+    types `yes` at the destroy prompt. This shows saved destroy plans, removes
+    the load balancer and test data, then destroys the Terraform stack. The
+    AWS copy's databases, topics, files and address logs are intentionally
+    removed; the Droplet is untouched. Good result: no leftovers and `DONE`.
+    The state bucket and budget stay. Destroy logs out of AWS at the end.
+
+    ```bash
+    cd ~/projects/worktrees/stage-4b
+    install/85-aws-destroy.sh
+    ```
+
+    Do this in the DigitalOcean control panel. Claude removes only the three
+    `harness.aws`, `admin.aws`, `auth.aws` CNAME records after Aziz's yes.
+    Read the AWS Billing page to confirm the copy's charges stopped; billing
+    updates can lag. Keep the budget email confirmation.
+
+    Type this in your harness terminal, Shell tile, plain shell. Sign in again
+    to repeat the read-only leftover sweep at any time, then log out. Good
+    result: `PASS`, `DONE`, with only the state bucket and budget retained.
+    To start the copy again later, repeat this guide from sign-in and bootstrap;
+    the next copy starts with empty application data.
+
+    ```bash
+    cd ~/projects/worktrees/stage-4b
+    install/83-aws-login.sh
+    install/85-aws-destroy.sh --sweep-only
+    aws logout
+    ```
+
+12. **End every AWS work block by logging out.** Type this in your harness
+    terminal, Shell tile, plain shell. The folder does not matter for logout;
+    the `cd` below keeps the guide in one place. This removes the cached session
+    before any Codex work resumes. No terminal password. Good result: signed out.
+    Sign in through the sign-in script again before the next AWS work block.
+
+    ```bash
+    cd ~/projects/worktrees/stage-4b
+    aws logout
+    ```
+
+### AWS STOP and FAIL help
+
+| Message | What to do |
+|---|---|
+| `OOH_TARGET must be do or aws` | Set `OOH_TARGET=aws` for the copy or `do` for the Droplet, then retry. |
+| `child script target differs from its parent` | Keep one target for the entire run. Retry the parent with the intended target. |
+| `frozen kubeconfig is missing` | Retry the parent script; do not reuse freeze markers from a finished run. |
+| `this shell points at ... not the ... cluster; nothing was changed` (including unexpected node provider) | Check the target values and kubeconfig. Do not bypass the check. AWS must match the endpoint written by the cluster script and a Singapore zone-a node; Droplet must use localhost and k3s. |
+| `no node is registered yet` | Wait for node creation or replacement, then retry. |
+| `cannot read kubeconfig` / `cannot read cluster endpoint` / `cannot read nodes` | Check the selected kubeconfig and access. For AWS refresh sign-in if needed. |
+| `AWS local settings missing` / `cannot read AWS local settings` / `AWS endpoint missing` / `AWS load balancer name missing` | Complete the cluster script before platform setup; it writes the local settings. |
+| `missing tool` | Complete the existing server setup and AWS tools step; do not bypass the check. |
+| `local settings missing` / contact email invalid or empty | Bootstrap copies the certificate email to `~/.config/ooh/aws/do.env`; fix that private file for AWS, or `~/.config/ooh/do.env` for the Droplet. |
+| `invalid deployment value` | Correct the target's values file using the stage spec. |
+| `unknown deployment token` | A manifest has an unsupported upper-case placeholder. Ask the builder to fix its allowed renderer token list or the typo. |
+| DNS lookup, CNAME or HTTP front-door failure | Check the three CNAME values, TTL, load balancer readiness and inbound ports 80/443. Never point the AWS names at the Droplet. |
+| File binding / storage / PV retention failure | Check EBS CSI, its region and Pod Identity role, `ooh-gp3`, encryption, Delete policy and file-pod identity 10001. Droplet remains local-path, Retain, identity 1001. |
+| Certificate pending | Check DNS and inbound port 80, then cert-manager events. Wait out a reported rate limit. |
+| `AWS sign-in expired` or sign-in time missing/older than 11 hours | Run the sign-in script again; Aziz authenticates. Retry the stopped script. |
+| Account differs from state bucket | Stop. Check the account and private backend settings before retrying. |
+| Root access / admin proof failed | Stop before creating the node. Ask Aziz about destroying the control plane and the proposed sign-in change. |
+| Unexpected paid create, delete or replacement in a plan | Stop for Aziz's new decision and cost approval. |
+| No launch template found / sweep tag absent | Stop and ask Aziz using the stage spec's review path. The copy keeps costing about USD 0.42/hour while paused. |
+| AWS check `FAIL` | Fix the named failed item and rerun. Address forwarding, disk encryption/tags, version, state locking and leftover failures must pass before acceptance. |
+| Destroy failure / `DependencyViolation` / leftover resource | Keep the IDs private where they contain account details. Claude inspects the named dependency and follows the spec's approved cleanup, then reruns destroy; it resumes from Terraform state. |
+
 ## Stage 3 — Skills, jobs and admin screens
 
 Claude runs the non-sudo scripts below in the harness terminal, Shell tile,

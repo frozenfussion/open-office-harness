@@ -8,10 +8,10 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 for tool in kubectl jq curl flock; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 # shellcheck source=/dev/null
-source deploy/values/do.env
-[[ -f "$HOME/.config/ooh/do.env" ]] || stop "local settings missing; copy install/ooh.env.example as described in README"
+source "$ROOT/install/lib/target.sh"
+[[ -f "$OOH_LOCAL/do.env" ]] || stop "local settings missing; copy install/ooh.env.example as described in README"
 # shellcheck source=/dev/null
-source "$HOME/.config/ooh/do.env"
+source "$OOH_LOCAL/do.env"
 [[ -n "${LETSENCRYPT_EMAIL:-}" ]] || stop "local setting LETSENCRYPT_EMAIL is empty; fill it in as described in README"
 failed=0
 result() {
@@ -122,12 +122,12 @@ check_namespace=${PLATFORM_NAMESPACE}
 cleanup() {
   if [[ -n "$check_pod" ]]; then kubectl -n "$check_namespace" delete pod "$check_pod" --ignore-not-found --wait=false >/dev/null 2>&1 || true; fi
 }
-trap cleanup EXIT
+trap 'cleanup; ooh_target_cleanup' EXIT
 run_pod() {
   local image="$1" script="$2" env="$3" namespace="${4:-${PLATFORM_NAMESPACE}}" pvc="${5:-}" rc=0
   check_namespace="$namespace"
   check_pod="ooh-check-$(date +%s)-$RANDOM"
-  jq -n --arg name "$check_pod" --arg image "$image" --arg script "$script" --argjson env "$env" --arg namespace "$namespace" --arg pvc "$pvc" '{apiVersion:"v1",kind:"Pod",metadata:{name:$name,namespace:$namespace},spec:{restartPolicy:"Never",activeDeadlineSeconds:150,automountServiceAccountToken:false,securityContext:{runAsNonRoot:true,runAsUser:1001,runAsGroup:1001,fsGroup:1001,seccompProfile:{type:"RuntimeDefault"}},containers:[{name:"check",image:$image,command:["/bin/bash","-ec",$script],env:$env,resources:{requests:{cpu:"100m",memory:"128Mi"},limits:{cpu:"500m",memory:"512Mi"}},securityContext:{readOnlyRootFilesystem:true,allowPrivilegeEscalation:false,capabilities:{drop:["ALL"]}},volumeMounts:[{name:"tmp",mountPath:"/tmp"}]}],volumes:[{name:"tmp",emptyDir:{medium:"Memory",sizeLimit:"64Mi"}}]}} | if $pvc != "" then .spec.volumes += [{name:"files",persistentVolumeClaim:{claimName:$pvc}}] | .spec.containers[0].volumeMounts += [{name:"files",mountPath:"/files"}] else . end' | kubectl create -f - >/dev/null
+  jq -n --arg name "$check_pod" --arg image "$image" --arg script "$script" --argjson env "$env" --arg namespace "$namespace" --arg pvc "$pvc" --argjson uid "$FILES_POD_UID" '{apiVersion:"v1",kind:"Pod",metadata:{name:$name,namespace:$namespace},spec:{restartPolicy:"Never",activeDeadlineSeconds:150,automountServiceAccountToken:false,securityContext:{runAsNonRoot:true,runAsUser:1001,runAsGroup:1001,fsGroup:1001,seccompProfile:{type:"RuntimeDefault"}},containers:[{name:"check",image:$image,command:["/bin/bash","-ec",$script],env:$env,resources:{requests:{cpu:"100m",memory:"128Mi"},limits:{cpu:"500m",memory:"512Mi"}},securityContext:{readOnlyRootFilesystem:true,allowPrivilegeEscalation:false,capabilities:{drop:["ALL"]}},volumeMounts:[{name:"tmp",mountPath:"/tmp"}]}],volumes:[{name:"tmp",emptyDir:{medium:"Memory",sizeLimit:"64Mi"}}]}} | if $pvc != "" then .spec.securityContext |= (.runAsUser=$uid | .runAsGroup=$uid | .fsGroup=$uid) | .spec.volumes += [{name:"files",persistentVolumeClaim:{claimName:$pvc}}] | .spec.containers[0].volumeMounts += [{name:"files",mountPath:"/files"}] else . end' | kubectl create -f - >/dev/null
   for ((attempt=0; attempt<90; attempt++)); do
     phase="$(kubectl -n "$check_namespace" get pod "$check_pod" -o jsonpath='{.status.phase}')"
     [[ "$phase" != Succeeded && "$phase" != Failed ]] || break
@@ -208,8 +208,10 @@ file="/files/checks/stage0-$(date -u +%s%N).txt"
 message="open-office-harness storage check"
 printf "%s\n" "$message" > "$file"
 [[ "$(cat "$file")" == "$message" ]]' '[]' "$APPS_NAMESPACE" ooh-files || rc=1
-result "$rc" 'storage PVC ooh-files write/read under checks/' "check ooh-files PVC, local-path provisioner, disk space and pod volume permissions in $APPS_NAMESPACE; check files are retained"
+result "$rc" 'storage PVC ooh-files write/read under checks/' "check ooh-files PVC, $STORAGE_CLASS provisioner, disk space and pod volume permissions in $APPS_NAMESPACE; check files are retained"
 check_retention() {
+  local policy=Delete
+  [[ "$RETAIN_VOLUMES" != true ]] || policy=Retain
   local namespace="$1" label="$2" claims name volume pv rc=0
   shift 2
   claims="$(kubectl -n "$namespace" get pvc "$@" -o json 2>/dev/null)" || rc=1
@@ -217,9 +219,9 @@ check_retention() {
   while IFS=$'\t' read -r name volume <&3; do
     [[ -n "$volume" ]] || continue
     pv="$(kubectl get pv "$volume" -o json 2>/dev/null)" || rc=1
-    jq -e --arg namespace "$namespace" --arg name "$name" '.spec.persistentVolumeReclaimPolicy == "Retain" and .spec.storageClassName == "local-path" and .status.phase == "Bound" and .spec.claimRef.namespace == $namespace and .spec.claimRef.name == $name' <<< "$pv" >/dev/null 2>&1 || rc=1
+    jq -e --arg namespace "$namespace" --arg name "$name" --arg policy "$policy" --arg storage "$STORAGE_CLASS" '.spec.persistentVolumeReclaimPolicy == $policy and .spec.storageClassName == $storage and .status.phase == "Bound" and .spec.claimRef.namespace == $namespace and .spec.claimRef.name == $name' <<< "$pv" >/dev/null 2>&1 || rc=1
   done 3< <(jq -r '.items[]? | select(.status.phase == "Bound") | [.metadata.name,.spec.volumeName] | @tsv' <<< "$claims" 2>/dev/null)
-  result "$rc" "PV retention $label" 'expected bound local-path PVs with Retain; re-run step 6 and inspect claims and PVs'
+  result "$rc" "PV retention $label" "expected bound $STORAGE_CLASS PVs with $policy; re-run platform apply and inspect claims and PVs"
 }
 check_retention "$PLATFORM_NAMESPACE" Kafka -l strimzi.io/cluster=ooh-kafka
 check_retention "$PLATFORM_NAMESPACE" PostgreSQL -l cnpg.io/cluster=ooh-pg

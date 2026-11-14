@@ -7,7 +7,7 @@ trap 'stop "realm audience sync failed; inspect Keycloak readiness and bootstrap
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 registration=on
 if [[ $# != 0 ]]; then
   [[ $# == 2 ]] || stop "usage: install/35-realm-sync.sh [--registration off|on]"
@@ -78,7 +78,7 @@ cleanup() {
     kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- rm -rf -- "$config_dir" >/dev/null 2>&1 || true
   fi
 }
-trap cleanup EXIT
+trap 'cleanup; ooh_target_cleanup' EXIT
 config_dir="$(kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- /bin/bash -c 'umask 077; mktemp -d /tmp/ooh-realm-sync.XXXXXXXX')"
 [[ "$config_dir" =~ ^/tmp/ooh-realm-sync\.[a-zA-Z0-9]+$ ]] || stop "could not create private Keycloak CLI settings directory"
 config="$config_dir/kcadm.config"
