@@ -17,6 +17,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[5]
 CLUSTER = ROOT / "install/82-aws-cluster.sh"
 DESTROY = ROOT / "install/85-aws-destroy.sh"
+CHECK = ROOT / "install/86-check-aws.sh"
 
 
 class ReviewFixtures(unittest.TestCase):
@@ -371,6 +372,97 @@ printf 'CLEAN\n'
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout, "WAITED\nCLEAN\n")
+
+    def test_running_inventory_allows_backend_security_group_only_in_cluster_vpc(
+        self,
+    ) -> None:
+        program = re.search(r"<<'PY'\n(.*?)\nPY", CHECK.read_text(), re.DOTALL).group(1)
+        fixtures = {
+            "cluster": {"values": {}},
+            "addons": {"values": {}},
+            "nodes": {"items": []},
+            "pv": {"items": []},
+            "lb": {
+                "LoadBalancerArn": "fixture:loadbalancer/net/front",
+                "SecurityGroups": ["sg-front"],
+            },
+            "asg": {
+                "AutoScalingGroups": [
+                    {"AutoScalingGroupName": "fixture-group", "Instances": []}
+                ]
+            },
+            "eks": {
+                "cluster": {
+                    "resourcesVpcConfig": {
+                        "vpcId": "vpc-fixture",
+                        "clusterSecurityGroupId": "sg-eks",
+                    }
+                }
+            },
+        }
+        for name, data in fixtures.items():
+            (self.home / f"{name}.json").write_text(json.dumps(data))
+        for vpc, cluster, resource, expected in (
+            ("vpc-fixture", "ooh-aws", "backend-sg", 0),
+            ("vpc-other", "ooh-aws", "backend-sg", 1),
+            ("vpc-fixture", "other-cluster", "backend-sg", 1),
+            ("vpc-fixture", "ooh-aws", "unrelated-sg", 1),
+        ):
+            with self.subTest(vpc=vpc, cluster=cluster, resource=resource):
+                row = {
+                    "region": "ap-southeast-1",
+                    "type": "sg",
+                    "id": "sg-backend",
+                    "arn": "sg-backend",
+                    "raw": {"VpcId": vpc},
+                    "tags": {
+                        "elbv2.k8s.aws/cluster": cluster,
+                        "elbv2.k8s.aws/resource": resource,
+                    },
+                }
+                (self.home / "inventory.json").write_text(json.dumps([row]))
+                output = io.StringIO()
+                with (
+                    patch("sys.argv", ["fixture", str(self.home), "lt-fixture"]),
+                    contextlib.redirect_stdout(output),
+                    self.assertRaises(SystemExit) as stopped,
+                ):
+                    # Execute only the trusted membership program on local fixture files.
+                    exec(compile(program, str(CHECK), "exec"), {})  # noqa: S102
+                self.assertEqual(stopped.exception.code, expected)
+                if expected:
+                    self.assertIn(
+                        "FAIL: unexpected ap-southeast-1 sg sg-backend",
+                        output.getvalue(),
+                    )
+                else:
+                    self.assertEqual(output.getvalue(), "")
+
+    def test_destroy_retries_failed_target_group_tag_read(self) -> None:
+        result = self.shell(
+            """
+printf '0' > "$HOME/round"
+aws() {
+    [[ $1 == --region && $2 == ap-southeast-1 ]] || return 97
+    case "$3 $4" in
+        'elbv2 describe-target-groups')
+            if [[ $(cat "$HOME/round") == 0 ]]; then
+                printf '{"TargetGroups":[{"TargetGroupArn":"target-disappearing"}]}'
+            else printf '{"TargetGroups":[]}' ; fi ;;
+        'elbv2 describe-tags') printf 'TargetGroupNotFound fixture\n' >&2; return 1 ;;
+        'ec2 describe-security-groups') printf '{"SecurityGroups":[]}' ;;
+        *) return 97;;
+    esac
+}
+sleep() { printf 'RETRIED\n'; printf '1' > "$HOME/round"; }
+wait_no_controller_resources
+printf 'CLEAN\n'
+""",
+            source=DESTROY,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("TargetGroupNotFound fixture", result.stderr)
+        self.assertEqual(result.stdout, "RETRIED\nCLEAN\n")
 
 
 if __name__ == "__main__":

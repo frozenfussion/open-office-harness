@@ -102,7 +102,7 @@ wait_no_controller_resources() {
         remaining=false
         groups=$(aws --region ap-southeast-1 elbv2 describe-target-groups --output json)
         while IFS= read -r arn; do
-            tags=$(aws --region ap-southeast-1 elbv2 describe-tags --resource-arns "$arn" --output json)
+            tags=$(aws --region ap-southeast-1 elbv2 describe-tags --resource-arns "$arn" --output json) || { remaining=true; continue; }
             if jq -e 'any(.TagDescriptions[].Tags[]; .Key == "elbv2.k8s.aws/cluster" and .Value == "ooh-aws")' >/dev/null <<< "$tags"; then remaining=true; fi
         done < <(jq -r '.TargetGroups[].TargetGroupArn' <<< "$groups")
         security_groups=$(aws --region ap-southeast-1 ec2 describe-security-groups --filters 'Name=tag:elbv2.k8s.aws/cluster,Values=ooh-aws' --output json)

@@ -161,7 +161,7 @@ for row in read('inventory'):
     if kind=='volume':
         allowed |= identity in volumes or any(a.get('InstanceId') in nodeids and a.get('Device') in ['/dev/xvda','/dev/sda1'] for a in r.get('Attachments',[]))
     if ts.get('elbv2.k8s.aws/cluster')=='ooh-aws':
-        allowed |= (kind=='lb' and identity==lb['LoadBalancerArn']) or (kind=='target' and lb['LoadBalancerArn'] in r.get('LoadBalancerArns',[])) or (kind=='sg' and identity in lb.get('SecurityGroups',[]))
+        allowed |= (kind=='lb' and identity==lb['LoadBalancerArn']) or (kind=='target' and lb['LoadBalancerArn'] in r.get('LoadBalancerArns',[])) or (kind=='sg' and (identity in lb.get('SecurityGroups',[]) or (ts.get('elbv2.k8s.aws/resource')=='backend-sg' and r.get('VpcId')==eks['resourcesVpcConfig']['vpcId'])))
     if kind=='eni':
         allowed |= r.get('Attachment',{}).get('InstanceId') in nodeids or ts.get('cluster.k8s.amazonaws.com/name')=='ooh-aws'
         # NAT interfaces are explicitly named by the Terraform-owned NAT gateway.
