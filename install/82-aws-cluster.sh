@@ -43,6 +43,39 @@ if counts and dict(counts)!=expected:
 PY
 )" "$number"
 }
+plan_cost() {
+    terraform -chdir="$TF_ROOT/$1" show -json "$2" | python3 -c "$(cat <<'PY'
+import collections,json,sys
+from decimal import Decimal
+rows=json.load(sys.stdin).get("resource_changes",[])
+creates=[row for row in rows if "create" in row["change"]["actions"]]
+counts=collections.Counter(row["type"] for row in creates)
+# The approved Singapore rates include the managed node's fixed 50 GB root disk.
+rates={"aws_eks_cluster":Decimal("0.10"),"aws_nat_gateway":Decimal("0.059"),
+       "aws_eip":Decimal("0.005"),"aws_eks_node_group":Decimal("0.2112")+50*Decimal("0.096")/720}
+labels={"aws_eks_cluster":"EKS control plane","aws_nat_gateway":"NAT gateway",
+        "aws_eip":"public IPv4 address","aws_eks_node_group":"worker node group with a 50 GB root disk"}
+if any(counts[kind] for kind in ("aws_instance","aws_lb","aws_ebs_volume")):
+    sys.exit("STOP: saved plan contains an unexpected paid type; review the plan before pricing")
+total=sum((rates[kind]*counts[kind] for kind in rates),Decimal(0))
+traefik=any(row.get("address")=="helm_release.traefik" for row in creates)
+parts=[]
+paid=[f"{counts[kind]} {labels[kind]}" for kind in rates if counts[kind]]
+if paid: parts.append("creates "+", ".join(paid))
+if traefik:
+    parts.append("controller creates 1 network load balancer and 1 public IPv4 address")
+    total+=Decimal("0.0252")+Decimal("0.005")
+free=len(creates)-sum(counts[kind] for kind in rates)
+if free: parts.append(f"creates {free} resource"+("" if free==1 else "s")+" without hourly charges")
+if not paid and not traefik: parts.append("creates nothing paid")
+amount="0" if total==0 else format(total.quantize(Decimal("0.001")),"f")
+parts.append(f"about USD {amount}/hour extra")
+if counts["aws_nat_gateway"]: parts.append("NAT traffic USD 0.059/GB")
+if traefik: parts.append("load balancer capacity units extra")
+print("; ".join(parts))
+PY
+)"
+}
 capture_node_tags() {
     local group asg lt tags
     group=$(aws eks describe-nodegroup --cluster-name ooh-aws --nodegroup-name main --query 'nodegroup.resources.autoScalingGroups[0].name' --output text)
@@ -68,13 +101,15 @@ cluster_main() {
     init_root cluster
     terraform -chdir="$TF_ROOT/cluster" plan -input=false -target=aws_eks_cluster.main -out="${AWS_PLANS[0]}"
     show_plan cluster "${AWS_PLANS[0]}"
-    local first entries access resources
+    local first entries access resources cost
     first=$(terraform -chdir="$TF_ROOT/cluster" show -json "${AWS_PLANS[0]}")
     if jq -e 'any(.resource_changes[]?; .type == "aws_nat_gateway" or .type == "aws_eip")' >/dev/null <<< "$first"; then stop 'control-plane plan contains a NAT gateway or public address; nothing was applied'; fi
     paid_guard 1 cluster "${AWS_PLANS[0]}"
-    resources=$(jq -r '.resource_changes[]? | "\(.address): \(if .type == "aws_eks_cluster" then "USD 0.10/hour" else "USD 0/hour" end)"' <<< "$first")
+    resources=$(jq -r '.resource_changes[]? | "\(.address): \(.change.actions | join(", ")); \(if .type == "aws_eks_cluster" and (.change.actions | index("create") != null) then "USD 0.10/hour extra" else "USD 0/hour extra" end)"' <<< "$first")
     printf '%s\n' "$resources"
-    confirm 'Type yes to build EKS control plane and its network/access settings (about USD 0.10/hour)'
+    cost=$(plan_cost cluster "${AWS_PLANS[0]}")
+    printf 'Saved plan: %s\n' "$cost"
+    confirm "Type yes to apply this saved plan ($cost)"
     apply_plan cluster "${AWS_PLANS[0]}"
     EKS_ENDPOINT=$(terraform -chdir="$TF_ROOT/cluster" output -raw endpoint)
     save_setting EKS_ENDPOINT "$EKS_ENDPOINT"
@@ -103,8 +138,9 @@ eks-pod-identity-agent v1.4.1-eksbuild.3
 coredns v1.14.7-eksbuild.35
 aws-ebs-csi-driver v1.68.0-eksbuild.1
 VERSIONS
-    printf '%s\n' 'Creates one NAT gateway USD 0.059/hour, its IPv4 USD 0.005/hour, one node USD 0.2112/hour, encrypted root disk ~USD 0.0066/hour; add-ons and roles USD 0/hour; NAT traffic USD 0.059/GB.'
-    confirm 'Type yes to build node, NAT and managed add-ons (about USD 0.282/hour extra)'
+    cost=$(plan_cost cluster "${AWS_PLANS[1]}")
+    printf 'Saved plan: %s\n' "$cost"
+    confirm "Type yes to apply this saved plan ($cost)"
     apply_plan cluster "${AWS_PLANS[1]}"
     kubectl wait --for=condition=Ready nodes --all --timeout=600s
     capture_node_tags
@@ -112,8 +148,9 @@ VERSIONS
     terraform -chdir="$TF_ROOT/addons" plan -input=false -out="${AWS_PLANS[2]}"
     show_plan addons "${AWS_PLANS[2]}"
     paid_guard 3 addons "${AWS_PLANS[2]}"
-    printf '%s\n' 'Creates controller, Traefik and StorageClass USD 0/hour; controller makes an NLB USD 0.0252/hour and IPv4 USD 0.005/hour (~USD 0.030/hour), plus capacity units. Future data disks ~USD 0.008/hour.'
-    confirm 'Type yes to build controllers and front door (about USD 0.030/hour extra)'
+    cost=$(plan_cost addons "${AWS_PLANS[2]}")
+    printf 'Saved plan: %s\n' "$cost"
+    confirm "Type yes to apply this saved plan ($cost)"
     apply_plan addons "${AWS_PLANS[2]}"
     kubectl -n kube-system wait --for=jsonpath='{.status.loadBalancer.ingress[0].hostname}' service/traefik --timeout=600s
     local hostname
