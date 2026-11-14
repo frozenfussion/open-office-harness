@@ -5,11 +5,9 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/81-aws-bootstrap.sh"
 # Offline fixtures use the saved AWS schema; the run phase rechecks AWS's schema.
 check_ebs_schema() {
-    local schema
-    schema=$(aws eks describe-addon-configuration --addon-name aws-ebs-csi-driver --addon-version v1.68.0-eksbuild.1 --query configurationSchema --output text)
-    EBS_SCHEMA="$schema" python3 - <<'PY'
-import json,os,sys
-schema=json.loads(os.environ['EBS_SCHEMA'])
+    aws eks describe-addon-configuration --addon-name aws-ebs-csi-driver --addon-version v1.68.0-eksbuild.1 --query configurationSchema --output text | python3 -c "$(cat <<'PY'
+import json,sys
+schema=json.load(sys.stdin)
 def resolve(s):
     while '$ref' in s:
         node=schema
@@ -25,14 +23,14 @@ for path in ('controller.additionalArgs', 'controller.extraVolumeTags'):
             sys.exit(f"STOP: EBS CSI add-on configuration key {path} not in AWS's schema")
         node=properties[key]
 PY
+)"
 }
 paid_guard() {
-    local number=$1 plan_json
-    plan_json=$(terraform -chdir="$TF_ROOT/${2}" show -json "$3")
-    PAID_PLAN="$plan_json" python3 - "$number" <<'PY'
-import collections,json,os,sys
+    local number=$1
+    terraform -chdir="$TF_ROOT/${2}" show -json "$3" | python3 -c "$(cat <<'PY'
+import collections,json,sys
 paid={'aws_nat_gateway','aws_eip','aws_instance','aws_eks_node_group','aws_lb','aws_ebs_volume','aws_eks_cluster'}
-rows=json.loads(os.environ['PAID_PLAN']).get('resource_changes',[])
+rows=json.load(sys.stdin).get('resource_changes',[])
 counts=collections.Counter()
 for row in rows:
     actions=row['change']['actions'];t=row['type']
@@ -43,6 +41,7 @@ expected={'1':{'aws_eks_cluster':1}, '2':{'aws_nat_gateway':1,'aws_eip':1,'aws_e
 if counts and dict(counts)!=expected:
     sys.exit('STOP: paid resource counts differ from the approved build; ask Aziz for a new yes after showing this plan')
 PY
+)" "$number"
 }
 capture_node_tags() {
     local group asg lt tags
