@@ -78,6 +78,20 @@ terraform() { printf 'UNEXPECTED TERRAFORM CALL\n' >&2; return 97; }
             self.guard(2, [("aws_eks_node_group", ["no-op"])]).returncode, 0
         )
 
+    def test_failed_addon_replacement_is_not_a_paid_change(self) -> None:
+        for actions in (["delete", "create"], ["create", "delete"]):
+            with self.subTest(actions=actions):
+                changes = [("aws_eks_addon", actions)] + [
+                    (kind, ["no-op"])
+                    for kind in ("aws_nat_gateway", "aws_eip", "aws_eks_node_group")
+                ]
+                self.assertEqual(self.guard(2, changes).returncode, 0)
+                result = self.guard(
+                    2, changes + [("aws_eks_node_group", ["delete", "create"])]
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("STOP: paid resource deletion/replacement", result.stderr)
+
     def test_unexpected_paid_counts_stop(self) -> None:
         for changes in (
             [("aws_nat_gateway", ["create"])],
@@ -196,6 +210,12 @@ printf 'PLAN 3 CONTINUES\n'
         result = self.shell('aws() { cat "$FIXTURE"; }; check_ebs_schema', data=schema)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_schema_guard_does_not_require_controller_env(self) -> None:
+        schema = self.schema()
+        del schema["properties"]["controller"]["properties"]["env"]
+        result = self.shell('aws() { cat "$FIXTURE"; }; check_ebs_schema', data=schema)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_schema_guard_follows_references(self) -> None:
         schema = self.schema()
         schema["$defs"]["Controller"] = schema["properties"]["controller"]
@@ -229,9 +249,7 @@ printf 'PLAN 3 CONTINUES\n'
         validator = Draft201909Validator(schema)
         validator.validate(configuration)
         controller = configuration["controller"]
-        self.assertEqual(
-            controller["env"], [{"name": "AWS_REGION", "value": "ap-southeast-1"}]
-        )
+        self.assertNotIn("env", controller)
         self.assertEqual(controller["additionalArgs"], ["--k8s-tag-cluster-id=ooh-aws"])
         self.assertEqual(
             controller["extraVolumeTags"],
@@ -261,7 +279,7 @@ printf 'PLAN 3 CONTINUES\n'
                 self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_schema_missing_each_named_property_stops(self) -> None:
-        for name in ("env", "additionalArgs", "extraVolumeTags"):
+        for name in ("additionalArgs", "extraVolumeTags"):
             with self.subTest(name=name):
                 schema = self.schema()
                 del schema["properties"]["controller"]["properties"][name]

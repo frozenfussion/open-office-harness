@@ -17,7 +17,7 @@ def resolve(s):
             node=node[part.replace('~1','/').replace('~0','~')]
         s=node
     return s
-for path in ('controller.env', 'controller.additionalArgs', 'controller.extraVolumeTags'):
+for path in ('controller.additionalArgs', 'controller.extraVolumeTags'):
     node=schema
     for key in path.split('.'):
         properties=resolve(node).get('properties', {})
