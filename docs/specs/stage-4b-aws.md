@@ -372,3 +372,17 @@ Managed Kafka (MSK), managed PostgreSQL (RDS), S3 for files (option A, D107), hi
 | 1 | LOW | Rule (f) in `86` named `82` and "stops" | `86` item 11 fails and continues (section 9); 16.9 row corrected |
 | 2 | LOW | `82`'s entry lacked the two fields, the stop line and exact masking | Added to `82`'s entry, with `<account>` masking and `EKS_LT_ID` saved (sections 6.2, 7) |
 | 3 | LOW | The "ask Aziz" path: cost while paused, a "no", branch and review | Cost stated, "no" path, branch and review named; ID saved by `82` so a re-run works (section 8) |
+
+## 17. Changes agreed during the build (override the sections above where they differ)
+
+| # | Change | Who / when |
+|---|---|---|
+| 1 | EBS CSI add-on keys (`controller.region`, `controller.k8sTagClusterId`, `controller.extraVolumeTags`) taken from the driver's public Helm chart at v1.68.0, plus a run-phase guard in `82` (`describe-addon-configuration` before plan (2); stop if a key is missing). Codex has no AWS access to read the schema | Claude (spec author), answer to Codex A, 14 Nov ~18:22 |
+| 2 | Part B may change existing exit-cleanup lines only to chain `ooh_target_cleanup` from `target.sh` (frozen kubeconfig removed by its maker) | Claude (spec author), answer to Codex B, 14 Nov ~18:22 |
+| 3 | Traefik chart 42.4.0 names its access-log values `accessLog.*` and `log.*` (not `logs.access.*`); the behaviour is as section 4 asks | Part A report |
+| 4 | `82` refuses an EKS add-on build not offered in `ap-southeast-1` before plan (2) (AWS's pages list different build suffixes from the ones recorded in section 4; no pin changed silently) | Part A report |
+| 5 | `82`'s paid-resource guard also accepts a re-run with zero paid creates and zero paid deletes; plan (1) has the same guard (one `aws_eks_cluster` create or none); a missing `eks:cluster-name` tag on EKS's launch template prints `FAIL` and `82` carries on to plan (3) while Claude asks Aziz (section 8 step 6) | Part A review + spec author, 14 Nov ~19:00 |
+| 6 | `85` signs out (`aws logout`) on every exit of the normal and `--all` modes; waits for the controller's target groups and security groups after the load balancer; a failed tag read counts as "still there"; the sweep reads network-interface tags from `TagSet`; `86` accepts the controller's shared backend security group in the cluster's VPC | Part A reviews, 14 Nov ~19:00–19:15 |
+| 7 | `77`, `78` and `79`: check pods print their JSON as one line prefixed `OOH_RESULT `, harness reads only that line (FAIL, never an ERR-trap stop, when missing or duplicated), and librdkafka logging is off in those pods. Cause: librdkafka log lines on stderr mixed into `kubectl logs` and stopped `77` once on the Droplet (older fault, not caused by this stage) | Part B review + spec author, 14 Nov ~19:20 |
+| 8 | AWS order: `35` runs again after the Harness deploy (`67`) and before the two apps, as the Stage 2 guide requires on a fresh install | Part B report |
+| 9 | Merge: both Parts merged into local branch `stage-4b` (commit `cbfcbc7`), all offline checks re-run clean; `stage-4b` is pushed and merged to `main` only with Aziz's yes after acceptance | Codex A merge report, 14 Nov ~19:57 |
