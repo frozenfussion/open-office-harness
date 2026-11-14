@@ -14,6 +14,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from jsonschema import Draft201909Validator
+
 ROOT = Path(__file__).resolve().parents[5]
 CLUSTER = ROOT / "install/82-aws-cluster.sh"
 DESTROY = ROOT / "install/85-aws-destroy.sh"
@@ -180,19 +182,68 @@ printf 'PLAN 3 CONTINUES\n'
 
     @staticmethod
     def schema() -> dict:
-        return {
-            "$ref": "#/$defs/Root",
-            "$defs": {
-                "Root": {"properties": {"controller": {"$ref": "#/$defs/Controller"}}},
-                "Controller": {
-                    "properties": {
-                        "region": {"type": "string"},
-                        "k8sTagClusterId": {"type": "string"},
-                        "extraVolumeTags": {"type": "object"},
-                    }
-                },
+        fixture = (
+            Path(__file__).with_name("fixtures")
+            / "ebs-addon-schema-v1.68.0-eksbuild.1.json"
+        )
+        return json.loads(fixture.read_text())
+
+    def test_schema_guard_accepts_saved_aws_schema(self) -> None:
+        schema = self.schema()
+        properties = schema["properties"]["controller"]["properties"]
+        self.assertNotIn("region", properties)
+        self.assertNotIn("k8sTagClusterId", properties)
+        result = self.shell('aws() { cat "$FIXTURE"; }; check_ebs_schema', data=schema)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_schema_guard_follows_references(self) -> None:
+        schema = self.schema()
+        schema["$defs"]["Controller"] = schema["properties"]["controller"]
+        schema["properties"]["controller"] = {"$ref": "#/$defs/Controller"}
+        result = self.shell('aws() { cat "$FIXTURE"; }; check_ebs_schema', data=schema)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_ebs_terraform_configuration_matches_saved_aws_schema(self) -> None:
+        source = (ROOT / "infra/terraform/aws/cluster/addons.tf").read_text()
+        start = source.index("jsonencode(") + len("jsonencode(")
+        configuration = (
+            source[start : source.index("\n  depends_on", start)]
+            .strip()
+            .removesuffix(")")
+        )
+        # Evaluate only locals in an empty directory: no provider, backend or account call.
+        local_tags = (ROOT / "infra/terraform/aws/cluster/main.tf").read_text()
+        (self.home / "main.tf").write_text(
+            local_tags + "\nlocals {\nconfiguration = " + configuration + "\n}\n"
+        )
+        result = subprocess.run(
+            ["terraform", f"-chdir={self.home}", "console"],
+            input="jsonencode(local.configuration)\n",
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        configuration = json.loads(json.loads(result.stdout))
+        schema = self.schema()
+        Draft201909Validator.check_schema(schema)
+        validator = Draft201909Validator(schema)
+        validator.validate(configuration)
+        controller = configuration["controller"]
+        self.assertEqual(
+            controller["env"], [{"name": "AWS_REGION", "value": "ap-southeast-1"}]
+        )
+        self.assertEqual(controller["additionalArgs"], ["--k8s-tag-cluster-id=ooh-aws"])
+        self.assertEqual(
+            controller["extraVolumeTags"],
+            {
+                "project": "open-office-harness",
+                "stage": "4b",
+                "managed-by": "terraform",
+                "ooh-stage": "4b",
             },
-        }
+        )
+        for legacy in ({"region": "ap-southeast-1"}, {"k8sTagClusterId": "ooh-aws"}):
+            self.assertFalse(validator.is_valid({"controller": legacy}))
 
     def test_schema_does_not_inspect_tag_map(self) -> None:
         for tags_schema in (
@@ -201,7 +252,7 @@ printf 'PLAN 3 CONTINUES\n'
         ):
             with self.subTest(tags_schema=tags_schema):
                 schema = self.schema()
-                schema["$defs"]["Controller"]["properties"]["extraVolumeTags"] = (
+                schema["properties"]["controller"]["properties"]["extraVolumeTags"] = (
                     tags_schema
                 )
                 result = self.shell(
@@ -210,10 +261,10 @@ printf 'PLAN 3 CONTINUES\n'
                 self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_schema_missing_each_named_property_stops(self) -> None:
-        for name in ("region", "k8sTagClusterId", "extraVolumeTags"):
+        for name in ("env", "additionalArgs", "extraVolumeTags"):
             with self.subTest(name=name):
                 schema = self.schema()
-                del schema["$defs"]["Controller"]["properties"][name]
+                del schema["properties"]["controller"]["properties"][name]
                 result = self.shell(
                     'aws() { cat "$FIXTURE"; }; check_ebs_schema', data=schema
                 )

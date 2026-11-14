@@ -164,7 +164,7 @@ as the commands below show. After acceptance and merge to main, the folder is
 
 12. **Run builder checks with no AWS session.** Type this in your harness
     terminal, in the plain shell. Good result: no formatting/lint errors and
-    three valid roots and 15 passing fixture tests. The fixtures stub every
+    three valid roots and 18 passing fixture tests. The fixtures stub every
     account/cluster call; these commands never contact AWS or a cluster.
 
     ```bash
@@ -207,7 +207,13 @@ as the commands below show. After acceptance and merge to main, the folder is
   Aziz's yes, then ask the spec author. No nodes or NAT have been built yet.
 - EBS configuration key absent from AWS's schema: stop before plan 2 is applied;
   the spec author must resolve the chart/schema mismatch. The message names
-  the exact key, including its parent path.
+  the exact key, including its parent path. The managed add-on accepts
+  `controller.env` (`AWS_REGION=ap-southeast-1`), `controller.additionalArgs`
+  (`--k8s-tag-cluster-id=ooh-aws`) and `controller.extraVolumeTags`.
+  The flag is registered in the driver's [v1.68.0 source](https://github.com/kubernetes-sigs/aws-ebs-csi-driver/blob/v1.68.0/pkg/driver/options.go#L128).
+  Fixtures include the saved real AWS schema; the upstream Helm chart's
+  `controller.region` and `controller.k8sTagClusterId` keys are not accepted
+  by this managed add-on.
 - No Auto Scaling group launch template: stop and inspect the group. A missing
   `eks:cluster-name=ooh-aws` tag requires Aziz's decision about extending the
   sweep to the saved `EKS_LT_ID`. This prints `FAIL` while `82` carries on to
