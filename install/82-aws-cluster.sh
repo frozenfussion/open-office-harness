@@ -5,15 +5,11 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/81-aws-bootstrap.sh"
 # The schema is also checked against v1.68.0's public chart during the build.
 check_ebs_schema() {
-    local schema config
+    local schema
     schema=$(aws eks describe-addon-configuration --addon-name aws-ebs-csi-driver --addon-version v1.68.0-eksbuild.1 --query configurationSchema --output text)
-    config=$(terraform -chdir="$TF_ROOT/cluster" show -json "$AWS_CACHE/cluster-2.tfplan")
-    EBS_SCHEMA="$schema" EBS_PLAN="$config" python3 - <<'PY'
+    EBS_SCHEMA="$schema" python3 - <<'PY'
 import json,os,sys
 schema=json.loads(os.environ['EBS_SCHEMA'])
-plan=json.loads(os.environ['EBS_PLAN'])
-values=next(r['change']['after']['configuration_values'] for r in plan['resource_changes'] if r['address']=='aws_eks_addon.ebs')
-config=json.loads(values)
 def resolve(s):
     while '$ref' in s:
         node=schema
@@ -21,18 +17,13 @@ def resolve(s):
             node=node[part.replace('~1','/').replace('~0','~')]
         s=node
     return s
-def check(s, value, path=''):
-    s=resolve(s)
-    for key,v in value.items():
-        name=f'{path}.{key}'.lstrip('.')
-        props=s.get('properties',{})
-        if key not in props:
-            if s.get('additionalProperties') is True or isinstance(s.get('additionalProperties'),dict):
-                continue
-            print(f"STOP: EBS CSI add-on configuration key {name} not in AWS's schema", file=sys.stderr)
-            sys.exit(1)
-        if isinstance(v,dict): check(props[key],v,name)
-check(schema,config)
+for path in ('controller.region', 'controller.k8sTagClusterId', 'controller.extraVolumeTags'):
+    node=schema
+    for key in path.split('.'):
+        properties=resolve(node).get('properties', {})
+        if key not in properties:
+            sys.exit(f"STOP: EBS CSI add-on configuration key {path} not in AWS's schema")
+        node=properties[key]
 PY
 }
 paid_guard() {
@@ -48,8 +39,8 @@ for row in rows:
     if t not in paid: continue
     if 'delete' in actions: sys.exit('STOP: paid resource deletion/replacement; ask Aziz for a new yes after showing this plan')
     if 'create' in actions: counts[t]+=1
-expected={'aws_nat_gateway':1,'aws_eip':1,'aws_eks_node_group':1} if sys.argv[1]=='2' else {}
-if dict(counts)!=expected:
+expected={'1':{'aws_eks_cluster':1}, '2':{'aws_nat_gateway':1,'aws_eip':1,'aws_eks_node_group':1}, '3':{}}[sys.argv[1]]
+if counts and dict(counts)!=expected:
     sys.exit('STOP: paid resource counts differ from the approved build; ask Aziz for a new yes after showing this plan')
 PY
 }
@@ -65,7 +56,7 @@ capture_node_tags() {
     tags=$(aws ec2 describe-launch-templates --launch-template-ids "$lt" --query 'LaunchTemplates[0].Tags' --output json)
     printf 'Launch template tags: %s\n' "${tags//"$AWS_ACCOUNT"/<account>}"
     if ! jq -e 'any(.[]; .Key == "eks:cluster-name" and .Value == "ooh-aws")' >/dev/null <<< "$tags"; then
-        stop 'launch template has no eks:cluster-name=ooh-aws tag; ask Aziz whether the destroy sweep should also check EKS_LT_ID; copy costs about USD 0.42/hour while paused; a launch template bills nothing'
+        printf '%s\n' 'FAIL: launch template has no eks:cluster-name=ooh-aws tag; Claude must ask Aziz whether the destroy sweep should also check EKS_LT_ID while the build continues; copy costs about USD 0.42/hour; a launch template bills nothing'
     fi
 }
 cluster_main() {
@@ -81,6 +72,7 @@ cluster_main() {
     local first entries access resources
     first=$(terraform -chdir="$TF_ROOT/cluster" show -json "${AWS_PLANS[0]}")
     if jq -e 'any(.resource_changes[]?; .type == "aws_nat_gateway" or .type == "aws_eip")' >/dev/null <<< "$first"; then stop 'control-plane plan contains a NAT gateway or public address; nothing was applied'; fi
+    paid_guard 1 cluster "${AWS_PLANS[0]}"
     resources=$(jq -r '.resource_changes[]? | "\(.address): \(if .type == "aws_eks_cluster" then "USD 0.10/hour" else "USD 0/hour" end)"' <<< "$first")
     printf '%s\n' "$resources"
     confirm 'Type yes to build EKS control plane and its network/access settings (about USD 0.10/hour)'

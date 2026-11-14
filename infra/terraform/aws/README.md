@@ -6,12 +6,15 @@ about **USD 0.42/hour, USD 10.10/day**, plus traffic. Destroy it after testing.
 These steps are for Claude during the run phase, with Aziz watching. Aziz supplies
 browser authentication and approvals in chat. No AWS session may exist while a
 Codex builder works. No command below needs sudo or a terminal password.
+During the run phase, use the merged worktree `~/projects/worktrees/stage-4b`,
+as the commands below show. After acceptance and merge to main, the folder is
+`~/projects/open-office-harness`; use `cd ~/projects/open-office-harness` instead.
 
 1. **Install tools.** Type this in your harness terminal, in the plain shell.
    This installs the pinned tools under your home folder. Good result: `DONE`.
 
    ```bash
-   cd ~/projects/worktrees/stage-4b-part-a
+   cd ~/projects/worktrees/stage-4b
    install/80-aws-tools.sh
    ```
 
@@ -27,7 +30,7 @@ Codex builder works. No command below needs sudo or a terminal password.
    approves and types the code in his browser. Good result: `DONE`.
 
    ```bash
-   cd ~/projects/worktrees/stage-4b-part-a
+   cd ~/projects/worktrees/stage-4b
    install/83-aws-login.sh
    ```
 
@@ -38,7 +41,7 @@ Codex builder works. No command below needs sudo or a terminal password.
    immediately so alerts can arrive; alerts can be 8–24 hours late.
 
    ```bash
-   cd ~/projects/worktrees/stage-4b-part-a
+   cd ~/projects/worktrees/stage-4b
    install/81-aws-bootstrap.sh
    ```
 
@@ -47,10 +50,11 @@ Codex builder works. No command below needs sudo or a terminal password.
    Allow about 25 minutes. Terraform prints its progress while it waits.
    The script shows the USD 0.42/hour total before the first plan. Each saved
    plan has its own `yes` prompt. Aziz's recorded approval covers all three
-   only when their paid-resource counts match the agreed list.
+   only when their paid-resource counts match the agreed list or there are no
+   paid creates or deletes on a re-run. Any paid delete still stops.
 
    ```bash
-   cd ~/projects/worktrees/stage-4b-part-a
+   cd ~/projects/worktrees/stage-4b
    install/82-aws-cluster.sh
    ```
 
@@ -66,7 +70,7 @@ Codex builder works. No command below needs sudo or a terminal password.
    lines and `DONE`.
 
    ```bash
-   cd ~/projects/worktrees/stage-4b-part-a
+   cd ~/projects/worktrees/stage-4b
    install/84-aws-dns.sh
    ```
 
@@ -77,7 +81,7 @@ Codex builder works. No command below needs sudo or a terminal password.
    lines, the budget reminder, and `DONE`.
 
    ```bash
-   cd ~/projects/worktrees/stage-4b-part-a
+   cd ~/projects/worktrees/stage-4b
    install/86-check-aws.sh
    ```
 
@@ -89,7 +93,7 @@ Codex builder works. No command below needs sudo or a terminal password.
    The Control Centre check may need Aziz's browser sign-in, as on the Droplet.
 
    ```bash
-   cd ~/projects/worktrees/stage-4b-part-a
+   cd ~/projects/worktrees/stage-4b
    install/86-check-aws.sh --replace-node
    ```
 
@@ -123,7 +127,7 @@ Codex builder works. No command below needs sudo or a terminal password.
    kubeconfig, clears the local endpoint/hostname, and logs out of AWS.
 
    ```bash
-   cd ~/projects/worktrees/stage-4b-part-a
+   cd ~/projects/worktrees/stage-4b
    install/85-aws-destroy.sh
    ```
 
@@ -136,7 +140,7 @@ Codex builder works. No command below needs sudo or a terminal password.
     copy resources, `PASS`, `DONE`. This checks all enabled regions and IAM.
 
     ```bash
-    cd ~/projects/worktrees/stage-4b-part-a
+    cd ~/projects/worktrees/stage-4b
     install/85-aws-destroy.sh --sweep-only
     ```
 
@@ -154,16 +158,17 @@ Codex builder works. No command below needs sudo or a terminal password.
     Good result: `DONE`. Keep the private bootstrap state until it completes.
 
     ```bash
-    cd ~/projects/worktrees/stage-4b-part-a
+    cd ~/projects/worktrees/stage-4b
     install/85-aws-destroy.sh --all
     ```
 
 12. **Run builder checks with no AWS session.** Type this in your harness
     terminal, in the plain shell. Good result: no formatting/lint errors and
-    three valid roots. These commands never plan, apply or contact a cluster.
+    three valid roots and 13 passing fixture tests. The fixtures stub every
+    account/cluster call; these commands never contact AWS or a cluster.
 
     ```bash
-    cd ~/projects/worktrees/stage-4b-part-a
+    cd ~/projects/worktrees/stage-4b
     terraform fmt -check -recursive infra/terraform/aws
     for root in bootstrap cluster addons; do
       terraform -chdir="infra/terraform/aws/$root" init -backend=false -input=false
@@ -172,6 +177,7 @@ Codex builder works. No command below needs sudo or a terminal password.
     done
     for script in install/8*.sh; do bash -n "$script"; done
     shellcheck -x install/8*.sh
+    uv run --project contracts/check --frozen python infra/terraform/aws/cluster/tests/review_fixtures.py
     ```
 
 ## If a script stops
@@ -195,8 +201,8 @@ Codex builder works. No command below needs sudo or a terminal password.
 - NAT/address in control-plane plan: stop; the Terraform dependency graph
   needs review. Nothing in that plan was applied.
 - Paid resource counts changed, deletion or replacement: show the new plan and
-  costs to Aziz for a new decision. Restarting `82` may hit this on a partially
-  built copy; the script never silently broadens approval.
+  costs to Aziz for a new decision. A re-run with zero paid changes proceeds;
+  a partially built copy with other counts still stops for review.
 - Root admin access unproven: stop, destroy the control plane with `85` on
   Aziz's yes, then ask the spec author. No nodes or NAT have been built yet.
 - EBS configuration key absent from AWS's schema: stop before plan 2 is applied;
@@ -204,13 +210,19 @@ Codex builder works. No command below needs sudo or a terminal password.
   the exact key, including its parent path.
 - No Auto Scaling group launch template: stop and inspect the group. A missing
   `eks:cluster-name=ooh-aws` tag requires Aziz's decision about extending the
-  sweep to the saved `EKS_LT_ID`. The running copy still costs USD 0.42/hour;
-  the template itself costs nothing. Do not resume Codex until AWS logout.
+  sweep to the saved `EKS_LT_ID`. This prints `FAIL` while `82` carries on to
+  plan 3; Claude asks Aziz while the run continues. The running copy still
+  costs USD 0.42/hour; the template itself costs nothing. Do not resume Codex
+  until AWS logout.
 - Missing load balancer or CNAME/HTTP failure: inspect controller readiness,
   public subnet tags, DNS records and port 80, then retry `82` or `84` as needed.
 - Destroy wait timeout: inspect the named controller, pods or data disks and
-  repeat `85`; never remove finalizers by hand. `FAIL: leftover` names every
-  remaining resource. Investigate before saying billing has stopped.
+  repeat `85`; its controller cleanup waits for tagged target groups and
+  security groups too. Never remove finalizers by hand. `FAIL: leftover` names
+  every remaining resource. Investigate before saying billing has stopped.
+- Normal destroy and `--all` log out on exit, including refusals and errors.
+  Sign in again before retrying. `--sweep-only` leaves the session unchanged;
+  finish that AWS work block with the logout command above.
 - Inventory failure: check sign-in and read permissions, then retry the sweep.
   Failed reads never count as an empty account.
 - Replacement timeout: inspect node-group events, disk attachments and EBS CSI
@@ -238,8 +250,8 @@ Terraform. Never commit state, plans, backend settings or local account values.
 `81` also provides shared shell functions to `82`–`86`; sourcing it does not run
 bootstrap. `85` supplies the read-only inventory to `86`. Neither sources Part
 B's target selector: these scripts must work before and after a node exists.
-The full root README belongs to Part B. These paths refer to the builder's
-worktree; the reviewed merged run phase uses the equivalent `stage-4b` folder.
+The full root README belongs to Part B. Run-phase commands use the reviewed
+merged `stage-4b` worktree; after acceptance use the main clone as stated above.
 
 The network uses two public /24 and two private /20 subnets. The node and NLB
 stay in zone a so the retained-in-use EBS disks can attach after replacement.

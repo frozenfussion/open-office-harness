@@ -19,7 +19,7 @@ def call(region,service,operation,**args):
         sys.exit(f'STOP: inventory failed for {service} {operation} in {region}; sign in again or check permissions and retry')
     return json.loads(result.stdout)
 def tags(raw):
-    ts=raw.get('Tags',raw.get('tags',{})) or {}
+    ts=raw.get('Tags',raw.get('tags',raw.get('TagSet',{}))) or {}
     return ts if isinstance(ts,dict) else {t.get('Key',t.get('TagKey')):t.get('Value',t.get('TagValue')) for t in ts}
 rows=[]
 def add(region,kind,raw,idkey,arnkey=None,name=None,force=False):
@@ -96,6 +96,22 @@ wait_no_lb() {
         sleep 10
     done
 }
+wait_no_controller_resources() {
+    local deadline=$((SECONDS + 600)) groups arn tags security_groups remaining
+    while true; do
+        remaining=false
+        groups=$(aws --region ap-southeast-1 elbv2 describe-target-groups --output json)
+        while IFS= read -r arn; do
+            tags=$(aws --region ap-southeast-1 elbv2 describe-tags --resource-arns "$arn" --output json)
+            if jq -e 'any(.TagDescriptions[].Tags[]; .Key == "elbv2.k8s.aws/cluster" and .Value == "ooh-aws")' >/dev/null <<< "$tags"; then remaining=true; fi
+        done < <(jq -r '.TargetGroups[].TargetGroupArn' <<< "$groups")
+        security_groups=$(aws --region ap-southeast-1 ec2 describe-security-groups --filters 'Name=tag:elbv2.k8s.aws/cluster,Values=ooh-aws' --output json)
+        if jq -e '.SecurityGroups | length > 0' >/dev/null <<< "$security_groups"; then remaining=true; fi
+        $remaining || return 0
+        (( SECONDS < deadline )) || stop 'controller target groups or security groups still exist; inspect controller logs and rerun install/85-aws-destroy.sh'
+        sleep 10
+    done
+}
 wait_no_data_volumes() {
     local deadline=$((SECONDS + 600)) volumes
     while true; do
@@ -109,6 +125,7 @@ clean_kubernetes() {
     local ns objects pods pod deadline crd
     kubectl -n kube-system delete service traefik --ignore-not-found --timeout=600s
     wait_no_lb
+    wait_no_controller_resources
     kubectl -n ooh-apps delete deployments --all --ignore-not-found --timeout=600s
     # A missing CRD on a partial build is not a cleanup failure.
     for objects in kafkatopics.kafka.strimzi.io kafkausers.kafka.strimzi.io kafkas.kafka.strimzi.io clusters.postgresql.cnpg.io keycloaks.k8s.keycloak.org; do
@@ -136,16 +153,28 @@ clean_kubernetes() {
     done
     wait_no_data_volumes
 }
+destroy_exit() {
+    local status=$?
+    trap - EXIT ERR
+    cleanup_plans || status=1
+    if ! aws logout; then
+        printf 'STOP: AWS logout failed; run aws logout before restarting a builder\n' >&2
+        status=1
+    fi
+    (( status != 0 )) || printf 'DONE\n'
+    exit "$status"
+}
 destroy_main() {
     local mode=${1:-} root state nodes addons=false cluster=false all=false
     [[ $# -le 1 && ( -z $mode || $mode == --all || $mode == --sweep-only ) ]] || stop 'use install/85-aws-destroy.sh [--all|--sweep-only]'
+    AWS_PLANS=()
+    if [[ $mode != --sweep-only ]]; then trap destroy_exit EXIT; fi
     aws_setup
     check_signin
     if [[ $mode == --sweep-only ]]; then sweep_empty; printf 'DONE\n'; return; fi
     check_age
     [[ $mode != --all ]] || all=true
     AWS_PLANS=("$AWS_CACHE/addons-destroy.tfplan" "$AWS_CACHE/cluster-destroy.tfplan" "$AWS_CACHE/bootstrap-destroy.tfplan")
-    trap cleanup_plans EXIT
     for root in addons cluster; do
         init_root "$root"
         state=$(terraform -chdir="$TF_ROOT/$root" state list)
@@ -185,7 +214,5 @@ destroy_main() {
     mv "$temp" "$AWS_LOCAL/aws.env"
     printf '%s\n' 'Remove CNAME records: harness.aws.faysalaziz.com, admin.aws.faysalaziz.com, auth.aws.faysalaziz.com.'
     find "$AWS_CACHE" -maxdepth 1 -type f -name '*.tfplan' -delete
-    aws logout
-    printf 'DONE\n'
 }
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then destroy_main "$@"; fi
