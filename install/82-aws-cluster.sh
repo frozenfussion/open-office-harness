@@ -3,7 +3,7 @@
 set -euo pipefail
 # shellcheck source=install/81-aws-bootstrap.sh
 source "$(dirname "${BASH_SOURCE[0]}")/81-aws-bootstrap.sh"
-# The schema is also checked against v1.68.0's public chart during the build.
+# Offline fixtures use the saved AWS schema; the run phase rechecks AWS's schema.
 check_ebs_schema() {
     local schema
     schema=$(aws eks describe-addon-configuration --addon-name aws-ebs-csi-driver --addon-version v1.68.0-eksbuild.1 --query configurationSchema --output text)
@@ -17,7 +17,7 @@ def resolve(s):
             node=node[part.replace('~1','/').replace('~0','~')]
         s=node
     return s
-for path in ('controller.region', 'controller.k8sTagClusterId', 'controller.extraVolumeTags'):
+for path in ('controller.env', 'controller.additionalArgs', 'controller.extraVolumeTags'):
     node=schema
     for key in path.split('.'):
         properties=resolve(node).get('properties', {})
