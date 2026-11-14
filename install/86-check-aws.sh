@@ -182,7 +182,7 @@ PY
 check_images() {
     local deployments
     deployments=$(kubectl -n ooh-apps get deployments -o json) || return
-    jq -e --argjson expected '["audit-writer","admin-console","control-centre","cost-meter","harness-api","model-gateway","safety-watcher","slides-worker","workspace"]' 'all(.items[].spec.template.spec.initContainers[]?; .image | endswith(":7c721a4de601")) and ([.items[].spec.template.spec.containers[].image] as $images | ($images | length) == 9 and all($expected[]; . as $name | $images | index("ghcr.io/frozenfussion/ooh-" + $name + ":7c721a4de601") != null))' <<< "$deployments"
+    jq -e '["audit-writer","admin-console","control-centre","cost-meter","harness-api","model-gateway","safety-watcher","slides-worker","workspace"] as $expected | all(.items[].spec.template.spec.initContainers[]?; .image | endswith(":7c721a4de601")) and ([.items[].spec.template.spec.containers[].image] as $images | ($images | length) == 9 and all($expected[]; . as $name | $images | index("ghcr.io/frozenfussion/ooh-" + $name + ":7c721a4de601") != null))' <<< "$deployments"
 }
 check_private_services() {
     local services ingresses

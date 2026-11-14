@@ -164,7 +164,7 @@ as the commands below show. After acceptance and merge to main, the folder is
 
 12. **Run builder checks with no AWS session.** Type this in your harness
     terminal, in the plain shell. Good result: no formatting/lint errors and
-    three valid roots and 20 passing fixture tests. The fixtures stub every
+    three valid roots and 24 passing fixture tests. The fixtures stub every
     account/cluster call; these commands never contact AWS or a cluster.
 
     ```bash
@@ -255,8 +255,11 @@ releases and `ooh-gp3`. S3 keys are `cluster/terraform.tfstate` and
 
 All local settings, plans and kubeconfigs are private. Each script uses
 `umask 077`, the plan folder is mode 700 and plan files are mode 600. Plans are
-removed after apply, refusal or failure. The budget recipient is sensitive in
-Terraform. Never commit state, plans, backend settings or local account values.
+removed after apply, refusal or failure. Plan and add-on-schema JSON stream to
+Python on stdin; JSON aggregation uses jq stdin too. Full JSON payloads never
+travel through process environment variables or command arguments, so large
+real plans do not hit argument-size limits. The budget recipient is sensitive
+in Terraform. Never commit state, plans, backend settings or local account values.
 
 `81` also provides shared shell functions to `82`–`86`; sourcing it does not run
 bootstrap. `85` supplies the read-only inventory to `86`. Neither sources Part

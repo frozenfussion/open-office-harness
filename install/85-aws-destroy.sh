@@ -82,7 +82,7 @@ cluster_load_balancers() {
         tags=$(aws elbv2 describe-tags --resource-arns "$arn" --output json)
         if jq -e 'any(.TagDescriptions[].Tags[]; .Key == "elbv2.k8s.aws/cluster" and .Value == "ooh-aws")' >/dev/null <<< "$tags"; then
             row=$(jq --arg arn "$arn" '.LoadBalancers[] | select(.LoadBalancerArn == $arn) | {ARN:.LoadBalancerArn,Name:.LoadBalancerName,DNS:.DNSName}' <<< "$balancers")
-            result=$(jq --argjson row "$row" '. + [$row]' <<< "$result")
+            result=$(jq -s '.[0] + [.[1]]' <<< "$result"$'\n'"$row")
         fi
     done < <(jq -r '.LoadBalancers[].LoadBalancerArn' <<< "$balancers")
     printf '%s\n' "$result"

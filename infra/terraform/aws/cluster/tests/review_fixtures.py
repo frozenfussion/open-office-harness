@@ -92,6 +92,105 @@ terraform() { printf 'UNEXPECTED TERRAFORM CALL\n' >&2; return 97; }
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("STOP: paid resource deletion/replacement", result.stderr)
 
+    def test_plan_larger_than_one_megabyte_passes_guard(self) -> None:
+        plan = {
+            "padding": "x" * (2 * 1024 * 1024),
+            "resource_changes": [
+                {"type": "aws_eks_addon", "change": {"actions": ["delete", "create"]}}
+            ],
+        }
+        self.assertGreater(len(json.dumps(plan)), 1024 * 1024)
+        body = 'terraform() { cat "$FIXTURE"; }; paid_guard 2 cluster unused'
+        result = self.shell(body, data=plan)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        failed_source = body.replace('cat "$FIXTURE";', 'cat "$FIXTURE"; return 7;')
+        self.assertEqual(self.shell(failed_source, data=plan).returncode, 7)
+        plan["resource_changes"].append(
+            {"type": "aws_eks_node_group", "change": {"actions": ["delete", "create"]}}
+        )
+        result = self.shell(body, data=plan)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("STOP: paid resource deletion/replacement", result.stderr)
+
+    def test_large_schema_stream_passes_guard(self) -> None:
+        schema = self.schema()
+        schema["description"] = "x" * (2 * 1024 * 1024)
+        result = self.shell('aws() { cat "$FIXTURE"; }; check_ebs_schema', data=schema)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.shell(
+            'aws() { cat "$FIXTURE"; return 7; }; check_ebs_schema', data=schema
+        )
+        self.assertEqual(result.returncode, 7)
+
+    def test_large_load_balancer_row_is_accumulated_through_stdin(self) -> None:
+        name = "x" * (2 * 1024 * 1024)
+        result = self.shell(
+            """
+aws() {
+    case "$1 $2" in
+        'elbv2 describe-load-balancers') cat "$FIXTURE";;
+        'elbv2 describe-tags') printf '{"TagDescriptions":[{"Tags":[{"Key":"elbv2.k8s.aws/cluster","Value":"ooh-aws"}]}]}';;
+        *) return 97;;
+    esac
+}
+cluster_load_balancers > "$HOME/result.json"
+""",
+            source=DESTROY,
+            data={
+                "LoadBalancers": [
+                    {
+                        "LoadBalancerArn": "lb-fixture",
+                        "LoadBalancerName": name,
+                        "DNSName": "lb.example.invalid",
+                    }
+                ]
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rows = json.loads((self.home / "result.json").read_text())
+        self.assertEqual(
+            rows, [{"ARN": "lb-fixture", "Name": name, "DNS": "lb.example.invalid"}]
+        )
+
+    def test_image_check_keeps_expected_image_rules(self) -> None:
+        names = [
+            "audit-writer",
+            "admin-console",
+            "control-centre",
+            "cost-meter",
+            "harness-api",
+            "model-gateway",
+            "safety-watcher",
+            "slides-worker",
+            "workspace",
+        ]
+        data = {
+            "items": [
+                {
+                    "spec": {
+                        "template": {
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "image": f"ghcr.io/frozenfussion/ooh-{name}:7c721a4de601"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+                for name in names
+            ]
+        }
+        body = 'kubectl() { cat "$FIXTURE"; }; check_images'
+        result = self.shell(body, source=CHECK, data=data)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data["items"][0]["spec"]["template"]["spec"]["containers"][0]["image"] = (
+            "fixture:wrong"
+        )
+        result = self.shell(body, source=CHECK, data=data)
+        self.assertNotEqual(result.returncode, 0)
+
     def test_unexpected_paid_counts_stop(self) -> None:
         for changes in (
             [("aws_nat_gateway", ["create"])],
