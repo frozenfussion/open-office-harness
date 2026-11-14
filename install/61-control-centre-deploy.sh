@@ -7,9 +7,9 @@ trap 'stop "Control Centre deployment failed; inspect migration logs and pod rea
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE; do
-  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/do.env"
+  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/$OOH_TARGET.env"
 done
 render() {
   local source="$1" target="$2" line variable token
@@ -56,7 +56,7 @@ if ! kubectl -n "$APPS_NAMESPACE" get secret control-centre-oidc >/dev/null 2>&1
   printf 'Connection tests need service credentials; run install/71-control-centre-oidc.sh to enable them\n'
 fi
 tmp="$(mktemp -d)"
-trap 'rm -rf -- "$tmp"' EXIT
+trap 'rm -rf -- "$tmp"; ooh_target_cleanup' EXIT
 mkdir -p "$tmp/apps"
 for file in deploy/apps/control-centre/*.yaml; do
   render "$file" "$tmp/apps/$(basename "$file")"

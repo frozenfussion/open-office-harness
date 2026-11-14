@@ -8,11 +8,11 @@ stop() { printf 'STOP: %s\n' "$*" >&2; exit 1; }
 trap 'stop "Control Centre service credential setup failed; check cluster access and retry"' ERR
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 [[ $# == 0 ]] || stop "usage: install/71-control-centre-oidc.sh"
 for tool in kubectl jq base64; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 for variable in PLATFORM_NAMESPACE APPS_NAMESPACE; do
-  [[ "${!variable:-}" =~ ^[a-z0-9-]+$ ]] || stop "invalid namespace; correct deploy/values/do.env"
+  [[ "${!variable:-}" =~ ^[a-z0-9-]+$ ]] || stop "invalid namespace; correct deploy/values/$OOH_TARGET.env"
 done
 client_secret="$(kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- bash -c '
   set -euo pipefail

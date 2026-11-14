@@ -9,9 +9,9 @@ trap 'stop "database setup failed; inspect PostgreSQL readiness and re-run insta
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE; do
-  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/do.env"
+  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/$OOH_TARGET.env"
 done
 render() {
   local source="$1" target="$2" line variable token
@@ -58,7 +58,7 @@ done
 
 manifest_tmp="$(mktemp)"
 settings_tmp=''
-trap 'rm -f -- "$manifest_tmp"; [[ -z "$settings_tmp" ]] || rm -f -- "$settings_tmp"' EXIT
+trap 'rm -f -- "$manifest_tmp"; [[ -z "$settings_tmp" ]] || rm -f -- "$settings_tmp"; ooh_target_cleanup' EXIT
 render deploy/platform/postgres/db-auditwriter.yaml "$manifest_tmp"
 kubectl apply -f "$manifest_tmp"
 printf 'Waiting for the four database roles and both databases\n'
@@ -75,7 +75,7 @@ owner_password="$(kubectl -n "$PLATFORM_NAMESPACE" get secret auditwriter-test-d
 app_password="$(kubectl -n "$PLATFORM_NAMESPACE" get secret auditwriter-test-app-db -o jsonpath='{.data.password}' | base64 --decode)"
 [[ "$owner_password" =~ ^[a-f0-9]{64}$ && "$app_password" =~ ^[a-f0-9]{64}$ ]] ||
   stop "test database passwords have an unexpected format; inspect their Secrets privately"
-settings_dir="$HOME/.config/ooh"
+settings_dir="$OOH_LOCAL"
 mkdir -p "$settings_dir"
 settings_tmp="$(mktemp "$settings_dir/.audit-writer-test.env.XXXXXX")"
 printf "AW_TEST_DB_MIGRATE_CONNECTION='host=%s port=5432 dbname=auditwriter_test user=auditwriter_test password=%s'\nAW_TEST_DB_CONNECTION='host=%s port=5432 dbname=auditwriter_test user=auditwriter_test_app password=%s'\n" \
@@ -83,7 +83,7 @@ printf "AW_TEST_DB_MIGRATE_CONNECTION='host=%s port=5432 dbname=auditwriter_test
 chmod 600 "$settings_tmp"
 mv -f -- "$settings_tmp" "$settings_dir/audit-writer-test.env"
 unset owner_password app_password
-printf 'Test database settings saved privately in ~/.config/ooh/audit-writer-test.env (mode 600)\n'
+printf 'Test database settings saved privately in %s/audit-writer-test.env (mode 600)\n' "$OOH_LOCAL"
 existing="$(kubectl -n "$APPS_NAMESPACE" get secret audit-writer-db --ignore-not-found -o name)"
 if [[ -z "$existing" ]]; then
   owner_password="$(kubectl -n "$PLATFORM_NAMESPACE" get secret auditwriter-db -o jsonpath='{.data.password}' | base64 --decode)"
@@ -125,7 +125,7 @@ done
 
 manifest_tmp="$(mktemp)"
 settings_tmp=''
-trap 'rm -f -- "$manifest_tmp"; [[ -z "$settings_tmp" ]] || rm -f -- "$settings_tmp"' EXIT
+trap 'rm -f -- "$manifest_tmp"; [[ -z "$settings_tmp" ]] || rm -f -- "$settings_tmp"; ooh_target_cleanup' EXIT
 render deploy/platform/postgres/db-costmeter.yaml "$manifest_tmp"
 kubectl apply -f "$manifest_tmp"
 printf 'Waiting for the four database roles and both databases\n'
@@ -142,7 +142,7 @@ owner_password="$(kubectl -n "$PLATFORM_NAMESPACE" get secret costmeter-test-db 
 app_password="$(kubectl -n "$PLATFORM_NAMESPACE" get secret costmeter-test-app-db -o jsonpath='{.data.password}' | base64 --decode)"
 [[ "$owner_password" =~ ^[a-f0-9]{64}$ && "$app_password" =~ ^[a-f0-9]{64}$ ]] ||
   stop "test database passwords have an unexpected format; inspect their Secrets privately"
-settings_dir="$HOME/.config/ooh"
+settings_dir="$OOH_LOCAL"
 mkdir -p "$settings_dir"
 settings_tmp="$(mktemp "$settings_dir/.cost-meter-test.env.XXXXXX")"
 printf "CM_TEST_DB_MIGRATE_CONNECTION='host=%s port=5432 dbname=costmeter_test user=costmeter_test password=%s'\nCM_TEST_DB_CONNECTION='host=%s port=5432 dbname=costmeter_test user=costmeter_test_app password=%s'\n" \
@@ -150,7 +150,7 @@ printf "CM_TEST_DB_MIGRATE_CONNECTION='host=%s port=5432 dbname=costmeter_test u
 chmod 600 "$settings_tmp"
 mv -f -- "$settings_tmp" "$settings_dir/cost-meter-test.env"
 unset owner_password app_password
-printf 'Test database settings saved privately in ~/.config/ooh/cost-meter-test.env (mode 600)\n'
+printf 'Test database settings saved privately in %s/cost-meter-test.env (mode 600)\n' "$OOH_LOCAL"
 existing="$(kubectl -n "$APPS_NAMESPACE" get secret cost-meter-db --ignore-not-found -o name)"
 if [[ -z "$existing" ]]; then
   owner_password="$(kubectl -n "$PLATFORM_NAMESPACE" get secret costmeter-db -o jsonpath='{.data.password}' | base64 --decode)"

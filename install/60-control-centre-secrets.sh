@@ -8,9 +8,9 @@ trap 'stop "secret setup failed; check platform readiness and re-run install/60-
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE; do
-  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/do.env"
+  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/$OOH_TARGET.env"
 done
 render() {
   local source="$1" target="$2" line variable token
@@ -29,7 +29,7 @@ kubectl -n "$PLATFORM_NAMESPACE" wait --for=jsonpath='{.status.applied}'=true \
   database/controlcentre databaserole/controlcentre databaserole/controlcentre-app --timeout=60s ||
   stop "live database is not ready; run install/59-control-centre-databases.sh first"
 manifest_tmp="$(mktemp)"
-trap 'rm -f -- "$manifest_tmp"' EXIT
+trap 'rm -f -- "$manifest_tmp"; ooh_target_cleanup' EXIT
 for name in control-centre ooh-stage-check; do
   render "deploy/platform/kafka/users/$name.yaml" "$manifest_tmp"
   kubectl apply -f "$manifest_tmp"

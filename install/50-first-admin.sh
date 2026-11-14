@@ -7,7 +7,7 @@ trap 'stop "admin request failed; check Keycloak and re-run; existing users are 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 command -v curl >/dev/null || stop "missing tool curl; finish server setup"
 command -v jq >/dev/null || stop "missing tool jq; finish server setup"
 base="https://auth.$DOMAIN"

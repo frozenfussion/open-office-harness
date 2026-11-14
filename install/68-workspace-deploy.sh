@@ -7,9 +7,9 @@ trap 'stop "Workspace deployment failed; inspect pod events and readiness, then 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE; do
-  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/do.env"
+  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/$OOH_TARGET.env"
 done
 render() {
   local source="$1" target="$2" line variable token
@@ -49,7 +49,7 @@ status="$(printf 'header = "Authorization: Bearer %s"\n' "$registry_token" |
 unset registry_response registry_reply registry_token
 check_registry_status "$status"
 tmp="$(mktemp -d)"
-trap 'rm -rf -- "$tmp"' EXIT
+trap 'rm -rf -- "$tmp"; ooh_target_cleanup' EXIT
 mkdir -p "$tmp/apps"
 for file in deploy/apps/workspace/*.yaml; do
   render "$file" "$tmp/apps/$(basename "$file")"

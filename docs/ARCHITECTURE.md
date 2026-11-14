@@ -262,9 +262,16 @@ There are no signed links or file deletions. Workspace and its /api share harnes
 its /api share admin.faysalaziz.com; Keycloak uses auth.faysalaziz.com. Gateway,
 Kafka and PostgreSQL have no public hostname.
 
-Stage 6 moves to AWS EKS with the same manifests and different values, and S3
-storage. AWS infrastructure uses Terraform; Aziz performs Stage 6 deployments. Secrets
-are Kubernetes Secrets created by setup scripts, never repository values.
+Stage 4 phase 2 adds an AWS EKS copy built by Terraform, using the same
+manifests and nine class images with separate values and web names under
+aws.faysalaziz.com. Encrypted EBS gp3 volumes replace local-path, including the
+shared ooh-files volume at the same /files paths; AWS volumes reclaim with
+Delete while the Droplet keeps Retain. Each deployment script checks its target
+and freezes its kubeconfig, and AWS local settings stay separate. The copy starts
+with empty databases, topics and files, holds only check/test data, and is
+destroyed after acceptance; the Droplet remains the class system. Claude runs
+the AWS scripts while Aziz authenticates and approves costs. Secrets are
+Kubernetes Secrets created by setup scripts, never repository values.
 Admins type provider keys once in the Admin Console. The Control Centre stores
 them encrypted with AES-256-GCM using a Kubernetes encryption-key Secret and the
 entry ID as associated data. Admin responses expose only `has_key`. Only the
