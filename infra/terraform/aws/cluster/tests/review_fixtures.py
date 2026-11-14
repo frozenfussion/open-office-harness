@@ -447,6 +447,48 @@ cluster_main
             )
         self.assertNotIn("0.282", result.stdout)
 
+    def test_prompt_failure_stops_before_confirmation_in_each_plan(self) -> None:
+        for number, plan in enumerate(
+            ("cluster-1.tfplan", "cluster-2.tfplan", "addons.tfplan"), start=1
+        ):
+            with self.subTest(plan=plan):
+                result = self.shell(
+                    f"FAIL_PLAN={shlex.quote(plan)}\n"
+                    + r"""
+aws_setup() { :; }; check_signin() { AWS_ACCOUNT=fixture-account; }; check_age() { :; }
+price_table() { :; }; init_root() { :; }; show_plan() { :; }
+save_setting() { :; }; check_kube() { :; }; check_ebs_schema() { :; }; capture_node_tags() { :; }
+terraform() { if [[ $2 == show ]]; then printf '{}'; elif [[ $2 == output ]]; then printf 'https://fixture.invalid'; fi; }
+aws() {
+    case "$1 $2" in
+        'eks update-kubeconfig') touch "$KUBECONFIG";;
+        'eks list-access-entries') printf '{"accessEntries":[]}' ;;
+        'eks describe-addon-versions') printf '{"addons":[{"addonVersions":[{"addonVersion":"v1.22.4-eksbuild.14"},{"addonVersion":"v1.36.0-eksbuild.65"},{"addonVersion":"v1.4.1-eksbuild.3"},{"addonVersion":"v1.14.7-eksbuild.35"},{"addonVersion":"v1.68.0-eksbuild.1"}]}]}' ;;
+        *) return 97;;
+    esac
+}
+kubectl() { if [[ $1 == auth ]]; then printf yes; fi; }
+original=$(declare -f plan_cost)
+eval "${original/plan_cost/original_plan_cost}"
+plan_cost() {
+    if [[ ${3:-} == prompt && $2 == */"$FAIL_PLAN" ]]; then
+        printf 'prompt build failed\n' >&2
+        return 3
+    fi
+    original_plan_cost "$@"
+}
+confirm() { printf 'CONFIRM: %s\n' "$1"; }
+apply_plan() { printf 'APPLY\n'; }
+cluster_main
+printf 'CONTINUED\n'
+"""
+                )
+                self.assertEqual(result.returncode, 3, result.stderr)
+                self.assertIn("prompt build failed", result.stderr)
+                self.assertEqual(result.stdout.count("CONFIRM:"), number - 1)
+                self.assertEqual(result.stdout.splitlines().count("APPLY"), number - 1)
+                self.assertNotIn("CONTINUED", result.stdout)
+
     def test_unexpected_paid_counts_stop(self) -> None:
         for changes in (
             [("aws_nat_gateway", ["create"])],

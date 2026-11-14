@@ -112,7 +112,7 @@ cluster_main() {
     init_root cluster
     terraform -chdir="$TF_ROOT/cluster" plan -input=false -target=aws_eks_cluster.main -out="${AWS_PLANS[0]}"
     show_plan cluster "${AWS_PLANS[0]}"
-    local first entries access resources cost
+    local first entries access resources cost question
     first=$(terraform -chdir="$TF_ROOT/cluster" show -json "${AWS_PLANS[0]}")
     if jq -e 'any(.resource_changes[]?; .type == "aws_nat_gateway" or .type == "aws_eip")' >/dev/null <<< "$first"; then stop 'control-plane plan contains a NAT gateway or public address; nothing was applied'; fi
     paid_guard 1 cluster "${AWS_PLANS[0]}"
@@ -120,7 +120,8 @@ cluster_main() {
     printf '%s\n' "$resources"
     cost=$(plan_cost cluster "${AWS_PLANS[0]}")
     printf 'Saved plan: %s\n' "$cost"
-    confirm "$(plan_cost cluster "${AWS_PLANS[0]}" prompt)"
+    question=$(plan_cost cluster "${AWS_PLANS[0]}" prompt)
+    confirm "$question"
     apply_plan cluster "${AWS_PLANS[0]}"
     EKS_ENDPOINT=$(terraform -chdir="$TF_ROOT/cluster" output -raw endpoint)
     save_setting EKS_ENDPOINT "$EKS_ENDPOINT"
@@ -151,7 +152,8 @@ aws-ebs-csi-driver v1.68.0-eksbuild.1
 VERSIONS
     cost=$(plan_cost cluster "${AWS_PLANS[1]}")
     printf 'Saved plan: %s\n' "$cost"
-    confirm "$(plan_cost cluster "${AWS_PLANS[1]}" prompt)"
+    question=$(plan_cost cluster "${AWS_PLANS[1]}" prompt)
+    confirm "$question"
     apply_plan cluster "${AWS_PLANS[1]}"
     kubectl wait --for=condition=Ready nodes --all --timeout=600s
     capture_node_tags
@@ -161,7 +163,8 @@ VERSIONS
     paid_guard 3 addons "${AWS_PLANS[2]}"
     cost=$(plan_cost addons "${AWS_PLANS[2]}")
     printf 'Saved plan: %s\n' "$cost"
-    confirm "$(plan_cost addons "${AWS_PLANS[2]}" prompt)"
+    question=$(plan_cost addons "${AWS_PLANS[2]}" prompt)
+    confirm "$question"
     apply_plan addons "${AWS_PLANS[2]}"
     kubectl -n kube-system wait --for=jsonpath='{.status.loadBalancer.ingress[0].hostname}' service/traefik --timeout=600s
     local hostname
