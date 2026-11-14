@@ -1,0 +1,224 @@
+# Stage 4 phase 2 — The same system on AWS (EKS, built by Terraform)
+
+Written 2026-11-14 by Claude (orchestrator). Read `00-GLOBAL-RULES.md` first; it applies in full. A stage spec may add rules, never remove them; the one exception asked of Aziz is in section 4, row "Data on the AWS copy".
+**Base commit:** `main` right after this spec is merged (Aziz's yes). Before any Part starts, Claude tags that commit `stage-4b-base` and pushes the tag from harness.
+**Tag when accepted:** `eks-ready` (on the merged `stage-4b`). Then the AWS copy is destroyed (Aziz's yes); the code stays, so it can be rebuilt any time.
+
+## 0. Aziz's words and decisions (Malaysia time)
+
+- 07 Nov 16:50: "No clicking in consoles for AWS: Terraform only." State in S3 with a lock file (D024).
+- 10 Nov 13:41 (D082): Stage 4 = class-ready + AWS via Terraform, tag `eks-ready`, then destroy.
+- 12 Nov 17:32 (D101): "reduce my work... I'll only do authentication." Claude does all AWS work; Aziz has a root account; no long-lived root keys; every paid resource needs his yes with its cost.
+- 14 Nov 15:50: "we have to keep track of billing... I don't want to go bankrupt with AWS." Stale resources removed first (done 14 Nov: two old database snapshots, one old IAM user with an active key, on his yes).
+- 14 Nov 16:34 (D106): region **Singapore** (`ap-southeast-1`).
+- 14 Nov 16:42 (D107): **option B** — "let's go for B, record everything, log everything ... we're going to need diagrams of how everything works and how the shift changes everything ... pros, cons". B = our own Kafka, PostgreSQL and Keycloak run inside EKS exactly as on the Droplet, from the **same Docker images**; replaces the managed MSK + RDS + S3 part of D024.
+- 14 Nov 16:39–16:41: the AWS copy gets its own web names (CNAME records at DigitalOcean, added by Claude on Aziz's yes); the Droplet keeps its names and stays the main system for the class.
+
+## 1. Purpose
+
+Prove that the class system is portable: the platform and the nine services that run on the k3s Droplet run unchanged on Amazon EKS, with everything on AWS created by Terraform and removed by Terraform. Same Docker images (code `7c721a4de601`, tag `class-start`), same manifests, a different values file — exactly as the global rules promise ("k3s now, AWS EKS later, with the same manifests and different values").
+
+What changes between the two homes is only the ground the system stands on (the comparison table in section 13 is the source for the deck and handout diagrams):
+
+| Layer | Droplet (stays) | AWS copy (this stage) |
+|---|---|---|
+| Machines | one DigitalOcean Droplet, 8 vCPU / 16 GB, made by hand | one EKS worker node `t3.xlarge` (4 vCPU / 16 GB) in a private subnet, made by Terraform |
+| Kubernetes | k3s 1.36 on the Droplet | Amazon EKS 1.36 (control plane run by AWS) |
+| Front door | k3s's built-in Traefik on the Droplet's IP | the same Traefik (3.7), behind an AWS Network Load Balancer made by the AWS Load Balancer Controller |
+| Disks | k3s `local-path` on the Droplet disk, reclaim Retain | EBS `gp3` volumes (encrypted) through the EBS CSI driver, StorageClass `ooh-gp3`, reclaim Delete |
+| Web names | A records `harness.`, `admin.`, `auth.faysalaziz.com` → the Droplet IP | CNAME records `harness.aws.`, `admin.aws.`, `auth.aws.faysalaziz.com` → the load balancer's name |
+| Network | public IP + DigitalOcean firewall (22, 80, 443) | VPC with public and private subnets, one NAT gateway, security groups; Kubernetes API reachable only from harness |
+| Kafka, PostgreSQL, Keycloak, Jaeger, cert-manager | Strimzi, CloudNativePG, Keycloak operator, Jaeger, cert-manager | the same, same versions, inside EKS |
+| Our nine services | ghcr.io images, tag `7c721a4de601` | the same images |
+| Who runs it | Claude in Aziz's tmux window | the same; Terraform state in an S3 bucket with a lock file |
+
+## 2. Done when (all of these)
+
+1. `infra/terraform/aws/` passes `terraform fmt -check -recursive`, `terraform validate` (each root) and `tflint` with the AWS ruleset (Part A).
+2. Every changed `install/*.sh` passes `bash -n` and `shellcheck`; `kubeconform -strict` passes on `deploy/` rendered for both `do` and `aws` (Part B); the Droplet scripts render byte-identical manifests to today's for `OOH_TARGET=do` (section 6.4).
+3. On harness, Claude runs `install/81-aws-bootstrap.sh` and `install/82-aws-cluster.sh` in Aziz's shell window; each shows its Terraform plan and its cost line (section 9) and stops; after Aziz's yes in chat Claude types `yes`; each ends with `DONE`.
+4. Claude adds the three CNAME records at DigitalOcean (Aziz's yes) and `install/84-aws-dns.sh` prints `PASS` for all three.
+5. With `OOH_TARGET=aws`, the platform and app scripts in the README AWS order (section 10) each end with `DONE`; Aziz types the first admin's details (50) and the provider keys in the AWS Admin Console (tier 1, tier 2 and a classification entry, as on the Droplet).
+6. With `OOH_TARGET=aws`: `40`, `62`, `70`, `77 7c721a4de601` and `78 7c721a4de601` print only `PASS` (and the INFO/SKIP lines those checks allow), each ending with `DONE`; `install/86-check-aws.sh` prints only `PASS` (section 7).
+7. **Node replacement test** (the AWS stand-in for the Droplet reboot test): Claude terminates the worker node's EC2 instance (Aziz's yes); within 15 minutes the node group has a new node and `40`, `62` and `86` pass again without anyone touching the cluster.
+8. Aziz, in his browser, on `https://harness.aws.faysalaziz.com` and `https://admin.aws.faysalaziz.com`: signs in, chats on tier 1 and Auto, makes a Slides deck and downloads it, sees a trace in Audit. Each page shows a valid certificate.
+9. An independent read-only audit (Claude Code, its own tmux window) of the live AWS copy against this spec finds nothing open.
+10. `install/85-aws-destroy.sh` (after `eks-ready` and Aziz's yes) ends with `DONE`, the three CNAME records are removed, and Claude's sweep (the 14 Nov script, all regions) finds nothing left from this stage except the Terraform state bucket and the budget (section 4). The Billing page shows the AWS copy's charges stopped.
+11. `README.md` has the "AWS copy" guide (section 10); `docs/STATUS.md` says Stage 4 phase 2 is done and lists what was checked; `docs/ARCHITECTURE.md` and `contracts/storage.md` no longer say AWS is "Stage 6" (section 6.4).
+
+## 3. Prerequisites (done 14 Nov, before this spec)
+
+1. AWS command-line tool 2.40.3 and Terraform 1.17.2 in `~/.local/bin` on harness (no sudo). `install/80-aws-tools.sh` (Part A) repeats this exactly, so a fresh server gets the same result.
+2. harness signed in with `aws login --remote` as the account's root user (short-lived credentials, refreshed every 15 minutes, session up to 12 hours; no access key exists). Default region `ap-southeast-1`. When the session ends, Claude runs `aws login --remote` again and opens the link for Aziz.
+3. Account cleaned (section 0). Kubernetes 1.36, PostgreSQL 18.4 (not used: B) and three availability zones offered in Singapore; account limit 64 vCPUs for standard servers.
+
+## 4. Decisions for this stage (fixed; versions checked 14 Nov 2026 from the AWS command line, HashiCorp's registry, the Traefik and EKS chart indexes, and AWS's pages)
+
+| Item | Decision | Why (and the alternative, for the teaching material) |
+|---|---|---|
+| Region | `ap-southeast-1`, availability zones `a` and `b` for the network; the node only in `a` | D106. EBS volumes live in one zone; a single node pinned to one zone keeps its disks attachable after a replacement. Alternative: Malaysia (`ap-southeast-5`), ~10% cheaper, not enabled on the account |
+| Terraform | 1.17.2; providers `hashicorp/aws` 6.73.0, `hashicorp/helm` 3.3.0, `hashicorp/kubernetes` 3.5.0, pinned exactly, with `.terraform.lock.hcl` committed | Exact versions (global rules). Builders re-check on the day and report any newer patch, never change silently |
+| Terraform roots | three: `bootstrap` (state bucket + budget, local state), `cluster` (network, EKS, node group, add-ons, roles), `addons` (Load Balancer Controller, Traefik, StorageClass) | The state bucket must exist before anything can store state in it; the Helm and Kubernetes providers need a running cluster, so they live in their own root (avoids the known "provider configured from a resource that does not exist yet" problem) |
+| State | S3 bucket `ooh-tfstate-<account id>-apse1`, versioning on, encryption SSE-S3, all public access blocked, `use_lockfile = true` (native S3 lock, no DynamoDB) | D024. The bucket name holds the account ID, so it is **never** written in the repo: `81` writes `~/.config/ooh/aws-backend.hcl` (mode 600) and both later roots run `terraform init -backend-config=` that file |
+| `bootstrap` state | local file `~/.config/ooh/terraform/bootstrap.tfstate` (mode 600), outside the repo | A bucket cannot hold its own creation state. Small and easy to rebuild |
+| Budget | AWS Budgets, monthly cost budget `ooh-aws-copy` USD 40: emails at 50%, 80%, 100% actual and 100% forecast to the address in `~/.config/ooh/aws.env` (`BUDGET_EMAIL`, never in the repo) | "I don't want to go bankrupt" (Aziz). Two budgets per account are free; the existing "Basic" USD 5 budget stays untouched. New recipients must confirm their address (AWS, since 30 Sep 2026) |
+| Sign-in for Terraform and `kubectl` | the root user's `aws login` session; EKS `authentication_mode = "API"` and `bootstrap_cluster_creator_admin_permissions = true` | D101 (root cannot assume roles; no access keys). **UNVERIFIED 1** (section 12): that a root session works as cluster creator for `kubectl`; proven first, before the node group is created |
+| Network | VPC `10.42.0.0/16`; two public subnets (`/24`, zones a and b, for the load balancer and the NAT gateway) and two private subnets (`/20`, zones a and b; the node in private-a); one NAT gateway in public-a; no IPv6 | Real-world layout: nodes have no public address. One NAT gateway, not one per zone: saves USD 0.059/hour; the copy is not highly available anyway |
+| EKS | Kubernetes **1.36** (same as k3s; standard support to 2 Aug 2027); cluster name `ooh-aws`; API endpoint public **only to `143.198.221.2/32`** plus private; control-plane logging off | Same version as the Droplet. Locked endpoint: only harness can reach the API. Logging off saves CloudWatch cost |
+| Worker node | one EKS managed node group `main`: `t3.xlarge`, Amazon Linux 2023 EKS-optimised image (`AL2023_x86_64_STANDARD`, release 1.36.5-20261107 or newer on the day), min 1 / desired 1 / max 1, 50 GB `gp3` encrypted root disk, private subnet `a` only, no SSH | Measured on the Droplet 14 Nov: our pods request 2.9 CPU and 5.1 GiB, use about 7 GiB; `t3.xlarge` gives 4 vCPU, 16 GiB and room for 58 pods (we run about 35 with EKS's own). One node keeps the shared `ooh-files` disk attachable by both the Harness and the Slides worker (the volume is single-node, as on the Droplet). Alternative: two nodes + EFS for files (more cost and parts) |
+| EKS add-ons (managed, versions from `aws eks describe-addon-versions` for 1.36 on the day) | `vpc-cni` v1.22.4-eksbuild.14, `coredns` v1.14.7-eksbuild.35, `kube-proxy` v1.36.0-eksbuild.65, `eks-pod-identity-agent` v1.4.1-eksbuild.3, `aws-ebs-csi-driver` v1.68.0-eksbuild.1 | AWS's defaults for 1.36 on 14 Nov. EBS CSI gets its own role through **EKS Pod Identity** with the AWS-managed `AmazonEBSCSIDriverPolicy` (least privilege for the pod, no node-wide rights) |
+| Load balancer | AWS Load Balancer Controller, Helm chart **3.6.3** (app v3.6.3), in `kube-system`, role through Pod Identity with the IAM policy file published at tag `v3.6.3` (copied into the repo, not fetched at apply time) | AWS's recommended controller; the legacy in-tree one is "only receiving critical bug fixes" (AWS EKS best practices). One Network Load Balancer for the whole system |
+| Front door | Traefik, Helm chart **42.4.0** (Traefik v3.7.18; the Droplet runs 3.7.15), release `traefik` in `kube-system`, IngressClass `traefik`; Service type LoadBalancer with annotations: `aws-load-balancer-type: external`, `aws-load-balancer-scheme: internet-facing`, `aws-load-balancer-nlb-target-type: ip`, `aws-load-balancer-proxy-protocol: "*"`; Traefik entry points `web` (80) and `websecure` (443) with `proxyProtocol.trustedIPs` and `forwardedHeaders.trustedIPs` = the VPC range | Our Ingresses say `ingressClassName: traefik` and cert-manager's HTTP-01 solver uses Traefik: keeping Traefik means **no manifest change**. Proxy protocol keeps the visitor's real address, which our trust-boundary rule needs (Traefik adds `X-Forwarded-For`). The builder copies every other Traefik setting from the Droplet's live k3s Traefik (read with `kubectl -n kube-system get deploy traefik -o yaml` and the k3s HelmChart), and lists each one in the report |
+| Disks | StorageClass `ooh-gp3` (made in `addons`): provisioner `ebs.csi.aws.com`, `type: gp3`, `encrypted: "true"`, `volumeBindingMode: WaitForFirstConsumer`, `reclaimPolicy: Delete`, `allowVolumeExpansion: true`, tag `ooh-stage=4b` on every volume | WaitForFirstConsumer matches `local-path`, so `30`'s first-consumer step works unchanged. Delete + tags so nothing is left behind at destroy |
+| Data on the AWS copy | **Exception to "Nothing is ever deleted", for the AWS copy only, asked of Aziz with this spec:** the copy has its own empty databases, Kafka and files; they hold only check and test data and are deleted at destroy (`85`). The Droplet's data is never touched | Destroy was agreed (D082); leaving disks would keep billing. The Droplet stays the only home of real data |
+| Web names | `DOMAIN=aws.faysalaziz.com` in `deploy/values/aws.env`; records `harness.aws`, `admin.aws`, `auth.aws` = CNAME to the load balancer's DNS name, TTL 300, made by Claude in the DigitalOcean control panel after `82` (Aziz's yes), removed after `85` | All our manifests and scripts already build names as `harness.$DOMAIN`, so no code change. DNS stays at DigitalOcean (no Terraform DigitalOcean token in the repo or on harness) |
+| Certificates | cert-manager and Let's Encrypt exactly as on the Droplet (staging first, then production) | Same scripts. New names, so no rate-limit clash with the Droplet's certificates |
+| Secrets | Kubernetes Secrets made by the same scripts (`20`, `59`, `60`, `63`, `64`, `66`, `71`, `72`, `74`); EKS encrypts Kubernetes secrets at rest by default | Same as the Droplet. No AWS Secrets Manager (option B) |
+| Images | the nine `ghcr.io/frozenfussion/ooh-<name>:7c721a4de601` images, pulled through the NAT gateway | "Same images" (D107) |
+| Tags on every AWS resource | Terraform `default_tags`: `project = open-office-harness`, `stage = 4b`, `managed-by = terraform` | Lets the destroy check and Cost Explorer find everything |
+| Who may change AWS | only Terraform (roots above) and the controllers it installs; Claude never clicks in the AWS console to create or change a resource; reading the console (bills, checks) is allowed | 07 Nov rule |
+
+**Cost (Singapore, on-demand, AWS Price List API 14 Nov 2026), per hour while the copy runs:** EKS cluster 0.10 + `t3.xlarge` 0.2112 + NAT gateway 0.059 (+ 0.059 per GB through it) + Network Load Balancer 0.0252 (+ about 0.006 per capacity unit) + EBS `gp3` 110 GB at 0.096/GB-month ≈ 0.015 + three public IPv4 addresses at 0.005 = 0.015 → **about USD 0.43 an hour, about USD 10.40 a day**, plus one-off traffic (pulling images, about USD 0.30). The state bucket and the budget cost almost nothing and stay after destroy. `t3` servers can bill extra CPU credits only above 40% sustained CPU; the Droplet runs at about 5%.
+
+## 5. Data
+
+No schema change, no new topic, no new database. The AWS copy starts empty: `30` makes the topics and databases, `50` the first admin (Aziz types), the Admin Console the model entries and keys (Aziz types the keys; never Claude, never a file).
+
+## 6. Interfaces
+
+### 6.1 Target selection (Part B owns; Part A reads)
+
+- Every install script selects its target with `OOH_TARGET` (`do` default, or `aws`). A new `install/lib/target.sh` is sourced **instead of** `deploy/values/do.env` in every script that sources it today (27 scripts, listed by `grep -l deploy/values/do.env install/*.sh install/lib/*.sh`). It:
+  1. sources `deploy/values/${OOH_TARGET}.env` (stop on any other value: `STOP: OOH_TARGET must be do or aws`);
+  2. sets `KUBECONFIG` to `KUBE_CONFIG` from that file (`do`: `$HOME/.kube/config`; `aws`: `$HOME/.kube/ooh-aws.config`) and exports it;
+  3. checks the cluster is the expected one before anything else runs: `do` → the API server is `https://127.0.0.1:6443`; `aws` → it equals `EKS_ENDPOINT` in `~/.config/ooh/aws.env` (written by `82`). Mismatch → `STOP: this shell points at <found>, not the <target> cluster; nothing was changed`.
+- **Safety rule:** a Droplet script can never reach EKS by accident, and the reverse; the check above runs before the first `kubectl` call. Tested both ways (section 7).
+- `deploy/values/aws.env` (repo, no secrets, no account ID): `DOMAIN=aws.faysalaziz.com`, `PLATFORM_NAMESPACE=ooh-platform`, `APPS_NAMESPACE=ooh-apps`, `KAFKA_STORAGE=20Gi`, `POSTGRES_STORAGE=20Gi`, `FILES_STORAGE=20Gi`, `STORAGE_CLASS=ooh-gp3`, `RETAIN_VOLUMES=false`, `KUBE_CONFIG=$HOME/.kube/ooh-aws.config`, `EXPECTED_NODES=1`. `deploy/values/do.env` gains `STORAGE_CLASS=local-path`, `RETAIN_VOLUMES=true`, `KUBE_CONFIG=$HOME/.kube/config`, `EXPECTED_NODES=1` and keeps `PUBLIC_IP`.
+
+### 6.2 Local settings written by Part A's scripts (never in the repo)
+
+`~/.config/ooh/aws.env` (mode 600): `AWS_REGION=ap-southeast-1`, `EKS_CLUSTER_NAME=ooh-aws`, `EKS_ENDPOINT=<from Terraform output>`, `LB_HOSTNAME=<the Traefik Service's load balancer name, from 82 after addons>`, `BUDGET_EMAIL=<typed once by Aziz when 81 first runs; not a secret, but personal, so never in the repo>`. `~/.config/ooh/aws-backend.hcl` (mode 600): bucket, key, region, `use_lockfile = true`. `~/.kube/ooh-aws.config` (mode 600) from `aws eks update-kubeconfig --name ooh-aws --kubeconfig ~/.kube/ooh-aws.config`.
+
+### 6.3 Terraform outputs (Part A) that Part B's scripts may read through `~/.config/ooh/aws.env` only
+
+`cluster_endpoint`, `cluster_name`, `node_group_name`, `vpc_id`, `lb_hostname` (from `addons`: the Traefik Service's `status.loadBalancer.ingress[0].hostname`, waited for).
+
+### 6.4 Platform manifests and Droplet-only checks (Part B)
+
+- `deploy/platform/postgres/cluster.yaml` `storageClass`, `deploy/platform/kafka/kafka.yaml` `class` and `deploy/platform/storage/files-pvc.yaml` `storageClassName` become `${STORAGE_CLASS}`; `30` adds `STORAGE_CLASS` to the tokens it renders and **refuses to render an unknown token**. For `do` the rendered output must equal today's byte for byte (Part B proves it with a diff in its report).
+- `30`: the Retain patch runs only when `RETAIN_VOLUMES=true`.
+- `40`: the volume check expects `STORAGE_CLASS` and, when `RETAIN_VOLUMES=true`, Retain; when false, Delete. Everything else in `40` unchanged.
+- `00-check-server.sh`: for `aws`, instead of "resolves to `PUBLIC_IP`" it checks each name is a CNAME to `LB_HOSTNAME`; instead of "k3s node Ready" it checks `EXPECTED_NODES` Ready nodes; the Traefik check stays (`kube-system`, label `app.kubernetes.io/name=traefik`: the Helm chart uses the same label — the builder confirms).
+- `01-server-setup.sh` and `50-first-admin.sh` behaviour unchanged (50 only gains the target line).
+- `docs/ARCHITECTURE.md` and `contracts/storage.md`: replace "Stage 6" with "Stage 4 phase 2" and describe the AWS copy in one paragraph (same manifests, EBS volume for files, destroyed after the check). No other change to contracts.
+
+## 7. Parts
+
+Two Codex windows at the same time, each in its own worktree from `stage-4b-base`. **Rule: Part A changes no file Part B lists, and the reverse.** Nobody changes the files in section 11.
+
+### Part A — Terraform and the AWS-only scripts (branch `stage-4b-part-a`, Codex A, window `codex-a`)
+
+Files (only these):
+```
+infra/terraform/aws/README.md
+infra/terraform/aws/bootstrap/**          (versions.tf, main.tf, variables.tf, outputs.tf, .terraform.lock.hcl)
+infra/terraform/aws/cluster/**            (the same files + vpc.tf, eks.tf, nodes.tf, addons.tf, iam.tf)
+infra/terraform/aws/addons/**             (the same files + lbc.tf, traefik.tf, storage.tf, policies/aws-load-balancer-controller-v3.6.3.json)
+install/80-aws-tools.sh                   (AWS tool 2.40.3 + Terraform 1.17.2 into ~/.local, checksum checked, no sudo)
+install/81-aws-bootstrap.sh               (bootstrap root: init, plan, cost line, apply only after Terraform's own "yes"; writes aws-backend.hcl and aws.env)
+install/82-aws-cluster.sh                 (cluster then addons: init with the backend file, plan, cost line, apply after "yes"; writes kubeconfig and aws.env; waits for the node and the load balancer name; prints the three CNAME records to add)
+install/84-aws-dns.sh                     (each name resolves as a CNAME to LB_HOSTNAME; HTTP on port 80 reaches Traefik)
+install/85-aws-destroy.sh                 (section 8)
+install/86-check-aws.sh                   (section 9)
+.gitignore                                (add .terraform/, *.tfstate*, *.tfplan; nothing else)
+```
+Rules: no account ID, email, IP of anyone but harness (`143.198.221.2`, already public in the repo), or key in any file; every resource tagged (section 4); `prevent_destroy` on nothing (the copy must be destroyable); plans saved to `~/.cache/ooh/*.tfplan` and applied from the saved plan, so what Aziz approved is exactly what is built; each script refuses to run when `aws sts get-caller-identity` fails (`STOP: AWS sign-in expired; run aws login --remote`) or when the caller's account differs from the bucket's account. Each script prints the resources it will create with their hourly price (section 4 table) before Terraform's prompt.
+
+Part A done when: section 2 item 1 passes; `bash -n` and `shellcheck` clean for its scripts; `terraform plan` runs for `bootstrap` against the real account and shows only the bucket, its settings and the budget (a plan creates nothing; Claude runs it, not Codex, because Codex has no AWS sign-in).
+
+### Part B — Target selection and portable manifests (branch `stage-4b-part-b`, Codex B, window `codex-b`)
+
+Files (only these):
+```
+install/lib/target.sh                      (new, section 6.1)
+install/00-check-server.sh ... install/79-demo.sh   (only the 27 files that source do.env today: the one sourcing line, plus the changes in 6.4 for 00, 30, 40)
+install/lib/stage-check.sh                 (only if it sources do.env)
+deploy/values/do.env                       (adds four lines, 6.1)
+deploy/values/aws.env                      (new)
+deploy/platform/postgres/cluster.yaml
+deploy/platform/kafka/kafka.yaml
+deploy/platform/storage/files-pvc.yaml
+docs/ARCHITECTURE.md
+contracts/storage.md
+README.md                                  (section 10)
+```
+Part B done when: section 2 item 2 passes; `OOH_TARGET=do install/30-platform-apply.sh --check` renders the same files as before (diff empty); a dry test proves the safety rule both ways without changing anything (`OOH_TARGET=aws install/40-check-platform.sh` on harness before any EKS exists stops with the STOP line; with the EKS kubeconfig set as `KUBECONFIG` and `OOH_TARGET=do`, `40` stops too); then, **on the Droplet**, `40`, `62`, `70`, `77 7c721a4de601` and `78 7c721a4de601` still pass (Claude runs them; paid calls as before).
+
+### Merge, apply, deploy, check
+
+Claude reviews nothing itself: Claude Code reviews each Part (section 8 of the global rules) until "No findings". Codex merges both into `stage-4b` from `stage-4b-base` and reruns every check on a clean worktree. Then Claude runs, in Aziz's shell window: `81` (Aziz's yes) → `82` (Aziz's yes) → DNS records (Aziz's yes) → `84` → the README AWS order → checks → node replacement test (Aziz's yes) → audit → Aziz's browser test → "accepted" → merge to `main` and tag `eks-ready` (Aziz's yes) → `85` (Aziz's yes) → sweep → records removed.
+
+## 8. `install/85-aws-destroy.sh` (Part A)
+
+Order (each step waits and checks; any failure stops with what is left and how to retry; it can be re-run):
+1. Refuses unless `~/.config/ooh/aws.env` exists, the sign-in works and the kubeconfig points at `ooh-aws` (6.1).
+2. Lists what will be deleted (Terraform's destroy plan for both roots + the EBS volumes tagged `ooh-stage=4b` + the load balancer) and the hourly cost that stops; waits for Terraform's own `yes`.
+3. Deletes the namespaces `ooh-apps` and `ooh-platform` (their volumes go with them through `reclaimPolicy: Delete`), waits until no EBS volume tagged `ooh-stage=4b` remains (10 minutes max).
+4. `terraform destroy` on `addons` (the controller still runs, so it removes the Network Load Balancer and its target groups); waits until no load balancer tagged for the cluster remains.
+5. `terraform destroy` on `cluster`.
+6. Sweep with the AWS tool, region `ap-southeast-1`: no EC2 instance, EBS volume, load balancer, target group, NAT gateway, Elastic IP, network interface or VPC tagged `stage=4b` / `ooh-stage=4b` or named for `ooh-aws` → `PASS`, else `FAIL` with each leftover's ID.
+7. Keeps `bootstrap` (state bucket and budget) unless run with `--all`, which also empties and deletes the bucket and the budget (Aziz's separate yes).
+8. Removes `~/.kube/ooh-aws.config` and the `EKS_ENDPOINT`/`LB_HOSTNAME` lines of `aws.env`; prints the three CNAME records for Claude to remove at DigitalOcean; `DONE`.
+
+## 9. `install/86-check-aws.sh` (Part A), one `PASS`/`FAIL` line each, then `DONE`
+
+Read-only. 1) caller is the expected account; 2) cluster `ooh-aws` ACTIVE on 1.36, endpoint public only to `143.198.221.2/32`, private access on; 3) exactly one node Ready, `t3.xlarge`, in private subnet `a`, no public IP; 4) the five add-ons ACTIVE; 5) the Load Balancer Controller and Traefik Ready; the Traefik Service has exactly one internet-facing Network Load Balancer with proxy protocol on; 6) StorageClass `ooh-gp3` as in section 4; every bound volume uses it, encrypted, tagged; 7) the three names resolve as CNAMEs to `LB_HOSTNAME`; 8) the visitor's real address reaches the Harness (a request from harness to `https://harness.aws.faysalaziz.com/api/health` with a marker header; the Harness log line for it shows `143.198.221.2`, not a VPC address) — **UNVERIFIED 3** until it passes; 9) state bucket: versioning on, encryption on, public access blocked, lock file works (`terraform plan` on `cluster` does not wait for a lock); 10) budget `ooh-aws-copy` exists with the four notifications; 11) every resource found by the tag `stage=4b` is in `ap-southeast-1`; 12) the nine Deployments run the `7c721a4de601` images; 13) no Kubernetes Service other than Traefik's is type LoadBalancer, and no Ingress points at the Model Gateway (same rule as `70`).
+
+## 10. README "AWS copy" guide (Part B), after the Stage 4 guide, each step with where it runs, which password, what it does, the good result
+
+1. What the AWS copy is (two lines), the cost per hour and per day (section 4), and that it is destroyed after the check.
+2. Tools and sign-in: `install/80-aws-tools.sh`; `aws login --remote` (Aziz approves in the browser and types the code; Claude never handles the code).
+3. `install/81-aws-bootstrap.sh` (asks for the budget email the first time; Aziz confirms the AWS email that follows).
+4. `install/82-aws-cluster.sh` (about 20 minutes; what "waiting" looks like).
+5. The three CNAME records at DigitalOcean (exact names, type, value from `82`, TTL 300), then `install/84-aws-dns.sh`.
+6. Platform and apps with `OOH_TARGET=aws`, in this order: `00`, `10`, `20`, `30`, `35`, `40`, `50` (Aziz types), `59`, `60`, `61`, `63`, `71`, `64`, `65`, `66`, `67`, `68`, `69`, `72`, `73`, `74`, `75`, all deploy scripts with `7c721a4de601`; then models and keys in the AWS Admin Console (Aziz); then `62`, `70`, `77 7c721a4de601`, `78 7c721a4de601`, `86`. The builder confirms this order against the Stage 0–4 guides and corrects it in its report if a dependency differs.
+7. Everyday: `export OOH_TARGET=aws` and why every script then refuses the Droplet; how to see pods, logs, the bill.
+8. Node replacement test.
+9. Destroy: `85`, removing the records, checking the bill.
+10. Every new `STOP:` and `FAIL` line and what to do.
+
+## 11. Files that already exist (spec author's; Codex does not change them)
+
+`AGENTS.md`, `CLAUDE.md`, `LICENSE`, `docs/specs/*`, every service, app, worker, consumer, contract and Dockerfile, every `deploy/apps/**` and `deploy/platform/**` file not listed in Part B, every workflow. **No application code changes in this stage.** If a builder believes one must change, it stops and asks Aziz with the reason.
+
+## 12. UNVERIFIED (each is proven before the step that depends on it; the script stops with a clear message if wrong)
+
+1. **Root as EKS cluster creator.** AWS's access-entry page names IAM users and roles only. `82` applies the cluster first (control plane only, about USD 0.10/hour), then runs `kubectl get --raw /readyz` with the root session **before** creating the node group. If refused: stop, destroy the cluster, and the spec author decides (the fallback is an IAM role for Terraform and `kubectl`, which needs a different sign-in; not chosen in advance).
+2. Traefik chart 42.4.0's labels and IngressClass match k3s's (`app.kubernetes.io/name=traefik`, IngressClass `traefik`), so `00`, `40` and cert-manager's solver work unchanged.
+3. Proxy protocol from the Network Load Balancer to Traefik keeps the visitor's address (section 9 item 8). If not, the trust-boundary rule is not met on AWS and the stage is not accepted.
+4. Strimzi 1.3.1, CloudNativePG 1.30.0, the Keycloak operator 26.8.2 and cert-manager 1.21.3 install on EKS 1.36 from the same URLs (`10`). Their documented Kubernetes ranges include 1.36 (Stage 0 section 4).
+5. The `aws login` session lasts the whole apply (`82` up to about 25 minutes). `82` checks there are at least 45 minutes left before it starts, else asks Claude to run `aws login --remote` again.
+6. Image pulls of about 5 GB through the NAT gateway finish within the scripts' current rollout waits (up to 10 minutes per Deployment).
+
+## 13. Comparison for the teaching material (filled in by the builders' reports and the audit; Claude turns it into the deck 10 diagrams and handout 07)
+
+For each layer in section 1's table: what we changed, why, what it costs, what got better, what got worse. Already known: **better** — the control plane and node replacement are AWS's job; disks and the load balancer are made on demand by Kubernetes; everything is created and destroyed by Terraform in about 30 minutes; the API is reachable only from harness; **worse** — about USD 10 a day against the Droplet's flat price; more moving parts (VPC, NAT, controller, roles); we still run Kafka, PostgreSQL and Keycloak ourselves (patching and backups stay ours — option A would hand them to AWS at the cost of code changes); one node and one zone, so no high availability (same as the Droplet).
+
+## 14. Pre-mortem
+
+| Step | Failure | How it shows | Action |
+|---|---|---|---|
+| Any script | sign-in expired | `STOP: AWS sign-in expired` | Claude runs `aws login --remote`, opens the link; Aziz approves and types the code |
+| `82` cluster | root not accepted by `kubectl` | `kubectl` "Unauthorized" | UNVERIFIED 1: stop, destroy, spec author decides |
+| `82` nodes | node group fails to join | node group `CREATE_FAILED` | node role policies and the private subnet's route to the NAT gateway |
+| `82` addons | no load balancer name after 10 minutes | Traefik Service `<pending>` | controller logs: subnet tags `kubernetes.io/role/elb=1` on public subnets, controller role |
+| `30` | volumes stay Pending | PVC `Pending` | EBS CSI add-on Ready, its Pod Identity role, StorageClass name |
+| `30` | certificates pending | `certificate pending` | CNAME records, port 80 through the load balancer, proxy protocol on both sides |
+| Any app | `ImagePullBackOff` | pod status | NAT gateway route; the images are public |
+| Pods | `Pending` for CPU or memory | `kubectl describe pod` | requests summed against `t3.xlarge`; the spec author decides on a larger node (cost shown first) |
+| `85` | VPC will not delete | `DependencyViolation` | a leftover load balancer or network interface: the sweep names it; delete it with Terraform state or, with Aziz's yes, by its ID |
+| Bill | higher than section 4 | budget email or Billing page | `86` and the tag sweep find the extra resource |
+
+## 15. Out of scope
+
+Managed Kafka (MSK), managed PostgreSQL (RDS), S3 for files (option A, D107), high availability (more nodes or zones), autoscaling, backups of the AWS copy, Route 53, AWS Secrets Manager, CloudWatch dashboards, any change to application code, contracts or images, moving the class off the Droplet.
