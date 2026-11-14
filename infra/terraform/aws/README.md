@@ -169,7 +169,7 @@ as the commands below show. After acceptance and merge to main, the folder is
 
 12. **Run builder checks with no AWS session.** Type this in your harness
     terminal, in the plain shell. Good result: no formatting/lint errors and
-    three valid roots and 30 passing fixture tests. The fixtures stub every
+    three valid roots and 31 passing fixture tests. The fixtures stub every
     account/cluster call; these commands never contact AWS or a cluster.
 
     ```bash
