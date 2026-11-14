@@ -13,7 +13,7 @@ Written 2026-11-14 by Claude (orchestrator). Read `00-GLOBAL-RULES.md` first; it
 - 14 Nov 15:50: "we have to keep track of billing... I don't want to go bankrupt with AWS." Stale resources removed first (done 14 Nov: two old database snapshots, one old IAM user with an active key, on his yes).
 - 14 Nov 16:34 (D106): region **Singapore** (`ap-southeast-1`).
 - 14 Nov 16:42 (D107): **option B** — "let's go for B, record everything, log everything ... we're going to need diagrams of how everything works and how the shift changes everything ... pros, cons". B = our own Kafka, PostgreSQL and Keycloak run inside EKS exactly as on the Droplet, from the **same Docker images**; replaces the managed MSK + RDS + S3 part of D024.
-- (to be filled before the merge) Aziz's answers on: the two exceptions in section 4 ("Data on the AWS copy", "Visitor addresses in the AWS access log"); and whether his one yes for `82` covers its three build prompts (section 7).
+- 14 Nov 18:13: "1 yes, 2 yes, 3 yes, 4 yes" — Aziz agrees: (1) the AWS copy's own test data is deleted at destroy (section 4, "Data on the AWS copy"); (2) visitor addresses are logged on the AWS copy only, deleted with it (section 4, "Visitor addresses in the AWS access log"); (3) his one yes covers the three build prompts of `82` (section 7); (4) this spec goes to `main` and the two builders start.
 - 14 Nov 16:39–16:41: the AWS copy gets its own web names (CNAME records at DigitalOcean, added by Claude on Aziz's yes); the Droplet keeps its names and stays the main system for the class.
 
 ## 1. Purpose
