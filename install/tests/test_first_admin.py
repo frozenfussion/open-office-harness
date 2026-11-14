@@ -58,6 +58,8 @@ else:
         limit = int(parse_qs(url.query).get("max",["100"])[0])
         body = state["users"] if limit < 0 else state["users"][:limit]
     elif url.path == "/admin/realms/ooh/users" and method == "GET":
+        assert args[args.index("--data-urlencode")+1] == "username@/dev/fd/4"
+        assert Path("/dev/fd/4").read_text() == "fixture-human"
         body = [state["existing"]] if state.get("existing") else ([{"id":"fixture-user"}] if state.get("created") else [])
     elif url.path == "/admin/realms/ooh/users" and method == "POST":
         assert args[args.index("--data-binary")+1] == "@-"
@@ -82,7 +84,9 @@ else:
         status = 204
     else:
         raise SystemExit("unexpected fixture curl call")
-fixture.write_text(json.dumps(state))
+replacement = fixture.with_suffix(".next")
+replacement.write_text(json.dumps(state))
+replacement.replace(fixture)
 if body is not None:
     print(json.dumps(body),end="")
 print("\n"+str(status),end="")
@@ -183,15 +187,20 @@ class FirstAdminFixtureTests(unittest.TestCase):
             text = output.decode()
             result = json.loads(fixture.read_text())
             self.assertEqual(answered, 4, text)
+            private_output = "\n".join(
+                line
+                for line in text.splitlines()
+                if not line.startswith(("First admin username:", "First admin email:"))
+            )
             for secret in (
                 state["password"],
                 state["token"],
                 state["bootstrap_password"],
             ):
                 if len(secret) > 3:
-                    self.assertNotIn(secret, text)
+                    self.assertNotIn(secret, private_output)
                 else:
-                    self.assertNotIn(secret, text.splitlines())
+                    self.assertNotIn(secret, private_output.splitlines())
             result["exit_code"] = process.returncode
             return text, result
 
@@ -277,6 +286,13 @@ class FirstAdminFixtureTests(unittest.TestCase):
         text, state = self.run_fixture([], password="z")
         self.assertEqual(state["exit_code"], 0, text)
         self.assertTrue(state["created"])
+
+    def test_password_may_match_username_or_email(self) -> None:
+        for password in ("fixture-human", "fixture-human@example.invalid"):
+            with self.subTest(password=password):
+                text, state = self.run_fixture([], password=password)
+                self.assertEqual(state["exit_code"], 0, text)
+                self.assertTrue(state["created"])
 
     def test_unmarked_existing_user_is_never_overwritten(self) -> None:
         text, state = self.run_fixture(
