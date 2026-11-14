@@ -21,7 +21,7 @@ spec:
     internationalizationEnabled: true
     supportedLocales: [en]
     defaultLocale: en
-    passwordPolicy: length(12) and notUsername and notEmail and maxLength(128)
+    passwordPolicy: ""
     localizationTexts:
       en:
         noAccount: Need access?
