@@ -697,6 +697,7 @@ No signed links. Uploads remain unavailable. Nothing deletes generated files.
 | Pod or Deployment not ready; wrong image tag; image pull failure | Inspect status and logs, run the workflow for the merge commit, make its package public, deploy with the same tag. |
 | Realm branding, device sign-in or login stylesheet | Run 30 then 35. Inspect `ooh-keycloak-theme` and the Keycloak theme mount. No custom Keycloak image is needed. |
 | Kafka ACLs or thirteen topics | Compare `contracts/identity.md`, then run 30. Do not grant wildcard topic/group rights. |
+| `FAIL check pod result: expected exactly one OOH_RESULT JSON line` | The temporary check pod returned a missing, duplicate or invalid result. Other log lines are ignored. Retry the check; if it repeats, ask the builder to inspect that check pod's result output. |
 | Slides request/result, repeat ID, file or modification-time check | Inspect worker and Gateway health, model configuration, budget and `ooh-files` permissions. Worker writes as UID 10001; it creates its own output folder. |
 | Malformed message not in dead letters | Inspect worker DLQ publication and the Control Centre consumer; retry after both are Ready. |
 | Trail missing, Overview cost not a number | Inspect audit writer/cost meter and their database migrations; run 35 for the Control Centre's custom audiences. |
