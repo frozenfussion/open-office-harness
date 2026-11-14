@@ -107,7 +107,7 @@ terraform() { printf 'UNEXPECTED TERRAFORM CALL\n' >&2; return 97; }
             'terraform() { cat "$FIXTURE"; }; plan_cost cluster unused', data=plan
         )
         self.assertEqual(cost.returncode, 0, cost.stderr)
-        self.assertIn("creates nothing paid;", cost.stdout)
+        self.assertIn("creates nothing paid (", cost.stdout)
         self.assertIn("USD 0/hour extra", cost.stdout)
         failed_source = body.replace('cat "$FIXTURE";', 'cat "$FIXTURE"; return 7;')
         self.assertEqual(self.shell(failed_source, data=plan).returncode, 7)
@@ -296,9 +296,11 @@ check_budget
         response["Notifications"].pop()
         self.assertNotEqual(self.budget_check(response).returncode, 0)
 
-    def cost(self, rows: list[dict]) -> subprocess.CompletedProcess[str]:
+    def cost(
+        self, rows: list[dict], root: str = "cluster", prompt: bool = False
+    ) -> subprocess.CompletedProcess[str]:
         return self.shell(
-            'terraform() { cat "$FIXTURE"; }; plan_cost cluster unused',
+            f'terraform() {{ cat "$FIXTURE"; }}; plan_cost {root} unused {"prompt" if prompt else ""}',
             data={"resource_changes": rows},
         )
 
@@ -312,17 +314,32 @@ check_budget
                 result = self.cost(rows)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(
-                    "creates nothing paid; about USD 0/hour extra", result.stdout
+                    "creates nothing paid (about USD 0/hour extra)", result.stdout
                 )
                 self.assertNotIn("0.282", result.stdout)
+                question = self.cost(rows, prompt=True)
+                self.assertEqual(question.returncode, 0, question.stderr)
+                self.assertEqual(
+                    question.stdout,
+                    "Type yes to build nothing paid (about USD 0/hour extra)\n",
+                )
 
     def test_plan_cost_prices_new_control_plane_and_node_build(self) -> None:
         result = self.cost(
             [{"type": "aws_eks_cluster", "change": {"actions": ["create"]}}]
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("1 EKS control plane", result.stdout)
+        self.assertIn("1 EKS control plane (USD 0.10/hour)", result.stdout)
         self.assertIn("USD 0.100/hour extra", result.stdout)
+        question = self.cost(
+            [{"type": "aws_eks_cluster", "change": {"actions": ["create"]}}],
+            prompt=True,
+        )
+        self.assertEqual(question.returncode, 0, question.stderr)
+        self.assertEqual(
+            question.stdout,
+            "Type yes to build 1 EKS control plane (about USD 0.100/hour)\n",
+        )
         result = self.cost(
             [
                 {"type": kind, "change": {"actions": ["create"]}}
@@ -336,9 +353,10 @@ check_budget
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         for text in (
-            "1 NAT gateway",
-            "1 public IPv4 address",
-            "1 worker node group with a 50 GB root disk",
+            "1 t3.xlarge node (USD 0.2112/hour)",
+            "gp3 50 GB root disk (about USD 0.0066/hour)",
+            "1 NAT gateway (USD 0.059/hour)",
+            "1 public IPv4 address (USD 0.005/hour)",
             "USD 0.282/hour extra",
         ):
             self.assertIn(text, result.stdout)
@@ -349,14 +367,24 @@ check_budget
             "type": "helm_release",
             "change": {"actions": ["create"]},
         }
-        result = self.cost([row])
+        result = self.cost([row], root="addons")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("controller creates 1 network load balancer", result.stdout)
+        self.assertIn(
+            "controller creates 1 network load balancer (USD 0.0252/hour)",
+            result.stdout,
+        )
+        self.assertIn("1 public IPv4 address (USD 0.005/hour)", result.stdout)
+        self.assertIn("future data disks about USD 0.008/hour each", result.stdout)
         self.assertIn("USD 0.030/hour extra", result.stdout)
+        question = self.cost([row], root="addons", prompt=True)
+        self.assertEqual(question.returncode, 0, question.stderr)
+        self.assertTrue(question.stdout.startswith("Type yes to build "))
+        self.assertTrue(question.stdout.endswith("(about USD 0.030/hour)\n"))
         row["change"]["actions"] = ["no-op"]
-        result = self.cost([row])
+        result = self.cost([row], root="addons")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("creates nothing paid; about USD 0/hour extra", result.stdout)
+        self.assertIn("creates nothing paid (about USD 0/hour extra)", result.stdout)
+        self.assertIn("future data disks about USD 0.008/hour each", result.stdout)
 
     def test_resumed_cluster_prompts_both_use_zero_extra_cost(self) -> None:
         result = self.shell(
@@ -413,7 +441,10 @@ cluster_main
         ]
         self.assertEqual(len(questions), 2)
         for question in questions:
-            self.assertIn("creates nothing paid; about USD 0/hour extra", question)
+            self.assertEqual(
+                question,
+                "QUESTION: Type yes to build nothing paid (about USD 0/hour extra)",
+            )
         self.assertNotIn("0.282", result.stdout)
 
     def test_unexpected_paid_counts_stop(self) -> None:

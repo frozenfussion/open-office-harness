@@ -54,7 +54,7 @@ as the commands below show. After acceptance and merge to main, the folder is
    only when their paid-resource counts match the agreed list or there are no
    paid creates or deletes on a re-run. Any paid delete still stops. The cost
    line and question use the saved plan's actual creates. An add-on-only retry
-   says "creates nothing paid; about USD 0/hour extra"; existing resources keep
+   says "creates nothing paid (about USD 0/hour extra)"; existing resources keep
    their current charges. A newly created Traefik release also accounts for the
    controller-made load balancer and public address.
 
