@@ -210,7 +210,7 @@ as the commands below show. After acceptance and merge to main, the folder is
   the exact key, including its parent path. The managed add-on accepts
   `controller.env` (`AWS_REGION=ap-southeast-1`), `controller.additionalArgs`
   (`--k8s-tag-cluster-id=ooh-aws`) and `controller.extraVolumeTags`.
-  The flag is registered in the driver's [v1.68.0 source](https://github.com/kubernetes-sigs/aws-ebs-csi-driver/blob/v1.68.0/pkg/driver/options.go#L116).
+  The flag is registered in the driver's [v1.68.0 source](https://github.com/kubernetes-sigs/aws-ebs-csi-driver/blob/v1.68.0/pkg/driver/options.go#L128).
   Fixtures include the saved real AWS schema; the upstream Helm chart's
   `controller.region` and `controller.k8sTagClusterId` keys are not accepted
   by this managed add-on.
