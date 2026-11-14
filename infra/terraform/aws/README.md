@@ -27,7 +27,8 @@ as the commands below show. After acceptance and merge to main, the folder is
 
 2. **Sign in, only after every Codex builder has stopped.** Type this in your
    harness terminal, in the plain shell. Claude opens the printed link; Aziz
-   approves and types the code in his browser. Good result: `DONE`.
+   approves in the browser, copies the code AWS shows and pastes only that code
+   into the waiting script in this terminal. Good result: `DONE`.
 
    ```bash
    cd ~/projects/worktrees/stage-4b
@@ -51,7 +52,11 @@ as the commands below show. After acceptance and merge to main, the folder is
    The script shows the USD 0.42/hour total before the first plan. Each saved
    plan has its own `yes` prompt. Aziz's recorded approval covers all three
    only when their paid-resource counts match the agreed list or there are no
-   paid creates or deletes on a re-run. Any paid delete still stops.
+   paid creates or deletes on a re-run. Any paid delete still stops. The cost
+   line and question use the saved plan's actual creates. An add-on-only retry
+   says "creates nothing paid; about USD 0/hour extra"; existing resources keep
+   their current charges. A newly created Traefik release also accounts for the
+   controller-made load balancer and public address.
 
    ```bash
    cd ~/projects/worktrees/stage-4b
@@ -164,7 +169,7 @@ as the commands below show. After acceptance and merge to main, the folder is
 
 12. **Run builder checks with no AWS session.** Type this in your harness
     terminal, in the plain shell. Good result: no formatting/lint errors and
-    three valid roots and 24 passing fixture tests. The fixtures stub every
+    three valid roots and 30 passing fixture tests. The fixtures stub every
     account/cluster call; these commands never contact AWS or a cluster.
 
     ```bash
@@ -216,9 +221,18 @@ as the commands below show. After acceptance and merge to main, the folder is
   Fixtures include the saved real AWS schema. UNVERIFIED 10 is checked in the
   controller log: `Region provided via AWS_REGION environment variable` with
   `region=ap-southeast-1`. Schema acceptance alone does not prove this runtime
-  behavior. The failed `aws_eks_addon.ebs` may be replaced on the next run:
-  `aws_eks_addon` is outside the paid-resource guard's list; a paid-resource
-  deletion or replacement still stops.
+  behavior.
+- Add-on CREATE_FAILED: run `install/82-aws-cluster.sh` again. Plan 1 should
+  show no changes and still asks for the control-plane yes. Plan 2 must show
+  only `aws_eks_addon.ebs` "is tainted, so must be replaced" (destroy and
+  create), with no NAT gateway, public IP or node-group create, delete or
+  replacement. If it shows a plain create of `aws_eks_addon.ebs`, stop and ask
+  the spec author: the add-on was not recorded in state and creating it again
+  would fail with "add-on already exists". Inspect the displayed live plan;
+  the offline fixture cannot prove its contents. `aws_eks_addon` is outside
+  the paid-resource guard's list; paid-resource deletion/replacement still
+  stops. The resumed cost line and question describe that saved plan, so an
+  add-on-only replacement creates nothing paid and adds about USD 0/hour.
 - No Auto Scaling group launch template: stop and inspect the group. A missing
   `eks:cluster-name=ooh-aws` tag requires Aziz's decision about extending the
   sweep to the saved `EKS_LT_ID`. This prints `FAIL` while `82` carries on to

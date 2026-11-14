@@ -106,18 +106,15 @@ check_budget() {
     budget=$(aws budgets describe-budget --account-id "$AWS_ACCOUNT" --budget-name ooh-aws-copy --output json) || return
     notifications=$(aws budgets describe-notifications-for-budget --account-id "$AWS_ACCOUNT" --budget-name ooh-aws-copy --output json) || return
     jq -e '.Budget | .BudgetType == "COST" and (.BudgetLimit.Amount | tonumber) == 40 and .BudgetLimit.Unit == "USD" and .TimeUnit == "MONTHLY"' >/dev/null <<< "$budget" || return
-    jq -e 'all(.Notifications[]; .ComparisonOperator == "GREATER_THAN") and ([.Notifications[] | [.NotificationType,.Threshold,.ThresholdType]] | sort == ([["ACTUAL",50,"PERCENTAGE"],["ACTUAL",80,"PERCENTAGE"],["ACTUAL",100,"PERCENTAGE"],["FORECASTED",100,"PERCENTAGE"]] | sort))' >/dev/null <<< "$notifications" || return
-    local type threshold subscribers
+    jq -e 'all(.Notifications[]; .ComparisonOperator == "GREATER_THAN") and ([.Notifications[] | [.NotificationType,.Threshold,(.ThresholdType | if . == null then "PERCENTAGE" else . end)]] | sort == ([["ACTUAL",50,"PERCENTAGE"],["ACTUAL",80,"PERCENTAGE"],["ACTUAL",100,"PERCENTAGE"],["FORECASTED",100,"PERCENTAGE"]] | sort))' >/dev/null <<< "$notifications" || return
+    local type threshold threshold_type notification subscribers
     [[ -n ${BUDGET_EMAIL:-} ]] || return 1
-    while read -r type threshold; do
-        subscribers=$(aws budgets describe-subscribers-for-notification --account-id "$AWS_ACCOUNT" --budget-name ooh-aws-copy --notification "NotificationType=$type,ComparisonOperator=GREATER_THAN,Threshold=$threshold,ThresholdType=PERCENTAGE" --output json) || return
+    while read -r type threshold threshold_type; do
+        notification="NotificationType=$type,ComparisonOperator=GREATER_THAN,Threshold=$threshold"
+        [[ $threshold_type != PERCENTAGE ]] || notification+=",ThresholdType=PERCENTAGE"
+        subscribers=$(aws budgets describe-subscribers-for-notification --account-id "$AWS_ACCOUNT" --budget-name ooh-aws-copy --notification "$notification" --output json) || return
         jq -e --arg email "$BUDGET_EMAIL" '.Subscribers == [{SubscriptionType:"EMAIL",Address:$email}]' >/dev/null <<< "$subscribers" || return
-    done <<'NOTIFICATIONS'
-ACTUAL 50
-ACTUAL 80
-ACTUAL 100
-FORECASTED 100
-NOTIFICATIONS
+    done < <(jq -r '.Notifications[] | [.NotificationType,.Threshold,(.ThresholdType | if . == null then "OMITTED" else . end)] | @tsv' <<< "$notifications")
 }
 check_running_inventory() {
     local group asg lt

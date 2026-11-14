@@ -103,6 +103,12 @@ terraform() { printf 'UNEXPECTED TERRAFORM CALL\n' >&2; return 97; }
         body = 'terraform() { cat "$FIXTURE"; }; paid_guard 2 cluster unused'
         result = self.shell(body, data=plan)
         self.assertEqual(result.returncode, 0, result.stderr)
+        cost = self.shell(
+            'terraform() { cat "$FIXTURE"; }; plan_cost cluster unused', data=plan
+        )
+        self.assertEqual(cost.returncode, 0, cost.stderr)
+        self.assertIn("creates nothing paid;", cost.stdout)
+        self.assertIn("USD 0/hour extra", cost.stdout)
         failed_source = body.replace('cat "$FIXTURE";', 'cat "$FIXTURE"; return 7;')
         self.assertEqual(self.shell(failed_source, data=plan).returncode, 7)
         plan["resource_changes"].append(
@@ -190,6 +196,225 @@ cluster_load_balancers > "$HOME/result.json"
         )
         result = self.shell(body, source=CHECK, data=data)
         self.assertNotEqual(result.returncode, 0)
+
+    def budget_check(self, response: dict) -> subprocess.CompletedProcess[str]:
+        data = {
+            "budget": {
+                "Budget": {
+                    "BudgetType": "COST",
+                    "BudgetLimit": {"Amount": "40.0", "Unit": "USD"},
+                    "TimeUnit": "MONTHLY",
+                }
+            },
+            "notifications": response,
+            "subscribers": {
+                "Subscribers": [
+                    {"SubscriptionType": "EMAIL", "Address": "budget@example.invalid"}
+                ]
+            },
+        }
+        return self.shell(
+            """
+AWS_ACCOUNT=fixture-account; BUDGET_EMAIL=budget@example.invalid
+: > "$HOME/notification-requests"
+aws() {
+    [[ $1 == budgets ]] || return 97
+    case "$2" in
+        describe-budget) jq '.budget' "$FIXTURE";;
+        describe-notifications-for-budget) jq '.notifications' "$FIXTURE";;
+        describe-subscribers-for-notification)
+            while (( $# > 0 )); do
+                if [[ $1 == --notification ]]; then printf '%s\n' "$2" >> "$HOME/notification-requests"; break; fi
+                shift
+            done
+            jq '.subscribers' "$FIXTURE";;
+        *) return 97;;
+    esac
+}
+check_budget
+""",
+            source=CHECK,
+            data=data,
+        )
+
+    def test_budget_null_missing_explicit_and_mixed_threshold_types(self) -> None:
+        fixture = (
+            Path(__file__).with_name("fixtures")
+            / "budget-notifications-null-threshold.json"
+        )
+        for mode in ("null", "missing", "explicit", "mixed"):
+            with self.subTest(mode=mode):
+                response = json.loads(fixture.read_text())
+                for index, notification in enumerate(response["Notifications"]):
+                    if mode == "missing":
+                        del notification["ThresholdType"]
+                    elif mode == "explicit" or (mode == "mixed" and index == 0):
+                        notification["ThresholdType"] = "PERCENTAGE"
+                result = self.budget_check(response)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                requests = (
+                    (self.home / "notification-requests").read_text().splitlines()
+                )
+                self.assertEqual(len(requests), 4)
+                for request, notification in zip(
+                    requests, response["Notifications"], strict=True
+                ):
+                    fields = dict(part.split("=", 1) for part in request.split(","))
+                    expected = {
+                        "NotificationType": notification["NotificationType"],
+                        "ComparisonOperator": "GREATER_THAN",
+                    }
+                    if notification.get("ThresholdType") == "PERCENTAGE":
+                        expected["ThresholdType"] = "PERCENTAGE"
+                    self.assertEqual(
+                        float(fields.pop("Threshold")), notification["Threshold"]
+                    )
+                    self.assertEqual(fields, expected)
+
+    def test_budget_refuses_absolute_invalid_types_and_changed_notifications(
+        self,
+    ) -> None:
+        fixture = (
+            Path(__file__).with_name("fixtures")
+            / "budget-notifications-null-threshold.json"
+        )
+        for invalid in ("ABSOLUTE_VALUE", "", False):
+            with self.subTest(invalid=invalid):
+                response = json.loads(fixture.read_text())
+                response["Notifications"][0]["ThresholdType"] = invalid
+                self.assertNotEqual(self.budget_check(response).returncode, 0)
+        for field, value in (
+            ("ComparisonOperator", "LESS_THAN"),
+            ("Threshold", 99.0),
+            ("NotificationType", "FORECASTED"),
+        ):
+            with self.subTest(field=field):
+                response = json.loads(fixture.read_text())
+                response["Notifications"][0][field] = value
+                self.assertNotEqual(self.budget_check(response).returncode, 0)
+        response = json.loads(fixture.read_text())
+        response["Notifications"].pop()
+        self.assertNotEqual(self.budget_check(response).returncode, 0)
+
+    def cost(self, rows: list[dict]) -> subprocess.CompletedProcess[str]:
+        return self.shell(
+            'terraform() { cat "$FIXTURE"; }; plan_cost cluster unused',
+            data={"resource_changes": rows},
+        )
+
+    def test_plan_cost_zero_paid_creates_on_resume(self) -> None:
+        for rows in (
+            [],
+            [{"type": "aws_eks_cluster", "change": {"actions": ["no-op"]}}],
+            [{"type": "aws_eks_addon", "change": {"actions": ["delete", "create"]}}],
+        ):
+            with self.subTest(rows=rows):
+                result = self.cost(rows)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(
+                    "creates nothing paid; about USD 0/hour extra", result.stdout
+                )
+                self.assertNotIn("0.282", result.stdout)
+
+    def test_plan_cost_prices_new_control_plane_and_node_build(self) -> None:
+        result = self.cost(
+            [{"type": "aws_eks_cluster", "change": {"actions": ["create"]}}]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("1 EKS control plane", result.stdout)
+        self.assertIn("USD 0.100/hour extra", result.stdout)
+        result = self.cost(
+            [
+                {"type": kind, "change": {"actions": ["create"]}}
+                for kind in (
+                    "aws_nat_gateway",
+                    "aws_eip",
+                    "aws_eks_node_group",
+                    "aws_iam_role",
+                )
+            ]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for text in (
+            "1 NAT gateway",
+            "1 public IPv4 address",
+            "1 worker node group with a 50 GB root disk",
+            "USD 0.282/hour extra",
+        ):
+            self.assertIn(text, result.stdout)
+
+    def test_plan_cost_prices_controller_front_door_only_when_created(self) -> None:
+        row = {
+            "address": "helm_release.traefik",
+            "type": "helm_release",
+            "change": {"actions": ["create"]},
+        }
+        result = self.cost([row])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("controller creates 1 network load balancer", result.stdout)
+        self.assertIn("USD 0.030/hour extra", result.stdout)
+        row["change"]["actions"] = ["no-op"]
+        result = self.cost([row])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("creates nothing paid; about USD 0/hour extra", result.stdout)
+
+    def test_resumed_cluster_prompts_both_use_zero_extra_cost(self) -> None:
+        result = self.shell(
+            """
+aws_setup() { :; }; check_signin() { AWS_ACCOUNT=fixture-account; }; check_age() { :; }
+price_table() { :; }; init_root() { :; }; show_plan() { :; }
+apply_plan() { :; }; save_setting() { :; }; check_kube() { :; }; check_ebs_schema() { :; }
+terraform() {
+    if [[ $2 == show ]]; then
+        if [[ $4 == *cluster-1.tfplan ]]; then jq '.first' "$FIXTURE"; else jq '.second' "$FIXTURE"; fi
+    elif [[ $2 == output ]]; then printf 'https://fixture.invalid'; fi
+}
+aws() {
+    case "$1 $2" in
+        'eks update-kubeconfig') touch "$KUBECONFIG";;
+        'eks list-access-entries') printf '{"accessEntries":[]}' ;;
+        'eks describe-addon-versions') printf '{"addons":[{"addonVersions":[{"addonVersion":"v1.22.4-eksbuild.14"},{"addonVersion":"v1.36.0-eksbuild.65"},{"addonVersion":"v1.4.1-eksbuild.3"},{"addonVersion":"v1.14.7-eksbuild.35"},{"addonVersion":"v1.68.0-eksbuild.1"}]}]}' ;;
+        *) return 97;;
+    esac
+}
+kubectl() { if [[ $1 == auth ]]; then printf yes; fi; }
+questions=0
+confirm() {
+    questions=$((questions + 1))
+    printf 'QUESTION: %s\n' "$1"
+    if [[ $questions == 2 ]]; then exit 0; fi
+}
+cluster_main
+""",
+            data={
+                "first": {
+                    "resource_changes": [
+                        {
+                            "address": "aws_eks_cluster.main",
+                            "type": "aws_eks_cluster",
+                            "change": {"actions": ["no-op"]},
+                        }
+                    ]
+                },
+                "second": {
+                    "resource_changes": [
+                        {
+                            "address": "aws_eks_addon.ebs",
+                            "type": "aws_eks_addon",
+                            "change": {"actions": ["delete", "create"]},
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        questions = [
+            line for line in result.stdout.splitlines() if line.startswith("QUESTION:")
+        ]
+        self.assertEqual(len(questions), 2)
+        for question in questions:
+            self.assertIn("creates nothing paid; about USD 0/hour extra", question)
+        self.assertNotIn("0.282", result.stdout)
 
     def test_unexpected_paid_counts_stop(self) -> None:
         for changes in (
