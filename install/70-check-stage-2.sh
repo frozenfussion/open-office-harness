@@ -8,10 +8,10 @@ trap 'stop "Stage 2 check could not continue; check readiness and the last FAIL 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 [[ $# == 0 ]] || stop "usage: install/70-check-stage-2.sh"
 for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE; do
-  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/do.env"
+  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/$OOH_TARGET.env"
 done
 for tool in kubectl curl jq date mktemp openssl tr; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -36,7 +36,7 @@ cleanup() {
   fi
   rm -rf -- "$tmp"
 }
-trap cleanup EXIT
+trap 'cleanup; ooh_target_cleanup' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 forward() {

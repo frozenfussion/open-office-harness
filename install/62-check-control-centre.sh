@@ -8,9 +8,9 @@ trap 'stop "Control Centre check could not continue; fix the last FAIL or check 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE; do
-  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/do.env"
+  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/$OOH_TARGET.env"
 done
 [[ $# == 0 ]] || stop "usage: install/62-check-control-centre.sh"
 for tool in kubectl jq curl date openssl tr; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
@@ -45,7 +45,7 @@ cleanup() {
     kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- rm -rf -- "$config_dir" >/dev/null 2>&1 || true
   fi
 }
-trap cleanup EXIT
+trap 'cleanup; ooh_target_cleanup' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 forward_dir="$(mktemp -d)"

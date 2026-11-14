@@ -8,7 +8,7 @@ stop() { printf 'STOP: %s\n' "$*" >&2; exit 1; }
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source deploy/values/do.env
+source "$ROOT/install/lib/target.sh"
 # shellcheck source=install/lib/stage-check.sh
 source install/lib/stage-check.sh
 for tool in kubectl curl jq flock python3; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
@@ -40,6 +40,7 @@ cleanup() {
   remove_grant || { printf 'STOP: remove this run\047s temporary check-user tier grant in People & rights\n' >&2; rc=1; }
   stage_check_end || rc=1
   rm -rf -- "$tmp"
+  ooh_target_cleanup
   exit "$rc"
 }
 trap cleanup EXIT
@@ -68,6 +69,16 @@ request() {
     [[ -z "$data" ]] || { printf 'data = '; printf '%s' "$data" | jq -Rs .; }
   } | curl --config - --connect-timeout 10 --max-time 930 -sS -X "$method" "$url" -w '\n%{http_code}' 2>/dev/null)" || return 1
   status="${reply##*$'\n'}"; body="${reply%$'\n'*}"
+}
+pod_json() {
+  local marked
+  marked="$(sed -n '/^OOH_RESULT /p' <<< "$pod_output")"
+  if [[ -z "$marked" || "$marked" == *$'\n'* ]] ||
+    ! jq -se 'length == 1 and (.[0] | type == "object")' <<< "${marked#OOH_RESULT }" >/dev/null 2>&1; then
+    printf 'FAIL check pod result: expected exactly one OOH_RESULT JSON line\n' >&2
+    return 1
+  fi
+  pod_output=${marked#OOH_RESULT }
 }
 run_pod() {
   local namespace="$1" script="$2" env="$3" files="${4:-false}" phase='' deadline rc=0
@@ -105,7 +116,7 @@ kafka() {
 python - <<'PY'
 import json, os, time
 from confluent_kafka import Consumer, Producer, TopicPartition
-config = {'bootstrap.servers':os.environ['BOOTSTRAP'], 'security.protocol':'SASL_PLAINTEXT', 'sasl.mechanism':'SCRAM-SHA-512', 'sasl.username':'ooh-stage-check', 'sasl.password':os.environ.pop('PASSWORD')}
+config = {'log_level': 0, 'bootstrap.servers':os.environ['BOOTSTRAP'], 'security.protocol':'SASL_PLAINTEXT', 'sasl.mechanism':'SCRAM-SHA-512', 'sasl.username':'ooh-stage-check', 'sasl.password':os.environ.pop('PASSWORD')}
 try:
     mode = os.environ['MODE']
     topic = os.environ['TOPIC']
@@ -140,13 +151,14 @@ try:
             assert found['payload']['error']['code'] == 'worker_gave_up'
         if mode == 'repeat':
             assert found['event_id'] == os.environ['RESULT_ID']
-        print(json.dumps({'event_id':found['event_id'], 'file_key':found['payload'].get('output',{}).get('file_key') if found['payload'].get('output') else None}))
+        print('OOH_RESULT ' + json.dumps({'event_id':found['event_id'], 'file_key':found['payload'].get('output',{}).get('file_key') if found['payload'].get('output') else None}))
 except Exception:
     raise SystemExit('Kafka check failed') from None
 PY
 POD
 )"
-  run_pod "$PLATFORM_NAMESPACE" "$script" "$env"
+  run_pod "$PLATFORM_NAMESPACE" "$script" "$env" || return 1
+  [[ "$mode" == write ]] || pod_json
 }
 file_check() {
   local env script
@@ -160,13 +172,13 @@ try:
     path = (Path('/files') / os.environ['FILE_KEY']).resolve()
     assert path.is_relative_to('/files/outputs/slides')
     assert path.suffix == '.pptx' and len(Presentation(str(path)).slides) >= 3
-    print(json.dumps({'mtime':path.stat().st_mtime_ns}))
+    print('OOH_RESULT ' + json.dumps({'mtime':path.stat().st_mtime_ns}))
 except Exception:
     raise SystemExit('file check failed') from None
 PY
 POD
 )"
-  run_pod "$APPS_NAMESPACE" "$script" "$env" true
+  run_pod "$APPS_NAMESPACE" "$script" "$env" true && pod_json
 }
 find_dead_letter() {
   local after="$1" correlation="${2:-}" deadline=$((SECONDS + 120))

@@ -7,7 +7,7 @@ trap 'stop "step failed; see README troubleshooting and re-run this script"' ERR
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 command -v openssl >/dev/null || stop "missing tool openssl; finish server setup"
 kubectl get namespace "$PLATFORM_NAMESPACE" >/dev/null 2>&1 || stop "platform namespace missing; run step 4 (operators) first"
 existing="$(kubectl -n "$PLATFORM_NAMESPACE" get secrets -o json)"

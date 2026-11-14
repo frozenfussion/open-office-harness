@@ -7,10 +7,10 @@ trap 'stop "step failed; see README troubleshooting and re-run this script"' ERR
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 for tool in kubectl curl sed; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 tmp="$(mktemp -d)"
-trap 'rm -rf -- "$tmp"' EXIT
+trap 'rm -rf -- "$tmp"; ooh_target_cleanup' EXIT
 fetch() {
   local url="$1" target="$2" status curl_status=0
   status="$(curl --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 15 --max-time 120 -fsSL -w '%{http_code}' -o "$target" "$url")" || curl_status=$?

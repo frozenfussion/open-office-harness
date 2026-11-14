@@ -8,9 +8,9 @@ trap 'stop "database setup failed; inspect PostgreSQL readiness and re-run insta
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE; do
-  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/do.env"
+  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/$OOH_TARGET.env"
 done
 render() {
   local source="$1" target="$2" line variable token
@@ -56,7 +56,7 @@ done
 
 manifest_tmp="$(mktemp)"
 settings_tmp=''
-trap 'rm -f -- "$manifest_tmp"; [[ -z "$settings_tmp" ]] || rm -f -- "$settings_tmp"' EXIT
+trap 'rm -f -- "$manifest_tmp"; [[ -z "$settings_tmp" ]] || rm -f -- "$settings_tmp"; ooh_target_cleanup' EXIT
 render deploy/platform/postgres/db-controlcentre.yaml "$manifest_tmp"
 kubectl apply -f "$manifest_tmp"
 printf 'Waiting for the four database roles and both databases\n'
@@ -73,7 +73,7 @@ owner_password="$(kubectl -n "$PLATFORM_NAMESPACE" get secret controlcentre-test
 app_password="$(kubectl -n "$PLATFORM_NAMESPACE" get secret controlcentre-test-app-db -o jsonpath='{.data.password}' | base64 --decode)"
 [[ "$owner_password" =~ ^[a-f0-9]{64}$ && "$app_password" =~ ^[a-f0-9]{64}$ ]] ||
   stop "test database passwords have an unexpected format; inspect their Secrets privately"
-settings_dir="$HOME/.config/ooh"
+settings_dir="$OOH_LOCAL"
 mkdir -p "$settings_dir"
 settings_tmp="$(mktemp "$settings_dir/.control-centre-test.env.XXXXXX")"
 printf "CC_TEST_DB_MIGRATE_CONNECTION='Host=%s;Port=5432;Database=controlcentre_test;Username=controlcentre_test;Password=%s'\nCC_TEST_DB_CONNECTION='Host=%s;Port=5432;Database=controlcentre_test;Username=controlcentre_test_app;Password=%s'\n" \
@@ -81,5 +81,5 @@ printf "CC_TEST_DB_MIGRATE_CONNECTION='Host=%s;Port=5432;Database=controlcentre_
 chmod 600 "$settings_tmp"
 mv -f -- "$settings_tmp" "$settings_dir/control-centre-test.env"
 unset owner_password app_password
-printf 'Test database settings saved privately in ~/.config/ooh/control-centre-test.env (mode 600)\n'
+printf 'Test database settings saved privately in %s/control-centre-test.env (mode 600)\n' "$OOH_LOCAL"
 printf 'DONE\n'

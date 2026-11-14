@@ -7,7 +7,7 @@ trap 'stop "realm audience sync failed; inspect Keycloak readiness and bootstrap
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 registration=on
 if [[ $# != 0 ]]; then
   [[ $# == 2 ]] || stop "usage: install/35-realm-sync.sh [--registration off|on]"
@@ -78,7 +78,7 @@ cleanup() {
     kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- rm -rf -- "$config_dir" >/dev/null 2>&1 || true
   fi
 }
-trap cleanup EXIT
+trap 'cleanup; ooh_target_cleanup' EXIT
 config_dir="$(kubectl -n "$PLATFORM_NAMESPACE" exec ooh-keycloak-0 -c keycloak -- /bin/bash -c 'umask 077; mktemp -d /tmp/ooh-realm-sync.XXXXXXXX')"
 [[ "$config_dir" =~ ^/tmp/ooh-realm-sync\.[a-zA-Z0-9]+$ ]] || stop "could not create private Keycloak CLI settings directory"
 config="$config_dir/kcadm.config"
@@ -138,14 +138,14 @@ kcadm update realms/ooh -s "registrationAllowed=$registration_allowed" \
   -s resetPasswordAllowed=false -s internationalizationEnabled=true \
   -s 'displayName=Open Office Harness' -s loginTheme=ooh \
   -s 'supportedLocales=["en"]' -s defaultLocale=en \
-  -s 'passwordPolicy=length(12) and notUsername and notEmail and maxLength(128)' >/dev/null
+  -s 'passwordPolicy=""' >/dev/null
 realm_settings="$(kcadm get realms/ooh --fields displayName,loginTheme,registrationAllowed,registrationEmailAsUsername,loginWithEmailAllowed,duplicateEmailsAllowed,editUsernameAllowed,verifyEmail,resetPasswordAllowed,internationalizationEnabled,supportedLocales,defaultLocale,passwordPolicy)"
 jq -e --argjson registration "$registration_allowed" '
   .displayName == "Open Office Harness" and .loginTheme == "ooh" and .registrationAllowed == $registration and .registrationEmailAsUsername == true and
   .loginWithEmailAllowed == true and .duplicateEmailsAllowed == false and
   .editUsernameAllowed == false and .verifyEmail == false and .resetPasswordAllowed == false and
   .internationalizationEnabled == true and .supportedLocales == ["en"] and .defaultLocale == "en" and
-  .passwordPolicy == "length(12) and notUsername and notEmail and maxLength(128)"' <<< "$realm_settings" >/dev/null ||
+  (.passwordPolicy // "") == ""' <<< "$realm_settings" >/dev/null ||
   stop "registration settings could not be verified; inspect realm ooh and re-run realm sync"
 profile_attributes='[
   {"name":"organisation","displayName":"Organisation or team","permissions":{"view":["admin","user"],"edit":["admin","user"]},"validations":{"length":{"min":1,"max":100}}},

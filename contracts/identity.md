@@ -1,6 +1,7 @@
 # Identity contract v1
 
 Issuer: https://auth.faysalaziz.com/realms/ooh. Realm: `ooh`.
+The AWS copy uses the same names under `DOMAIN=aws.faysalaziz.com`, with issuer `https://auth.aws.faysalaziz.com/realms/ooh`.
 Realm roles: `ooh-admin`, `ooh-user`. Self-registration is on; a newcomer waits for approval. Brute-force protection is on. Access tokens last five minutes.
 
 | Client | Type | Use |

@@ -8,9 +8,9 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 [[ -f "$ROOT/install/lib/stage-check.sh" ]] || stop "stage-check helper missing; use the merged Stage 3 worktree"
 # shellcheck source=/dev/null
-source "$ROOT/deploy/values/do.env"
+source "$ROOT/install/lib/target.sh"
 for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE; do
-  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/do.env"
+  [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/$OOH_TARGET.env"
 done
 render() {
   local source="$1" target="$2" line variable token
@@ -53,7 +53,7 @@ for secret in slides-worker-oidc slides-worker-kafka; do
   kubectl -n "$APPS_NAMESPACE" get secret "$secret" >/dev/null 2>&1 || stop "required application secret missing; run install/72-slides-worker-setup.sh"
 done
 tmp="$(mktemp -d)"
-trap 'rm -rf -- "$tmp"' EXIT
+trap 'rm -rf -- "$tmp"; ooh_target_cleanup' EXIT
 mkdir -p "$tmp/apps"
 for file in deploy/apps/slides-worker/*.yaml; do
   render "$file" "$tmp/apps/$(basename "$file")"
@@ -89,6 +89,7 @@ cleanup() {
   trap - EXIT
   if ((check_active)); then stage_check_end || status=1; fi
   rm -rf -- "$tmp"
+  ooh_target_cleanup
   exit "$status"
 }
 trap cleanup EXIT
