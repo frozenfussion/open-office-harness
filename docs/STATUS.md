@@ -1,3 +1,38 @@
+# Stage 4 phase 2 - accepted (15 Nov 2026)
+
+Aziz accepted Stage 4 phase 2 (the same system on AWS EKS) on **15 Nov 2026, 02:41 MYT**,
+on local branch `stage-4b` (images `7c721a4de601`, unchanged from class start). Tag
+`eks-ready` after Aziz's yes to merge. Destroy follows after his separate yes.
+
+## What was built
+
+- Terraform in three roots (bootstrap, cluster, addons) for one EKS 1.36 cluster `ooh-aws` in Singapore (ap-southeast-1): VPC, one NAT gateway, one t3.xlarge node in a private subnet (IMDSv2 hop limit 1, encrypted gp3), five managed add-ons, AWS Load Balancer Controller, Traefik behind one network load balancer with proxy protocol, StorageClass `ooh-gp3`, state in S3 with locking, USD 40 budget.
+- Scripts `80`-`86` (tools, bootstrap, cluster with a paid guard and per-item prices, sign-in, DNS check, state-driven destroy, AWS check with node replacement); `OOH_TARGET=do|aws` for every install script, so one script set deploys either system and refuses the wrong one.
+- Our own Kafka, PostgreSQL and Keycloak run inside EKS, as on the Droplet (option B).
+
+## What was checked (live on AWS, 14-15 Nov)
+
+| Check | Result |
+|---|---|
+| `40`, `62`, `70`, `77`, `78`, `84`, `86` | all PASS (allowed SKIP/INFO only) |
+| Node replacement (`86 --replace-node`) | new node and old disk removed in 190 s; every pod Ready again about 13 minutes after the start with no manual fix (Kafka entity operator recovered after its back-off); `40`, `62`, `86` PASS afterwards |
+| Independent read-only audit | no blocking findings (`reviews/stage-4b-live-audit.md`) |
+| Browser (Claude, in Aziz's session) | sign-in; tier 1 chat; Auto sent a hard question to tier 2; Slides deck made and downloaded; Audit trace opened |
+
+## Agreed changes during the run (spec section 17, rows 10-15)
+
+- EBS add-on configuration matches AWS's real schema; the paid guard reads JSON on stdin (real plans are too large for an environment variable).
+- First admin: ignores service accounts; asks every detail before getting its 60-second admin token; shows Keycloak's reason, never the password or token.
+- No password strength rules anywhere (Aziz's permanent rule, 14 Nov 22:37); realm and realm sync set an empty policy.
+- Budget check accepts AWS's empty threshold type; the sign-in message matches the real flow (Aziz pastes the code AWS shows); cost lines come from the saved plan, each item with its price.
+
+## Open for later
+
+- Keycloak's sign-in page expires after a few minutes if left open (Aziz dislikes time limits; decide whether to lengthen it).
+- Four old AWS Glue log groups in Singapore (Sep 2026, about 1.6 MB): Aziz to keep or delete.
+
+---
+
 # Stage 4 phase 1 - accepted (12 Nov 2026)
 
 Aziz accepted Stage 4 phase 1 on **12 Nov 2026, 22:56 MYT**, at `stage-4` commit
