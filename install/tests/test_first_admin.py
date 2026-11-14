@@ -42,6 +42,7 @@ url = urlsplit(args[-1])
 method = args[args.index("-X")+1] if "-X" in args else "GET"
 body = None
 status = 200
+reply_kind = ""
 if url.path == "/realms/master/protocol/openid-connect/token":
     assert args[args.index("--data-binary")+1] == "@-"
     form = parse_qs(sys.stdin.read())
@@ -49,17 +50,20 @@ if url.path == "/realms/master/protocol/openid-connect/token":
     state["token_at"] = state["now"]
     state["events"].append("token")
     body = {"access_token":state["token"],"expires_in":60}
+    reply_kind = "token"
 else:
     config = args[args.index("--config")+1]
     auth = sys.stdin.read() if config == "-" else Path(config).read_text()
     assert auth.strip() == 'header = "Authorization: Bearer '+state["token"]+'"'
     assert state["now"]-state["token_at"] <= 60
     if url.path == "/admin/realms/ooh/roles/ooh-admin/users":
+        reply_kind = "admins"
         limit = int(parse_qs(url.query).get("max",["100"])[0])
         body = state["users"] if limit < 0 else state["users"][:limit]
     elif url.path == "/admin/realms/ooh/users" and method == "GET":
         assert args[args.index("--data-urlencode")+1] == "username@/dev/fd/4"
         assert Path("/dev/fd/4").read_text() == "fixture-human"
+        reply_kind = "created-user" if state.get("created") else "lookup"
         body = [state["existing"]] if state.get("existing") else ([{"id":"fixture-user"}] if state.get("created") else [])
     elif url.path == "/admin/realms/ooh/users" and method == "POST":
         assert args[args.index("--data-binary")+1] == "@-"
@@ -77,6 +81,7 @@ else:
             state["created"] = True
             body = None
     elif url.path == "/admin/realms/ooh/roles/ooh-admin":
+        reply_kind = "role"
         body = {"id":"fixture-role","name":"ooh-admin"}
     elif url.path.endswith("/role-mappings/realm") and method == "POST":
         assert json.load(sys.stdin) == [{"id":"fixture-role","name":"ooh-admin"}]
@@ -87,7 +92,9 @@ else:
 replacement = fixture.with_suffix(".next")
 replacement.write_text(json.dumps(state))
 replacement.replace(fixture)
-if body is not None:
+if reply_kind == state.get("bad_reply"):
+    print(state["bad_body"],end="")
+elif body is not None:
     print(json.dumps(body),end="")
 print("\n"+str(status),end="")
 """
@@ -281,6 +288,71 @@ class FirstAdminFixtureTests(unittest.TestCase):
         self.assertEqual(state["exit_code"], 1)
         self.assertIn("Requested username is unavailable", text)
         self.assertIn("[REDACTED]", text)
+
+    def test_short_password_does_not_garble_keycloak_reason(self) -> None:
+        text, state = self.run_fixture([], password="a", create_status=400)
+        self.assertEqual(state["exit_code"], 1)
+        self.assertIn(
+            "STOP: Keycloak refused request (HTTP 400): Requested username is unavailable",
+            text,
+        )
+        self.assertNotIn("[REDACTED]", text)
+
+    def test_redaction_only_matches_whole_literal_values(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        source = (root / "install/50-first-admin.sh").read_text()
+        functions = source[
+            source.index("is_value_boundary() {") : source.index("request() {")
+        ]
+        cases = [
+            (
+                "a",
+                "Requested username is unavailable",
+                "Requested username is unavailable",
+            ),
+            ("a", "aa a aa", "aa [REDACTED] aa"),
+            ("a", "a", "[REDACTED]"),
+            ("a", " a ", " [REDACTED] "),
+            ("a", "'a'", "'[REDACTED]'"),
+            ("a", '"a"', '"[REDACTED]"'),
+            ("a", "password:a", "password:[REDACTED]"),
+            ("a", "a=token", "[REDACTED]=token"),
+            ("a", "a, cat", "a, cat"),
+            ("a.*[x]", "value='a.*[x]'", "value='[REDACTED]'"),
+        ]
+        for secret, reason, expected in cases:
+            with self.subTest(secret=secret, reason=reason):
+                result = subprocess.run(
+                    [
+                        "bash",
+                        "-euc",
+                        functions
+                        + '\nreason=$TEST_REASON\nredact_value "$TEST_SECRET"\nprintf %s "$reason"',
+                    ],
+                    env=dict(os.environ, TEST_REASON=reason, TEST_SECRET=secret),
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                self.assertEqual(result.stdout, expected)
+
+    def test_invalid_success_replies_have_clear_stop_lines(self) -> None:
+        cases = [
+            ("token", "{}", "Keycloak token reply had no access token"),
+            ("token", "", "Keycloak token reply had no access token"),
+            ("role", "not json", "ooh-admin role could not be read"),
+            ("role", "{}", "ooh-admin role could not be read"),
+            ("admins", "not json", "Keycloak administrator list could not be read"),
+            ("lookup", "not json", "Keycloak user lookup could not be read"),
+            ("created-user", "not json", "Keycloak first-admin user could not be read"),
+        ]
+        for reply, body, message in cases:
+            with self.subTest(reply=reply, body=body):
+                text, state = self.run_fixture([], bad_reply=reply, bad_body=body)
+                self.assertEqual(state["exit_code"], 1)
+                self.assertIn("STOP: " + message, text)
+                self.assertNotIn("First admin already exists", text)
+                self.assertFalse(text.rstrip().endswith("DONE"))
 
     def test_one_character_password_is_accepted(self) -> None:
         text, state = self.run_fixture([], password="z")
