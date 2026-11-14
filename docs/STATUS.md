@@ -1,3 +1,27 @@
+# AWS copy destroyed (15 Nov 2026)
+
+After acceptance and Aziz's separate yes, the AWS copy was destroyed on **15 Nov 2026**;
+`install/85-aws-destroy.sh` ended at 04:23 MYT with `PASS: no AWS copy resources remain`
+and `DONE` (add-ons 7 and cluster 33 Terraform resources destroyed, two 20 GB data disks
+deleted; 20 minutes from `yes` to `DONE`). The three `aws` CNAME records were removed.
+The Terraform state bucket and the USD 40 budget stay. The Droplet is the running system.
+
+## Found during the destroy, open for a fix round and review
+
+- `85-aws-destroy.sh` does not delete the KafkaNodePool `dual-role`, so Kafka's pod keeps its
+  disk and the first run stops with `pods still mount data disks`. Used by hand, with Aziz's
+  yes: `kubectl -n ooh-platform delete kafkanodepool dual-role`, then the script again.
+- `aws login --remote`: the code is about 2,500 characters. In an embedded browser pane the
+  page's copy button failed, and codes from earlier sign-in pages were pasted
+  (`Failed to decode the verification code`, `State parameter ... does not match`).
+- One sign-in ended after about three minutes (`ExpiredTokenException`); cause not known.
+  The next sign-in refreshed normally.
+- README AWS step 1 said the code is typed in the browser; corrected to the real flow
+  (the code is pasted into the waiting script). README step 11 and the STOP table now
+  carry the three items above. New page `docs/OVERVIEW.md` explains the project with diagrams.
+
+---
+
 # Stage 4 phase 2 - accepted (15 Nov 2026)
 
 Aziz accepted Stage 4 phase 2 (the same system on AWS EKS) on **15 Nov 2026, 02:41 MYT**,
