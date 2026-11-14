@@ -317,7 +317,8 @@ class FirstAdminFixtureTests(unittest.TestCase):
             ("a", '"a"', '"[REDACTED]"'),
             ("a", "password:a", "password:[REDACTED]"),
             ("a", "a=token", "[REDACTED]=token"),
-            ("a", "a, cat", "a, cat"),
+            ("a", "a, cat", "[REDACTED], cat"),
+            ("hunter2", "Invalid value: hunter2.", "Invalid value: [REDACTED]."),
             ("a.*[x]", "value='a.*[x]'", "value='[REDACTED]'"),
         ]
         for secret, reason, expected in cases:

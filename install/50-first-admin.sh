@@ -21,7 +21,7 @@ bootstrap_user="$(jq -r '.data.username | @base64d' <<< "$bootstrap")"
 bootstrap_password="$(jq -r '.data.password | @base64d' <<< "$bootstrap")"
 is_value_boundary() {
   case "$1" in
-    ''|[[:space:]]|\"|\'|:|=) return 0 ;;
+    ''|[![:alnum:]]) return 0 ;;
     *) return 1 ;;
   esac
 }
