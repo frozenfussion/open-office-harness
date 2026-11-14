@@ -13,6 +13,9 @@ source "$ROOT/install/lib/target.sh"
 # shellcheck source=/dev/null
 source "$OOH_LOCAL/do.env"
 [[ -n "${LETSENCRYPT_EMAIL:-}" ]] || stop "local setting LETSENCRYPT_EMAIL is empty; fill it in as described in README"
+[[ "${RETAIN_VOLUMES:-}" == true || "${RETAIN_VOLUMES:-}" == false ]] || stop "invalid deployment value RETAIN_VOLUMES; correct deploy/values/$OOH_TARGET.env"
+[[ "$OOH_TARGET" != "do" || "$RETAIN_VOLUMES" == true ]] || stop "invalid deployment value RETAIN_VOLUMES: must be true for do; correct deploy/values/$OOH_TARGET.env"
+[[ "${FILES_POD_UID:-}" =~ ^[0-9]+$ ]] || stop "invalid deployment value FILES_POD_UID; correct deploy/values/$OOH_TARGET.env"
 failed=0
 result() {
   if [[ "$1" == 0 ]]; then printf 'PASS %s\n' "$2"; else printf 'FAIL %s: %s\n' "$2" "$3"; failed=1; fi

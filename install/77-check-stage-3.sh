@@ -84,6 +84,16 @@ remove_routing_grants() {
   return "$rc"
 }
 # Pods receive real credentials only through Secret environment references.
+pod_json() {
+  local marked
+  marked="$(sed -n '/^OOH_RESULT /p' <<< "$pod_output")"
+  if [[ -z "$marked" || "$marked" == *$'\n'* ]] ||
+    ! jq -se 'length == 1 and (.[0] | type == "object")' <<< "${marked#OOH_RESULT }" >/dev/null 2>&1; then
+    printf 'FAIL check pod result: expected exactly one OOH_RESULT JSON line\n' >&2
+    return 1
+  fi
+  pod_output=${marked#OOH_RESULT }
+}
 run_pod() {
   local namespace="$1" image="$2" script="$3" env="$4" files="${5:-false}" phase='' deadline rc=0
   check_namespace="$namespace"; check_pod="ooh-stage3-$(date +%s)-$RANDOM"
@@ -186,7 +196,7 @@ kafka() {
 python - <<'PY'
 import json, os, time
 from confluent_kafka import Consumer, Producer, TopicPartition
-config = {'bootstrap.servers':os.environ['BOOTSTRAP'], 'security.protocol':'SASL_PLAINTEXT', 'sasl.mechanism':'SCRAM-SHA-512', 'sasl.username':'ooh-stage-check', 'sasl.password':os.environ.pop('PASSWORD')}
+config = {'log_level': 0, 'bootstrap.servers':os.environ['BOOTSTRAP'], 'security.protocol':'SASL_PLAINTEXT', 'sasl.mechanism':'SCRAM-SHA-512', 'sasl.username':'ooh-stage-check', 'sasl.password':os.environ.pop('PASSWORD')}
 try:
     if os.environ['MODE'] == 'write':
         errors = []
@@ -209,13 +219,14 @@ try:
         consumer.close()
         assert found is not None
         assert found['type'] == 'skill.result' and found['payload']['status'] == 'completed'
-        print(json.dumps({'event_id':found['event_id'], 'file_key':found['payload']['output']['file_key']}))
+        print('OOH_RESULT ' + json.dumps({'event_id':found['event_id'], 'file_key':found['payload']['output']['file_key']}))
 except Exception:
     raise SystemExit('check failed') from None
 PY
 POD
 )"
-  run_pod "$PLATFORM_NAMESPACE" "$slides_image" "$script" "$env"
+  run_pod "$PLATFORM_NAMESPACE" "$slides_image" "$script" "$env" || return 1
+  [[ "$mode" == write ]] || pod_json
 }
 rc=0
 kafka write skill.requests.slides "$slide_event" || rc=1
@@ -237,13 +248,13 @@ try:
     path = (Path('/files') / os.environ['FILE_KEY']).resolve()
     assert path.is_relative_to('/files/outputs/slides')
     assert path.suffix == '.pptx' and len(Presentation(str(path)).slides) >= 3
-    print(json.dumps({'mtime':path.stat().st_mtime_ns}))
+    print('OOH_RESULT ' + json.dumps({'mtime':path.stat().st_mtime_ns}))
 except Exception:
     raise SystemExit('file check failed') from None
 PY
 POD
 )"
-  run_pod "$APPS_NAMESPACE" "$slides_image" "$script" "$env" true
+  run_pod "$APPS_NAMESPACE" "$slides_image" "$script" "$env" true && pod_json
 }
 rc=0
 file_check || rc=1
@@ -255,7 +266,7 @@ repeat_script="$(cat <<'POD'
 python - <<'PY'
 import json, os, time
 from confluent_kafka import Consumer, Producer, TopicPartition
-config = {'bootstrap.servers':os.environ['BOOTSTRAP'], 'security.protocol':'SASL_PLAINTEXT', 'sasl.mechanism':'SCRAM-SHA-512', 'sasl.username':'ooh-stage-check', 'sasl.password':os.environ.pop('PASSWORD')}
+config = {'log_level': 0, 'bootstrap.servers':os.environ['BOOTSTRAP'], 'security.protocol':'SASL_PLAINTEXT', 'sasl.mechanism':'SCRAM-SHA-512', 'sasl.username':'ooh-stage-check', 'sasl.password':os.environ.pop('PASSWORD')}
 try:
     consumer = Consumer({**config, 'group.id':'ooh-stage-check', 'enable.auto.commit':False})
     metadata = consumer.list_topics('skill.results', timeout=20)

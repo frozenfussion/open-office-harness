@@ -14,6 +14,7 @@ source "$OOH_LOCAL/do.env"
 [[ -n "${LETSENCRYPT_EMAIL:-}" ]] || stop "local setting LETSENCRYPT_EMAIL is empty; fill it in as described in README"
 [[ "$LETSENCRYPT_EMAIL" == *@*.* && "$LETSENCRYPT_EMAIL" != *[[:space:]]* ]] || stop "contact email is invalid; correct local settings"
 
+[[ "${EXPECTED_NODES:-}" =~ ^[1-9][0-9]*$ ]] || stop "invalid deployment value EXPECTED_NODES; correct deploy/values/$OOH_TARGET.env"
 for tool in kubectl getent curl jq; do command -v "$tool" >/dev/null || stop "missing tool $tool; finish server setup"; done
 kubectl get nodes -o json | jq -e --argjson expected "$EXPECTED_NODES" '.items | length == $expected and all(.[]; any(.status.conditions[]; .type == "Ready" and .status == "True"))' >/dev/null || stop "$OOH_TARGET nodes are not Ready; check server setup"
 printf 'PASS kubectl access and %s Ready node(s) on %s\nPASS local settings complete\n' "$EXPECTED_NODES" "$OOH_TARGET"
@@ -34,7 +35,7 @@ done
 kubectl -n kube-system get pods -l app.kubernetes.io/name=traefik -o json |
   jq -e '.items | length > 0 and all(.[]; any(.status.conditions[]?; .type == "Ready" and .status == "True"))' >/dev/null || stop "Traefik pod is missing or not Ready in kube-system; check $OOH_TARGET Traefik"
 printf 'PASS Traefik pod Ready in kube-system\n'
-# ServiceLB forwards ports without a process listening in ss. Any HTTP response proves local routing.
+# ServiceLB (do) or the load balancer (aws) forwards ports; any HTTP response proves routing.
 front_door=127.0.0.1
 [[ "$OOH_TARGET" != aws ]] || front_door=$LB_HOSTNAME
 for url in "http://$front_door/" "https://$front_door/"; do

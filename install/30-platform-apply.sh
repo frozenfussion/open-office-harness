@@ -23,6 +23,9 @@ fi
 for variable in DOMAIN PLATFORM_NAMESPACE APPS_NAMESPACE KAFKA_STORAGE POSTGRES_STORAGE FILES_STORAGE STORAGE_CLASS; do
   [[ -n "${!variable:-}" && "${!variable}" != *[!a-zA-Z0-9.-]* ]] || stop "invalid deployment value $variable; correct deploy/values/$OOH_TARGET.env"
 done
+[[ "${RETAIN_VOLUMES:-}" == true || "${RETAIN_VOLUMES:-}" == false ]] || stop "invalid deployment value RETAIN_VOLUMES; correct deploy/values/$OOH_TARGET.env"
+[[ "$OOH_TARGET" != "do" || "$RETAIN_VOLUMES" == true ]] || stop "invalid deployment value RETAIN_VOLUMES: must be true for do; correct deploy/values/$OOH_TARGET.env"
+[[ "${FILES_POD_UID:-}" =~ ^[0-9]+$ ]] || stop "invalid deployment value FILES_POD_UID; correct deploy/values/$OOH_TARGET.env"
 tmp="$(mktemp -d)"
 binding_pod=''
 cleanup() {
@@ -56,7 +59,7 @@ kubectl --kubeconfig=/dev/null -n "$PLATFORM_NAMESPACE" create configmap ooh-key
   --from-file=deploy/platform/keycloak/theme/ --dry-run=client -o yaml > "$tmp/deploy/platform/keycloak/theme-configmap.yaml"
 if [[ "${1:-}" == --check ]]; then
   kubeconform -strict -summary -skip ClusterIssuer,Kafka,KafkaNodePool,KafkaTopic,KafkaUser,Cluster,DatabaseRole,Database,Keycloak,KeycloakRealmImport "$tmp/deploy/platform"
-  (cd "$tmp"; find deploy/platform -type f -name '*.yaml' -print0 | sort -z | xargs -0 sha256sum)
+  (cd "$tmp"; find deploy/platform -type f -name '*.yaml' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum)
   printf 'DONE\n'
   exit 0
 fi
