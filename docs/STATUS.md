@@ -190,7 +190,7 @@ Stage 2 accepted by Aziz on **10 Nov 2026 20:44 MYT** ("So far, it looks good. I
 - **Workspace** (Angular): sign-in and Request access, waiting/declined screens, Chat model picker, thinking switch and collapsed Thinking section, Markdown and LaTeX (sanitised), timestamps, Copy, AI titles, Request another model.
 - **Control Centre** (C#): provider keys encrypted (AES-256-GCM), Gateway-only routes on internal port 8081, priorities and many models per tier, Test connection, access requests with approval rule (Everyone included), Revoke, model requests, thinking-off settings.
 - **Admin Console** (Angular): Models & tiers (add, edit, Test, who may use each tier), Access requests and Model requests.
-- **Keycloak**: self-registration with organisation (optional) and reason, password policy, Request access texts and mappers.
+- **Keycloak**: self-registration with organisation (optional) and reason, no password-strength policy (removed in Stage 4 phase 2, section 17 row 14, by Aziz's permanent rule), Request access texts and mappers.
 
 ## Checks at acceptance
 
