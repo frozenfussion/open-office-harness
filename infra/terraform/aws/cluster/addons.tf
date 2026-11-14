@@ -16,7 +16,6 @@ resource "aws_eks_addon" "ebs" {
   addon_name    = "aws-ebs-csi-driver"
   addon_version = "v1.68.0-eksbuild.1"
   configuration_values = jsonencode({ controller = {
-    env             = [{ name = "AWS_REGION", value = "ap-southeast-1" }]
     additionalArgs  = ["--k8s-tag-cluster-id=ooh-aws"]
     extraVolumeTags = merge(local.tags, { ooh-stage = "4b" })
   } })
