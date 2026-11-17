@@ -1,3 +1,58 @@
+# Stage 5 - accepted (17 Nov 2026)
+
+Aziz accepted Stage 5 (pictures in chat, and export a chat to Word) on **17 Nov 2026,
+12:07 MYT**, on branch `stage-5` at `e224216` (images `e22421684eca`), running on the
+Droplet. Tag `pictures-and-export` after Aziz's yes to merge.
+
+## What was built
+
+- Pictures in chat: one PNG or JPEG per message, up to 7 MiB, sent as the raw file to
+  `POST /api/uploads` and kept on the `ooh-files` volume. The three most recent pictures of
+  a conversation stay in view for follow-up questions. All three connection types of the
+  Model Gateway carry pictures; a picture a model refuses gives `image_refused` and does not
+  mark the model down. 20 pictures per person per day.
+- Export to Word: `GET /api/conversations/{id}/export` returns a `.docx` made in the Harness
+  API with questions as typed, answers with their headings, lists and tables, times in the
+  display time zone, and no Thinking text.
+- Workspace: **Attach picture** under the message box and **Export to Word** in the header.
+- Audit actions `upload.created` and `conversation.exported`.
+- Check script `install/87-check-stage-5.sh <image tag>`.
+
+## How it was built
+
+Spec `docs/specs/stage-5-pictures-and-export.md` (base tag `stage-5-base`), reviewed three
+times before any builder started (24, 11 and 4 findings). Three Parts built in parallel, each
+in its own worktree and branch: Part A Model Gateway, Part B Harness API, Part C Workspace and
+check script. Each Part had one independent review (3, 3 and 7 findings), one fix round and a
+second review with no findings. The three Parts merged without a conflict.
+
+## Checks passed
+
+- Merged tree: Model Gateway 445 tests, Harness API 434 tests, Workspace 136 tests, contract
+  check 18 tests, install scripts clean.
+- On the Droplet at `e22421684eca`: all seven deploy scripts ended with `DONE`;
+  `40-check-platform.sh` 31 PASS, `62-check-control-centre.sh` 58 PASS,
+  `70-check-stage-2.sh` 46 PASS, `77-check-stage-3.sh` 0 FAIL and `DONE`,
+  `87-check-stage-5.sh` 14 PASS. No FAIL in any of them.
+- In the browser: Aziz asked about a picture of his own and got a correct description; a
+  follow-up with no picture attached was answered from the same picture; the exported Word
+  file was opened and read.
+
+## Open items
+
+- After a tier 3 answer, the text-only call that writes the conversation title got HTTP 400
+  from the provider and the Model Gateway marked the tier 3 model down (17 Nov, 11:50 MYT,
+  during `87-check-stage-5.sh`). The title code is not changed by this stage. Cause not known.
+  The model returned to OK after **Test** in the Admin Console.
+- A separate "multimodality" permission for pictures is the next step; today everyone who
+  may chat may attach.
+- The READMEs of the Model Gateway and the Harness API still give test commands with the
+  Part worktree paths.
+- Not run in this acceptance: the reboot test and `78-check-stage-4.sh` (class in
+  session).
+
+---
+
 # AWS copy destroyed (15 Nov 2026)
 
 After acceptance and Aziz's separate yes, the AWS copy was destroyed on **15 Nov 2026**;
