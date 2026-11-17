@@ -1,10 +1,19 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+import base64
+import binascii
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    field_validator,
+    model_validator,
+)
 
 
 class Strict(BaseModel):
@@ -17,15 +26,36 @@ class ToolCall(Strict):
     arguments: dict[str, Any]
 
 
+class Image(Strict):
+    media_type: Literal["image/png", "image/jpeg"]
+    data: str = Field(min_length=1, max_length=9786712, repr=False)
+
+    @field_validator("data")
+    @classmethod
+    def valid_base64(cls, value: str) -> str:
+        try:
+            base64.b64decode(value, validate=True)
+        except ValueError, binascii.Error:
+            raise ValueError("invalid base64") from None
+        return value
+
+
 class Message(Strict):
     role: Literal["system", "user", "assistant", "tool"]
     content: str | None = None
+    images: list[Image] = Field(
+        default_factory=list, max_length=1, exclude_if=lambda value: not value
+    )
     tool_calls: list[ToolCall] = Field(default_factory=list)
     reasoning_state: dict[str, Any] | None = None
     tool_call_id: str | None = None
 
     @model_validator(mode="after")
     def valid_role(self) -> Message:
+        if "images" in self.model_fields_set and (
+            self.role != "user" or not self.content
+        ):
+            raise ValueError("images require user role and non-empty content")
         if self.role == "tool" and (not self.tool_call_id or self.content is None):
             raise ValueError("tool result requires id and content")
         if self.role != "tool" and self.tool_call_id is not None:
@@ -60,6 +90,8 @@ class Call(Strict):
 
     @model_validator(mode="after")
     def chat_tier(self) -> Call:
+        if sum("images" in m.model_fields_set for m in self.messages) > 3:
+            raise ValueError("at most three messages may carry images")
         if self.purpose == "chat" and self.tier is None:
             raise ValueError("chat requires tier")
         if self.purpose != "chat" and self.tier is not None:

@@ -177,7 +177,7 @@ async def test_other_routes_do_not_observe(h: Harness) -> None:
     assert (await h.client.get("/api/conversations")).status_code == 200
     assert (await h.client.get(f"/api/conversations/{identifier}")).status_code == 200
     assert (await h.send(identifier)).status_code == 200
-    assert (await h.client.post("/api/uploads")).status_code == 503
+    assert (await h.client.post("/api/uploads")).status_code == 400
     assert not h.observe.called
 
 

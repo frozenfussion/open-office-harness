@@ -29,9 +29,41 @@ class Settings:
     route_skill_threshold: float = 0.8
     route_timeout_seconds: float = 30
 
+    upload_max_bytes: int = 7340032
+    uploads_per_day: int = 20
+    display_time_zone: str = "Asia/Kuala_Lumpur"
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.upload_max_bytes) is not int
+            or not 1048576 <= self.upload_max_bytes <= 7340032
+            or self.upload_max_bytes % 1048576
+        ):
+            from .diagnostics import failure
+
+            failure("request_error", "upload_max_bytes_invalid")
+            raise ValueError(
+                "HA_UPLOAD_MAX_BYTES must be a whole number of MiB from 1 to 7"
+            )
+
     @classmethod
     def from_env(cls) -> Settings:
+        raw_limit = os.environ.get("HA_UPLOAD_MAX_BYTES", "7340032")
+        try:
+            limit = int(raw_limit)
+        except ValueError:
+            from .diagnostics import failure
+
+            failure("request_error", "upload_max_bytes_invalid")
+            raise ValueError(
+                "HA_UPLOAD_MAX_BYTES must be a whole number of MiB from 1 to 7"
+            ) from None
         return cls(
+            upload_max_bytes=limit,
+            uploads_per_day=int(os.environ.get("HA_UPLOADS_PER_DAY", "20")),
+            display_time_zone=os.environ.get(
+                "HA_DISPLAY_TIME_ZONE", "Asia/Kuala_Lumpur"
+            ),
             route_timeout_seconds=float(
                 os.environ.get("HA_ROUTE_TIMEOUT_SECONDS", "30")
             ),

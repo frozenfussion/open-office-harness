@@ -69,6 +69,7 @@ async def test_me_and_own_conversations(h: Harness) -> None:
     response = await h.client.get("/api/me")
     assert response.json() == {
         "user_id": "test-user",
+        "upload_max_bytes": 7340032,
         "name": "Test user",
         "access": "approved",
         "chat_tiers": [1, 2, 3],
@@ -134,16 +135,6 @@ async def test_invalid_message(h: Harness, body: Any) -> None:
         await h.client.post(f"/api/conversations/{identifier}/messages", json=body)
     ).status_code == 400
     assert h.store.rows[UUID(identifier)]["messages"] == []
-
-
-@pytest.mark.parametrize(
-    "method,path",
-    [("post", "/api/uploads")],
-)
-async def test_future_routes(h: Harness, method: str, path: str) -> None:
-    response = await h.client.request(method, path)
-    assert response.status_code == 503
-    assert response.json()["code"] == "not_built_yet"
 
 
 async def test_stream_and_history(h: Harness) -> None:
@@ -395,7 +386,8 @@ async def test_budget_fallback_checks_current_grant(h: Harness) -> None:
         ]
     )
     response = await h.send(identifier, tier=3)
-    assert response.status_code == 403
+    assert response.status_code == 503
+    assert response.json()["code"] == "unavailable"
     assert h.gateway.call_count == 1
 
 

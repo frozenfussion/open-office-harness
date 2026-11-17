@@ -11,9 +11,11 @@ export interface RequestableTier { tier: number; title: string; requested: 'pend
 export interface RequestableSkill { name: string; title: string; description: string; requested: 'pending' | 'rejected' | null }
 export type JobStatus = 'awaiting_approval' | 'queued' | 'completed' | 'failed' | 'rejected';
 export interface Job { job_id: string; skill: string; title: string; label: string; status: JobStatus; created_at?: string; updated_at?: string; output?: {file_key: string; mime: string; summary: string} | null; error?: {code: string; message: string} | null }
-export interface Me { requestable_skills?: RequestableSkill[]; access: Access; user_id: string; name: string; chat_tiers: number[]; chat_tier_titles: Record<string, string>; chat_tier_thinking_switch: Record<string, boolean>; requestable_tiers: RequestableTier[]; skills: {name: string; title: string}[] }
+export interface Picture { upload_id: string; file_name: string; mime: string; size_bytes: number }
+export interface Me { upload_max_bytes?: number; requestable_skills?: RequestableSkill[]; access: Access; user_id: string; name: string; chat_tiers: number[]; chat_tier_titles: Record<string, string>; chat_tier_thinking_switch: Record<string, boolean>; requestable_tiers: RequestableTier[]; skills: {name: string; title: string}[] }
 export interface Conversation { id: string; title: string; updated_at: string }
 export interface Message {
+  picture?: Picture | null; pictureUrl?: string;
   routing?: Routing | null; jobs?: Job[]; id?: string; role: 'user' | 'assistant'; content: string; created_at: string;
   tier?: number | null; model_title?: string | null;
   input_tokens?: number | null; output_tokens?: number | null; note?: string | null;
@@ -29,7 +31,7 @@ export class Api {
   private async request(path: string, init?: RequestInit): Promise<Response> {
     const token = await firstValueFrom(this.auth.getAccessToken());
     const response = await fetch(this.config.apiBase + path, {
-      ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init?.headers },
       cache: 'no-store',
     });
     if (!response.ok) {
@@ -74,13 +76,30 @@ export class Api {
     document.body.append(anchor);
     try { anchor.click(); } finally { anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
   }
-  async send(id: string, content: string, tier: ChatTier, signal: AbortSignal, receive: (event: ChatEvent) => void, thinking = true): Promise<void> {
+  async upload(file: File): Promise<Picture> {
+    return (await this.request('/uploads', {method: 'POST', body: file,
+      headers: {'Content-Type': file.type, 'X-File-Name': encodeURIComponent(file.name)}})).json();
+  }
+  async picture(id: string): Promise<Blob> {
+    return (await this.request('/uploads/' + encodeURIComponent(id))).blob();
+  }
+  async export(id: string): Promise<string> {
+    const response = await this.request('/conversations/' + encodeURIComponent(id) + '/export');
+    const url = URL.createObjectURL(await response.blob());
+    const filename = response.headers.get('Content-Disposition')?.match(/filename="([^"\r\n]+)"/i)?.[1]?.replace(/[\\/]/g, '_') || 'chat.docx';
+    const anchor = document.createElement('a');
+    anchor.href = url; anchor.download = filename; document.body.append(anchor);
+    try { anchor.click(); } finally { anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
+    return filename;
+  }
+  async send(id: string, content: string, tier: ChatTier, signal: AbortSignal, receive: (event: ChatEvent) => void, thinking = true, uploadId?: string, connected: () => void = () => {}): Promise<void> {
     const response = await this.request('/conversations/' + encodeURIComponent(id) + '/messages', {
-      method: 'POST', body: JSON.stringify({content, tier, thinking}), signal,
+      method: 'POST', body: JSON.stringify({content, tier, thinking, ...(uploadId ? {upload_id: uploadId} : {})}), signal,
     });
     if (!response.body || !response.headers.get('Content-Type')?.startsWith('text/event-stream')) {
       throw new Error('The answer stream did not start. Try again.');
     }
+    connected();
     await readStream(response.body, event => { if (!event.type.startsWith('job.')) receive(event as ChatEvent); });
   }
 }

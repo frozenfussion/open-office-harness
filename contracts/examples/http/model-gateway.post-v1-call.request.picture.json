@@ -1,0 +1,18 @@
+{
+  "purpose": "chat",
+  "tier": 1,
+  "user_id": "fake-user",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Describe this picture.",
+      "images": [
+        {
+          "media_type": "image/png",
+          "data": "iVBORw0KGgo="
+        }
+      ]
+    }
+  ],
+  "stream": true
+}

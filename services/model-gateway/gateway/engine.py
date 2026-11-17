@@ -274,6 +274,8 @@ class Engine:
             )
         supported.sort(key=lambda e: (e.role != "main", e.priority, e.created_at))
         reasons = []
+        has_images = any(message.images for message in call.messages)
+        image_refused = False
         attempt = 0
         for entry in supported:
             start = time.monotonic()
@@ -475,7 +477,25 @@ class Engine:
                     if provider_attempted and not provider_finished
                     else (None, None, "bad_answer")
                 )
-                if provider_attempted and not provider_finished and not started:
+                refused = (
+                    has_images
+                    and not started
+                    and isinstance(error, ProviderError)
+                    and status in {400, 413, 422}
+                )
+                image_refused = image_refused or refused
+                error_code = "image_refused" if image_refused else "unavailable"
+                error_message = (
+                    "This model could not read the picture. Try another model."
+                    if image_refused
+                    else "The model did not answer. Try again."
+                )
+                if (
+                    provider_attempted
+                    and not provider_finished
+                    and not started
+                    and not refused
+                ):
                     health_reason = (
                         f"http_{status}"
                         if status is not None
@@ -517,8 +537,8 @@ class Engine:
                 if provider_details and call.model_entry_id is not None:
                     raise GatewayError(
                         503,
-                        "unavailable",
-                        "The model did not answer. Try again.",
+                        error_code,
+                        error_message,
                         provider_status=status,
                         provider_message=message,
                     ) from None
@@ -526,8 +546,8 @@ class Engine:
                     yield {
                         "type": "failed",
                         "error": {
-                            "code": "unavailable",
-                            "message": "The model did not answer. Try again.",
+                            "code": error_code,
+                            "message": error_message,
                         },
                     }
                     return
@@ -535,6 +555,12 @@ class Engine:
                 logger.info(
                     json.dumps({"message": "failover", "model_entry_id": str(entry.id)})
                 )
+        if image_refused:
+            raise GatewayError(
+                503,
+                "image_refused",
+                "This model could not read the picture. Try another model.",
+            )
         if all(reason == "skipped_budget" for reason in reasons):
             raise GatewayError(
                 503, "budget_exceeded", "Every model is over its daily budget"

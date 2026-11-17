@@ -5,18 +5,18 @@
    Type this in your harness terminal, in the plain shell. Claude runs it while Aziz watches. No password is needed. This creates the databases and saves private test settings. Run platform apply and realm sync first. Existing credentials are kept.
 
    ```bash
-   cd ~/projects/worktrees/stage-4-part-a
+   cd ~/projects/worktrees/stage-5-part-b
    bash install/66-harness-api-setup.sh
    ```
 
-   Good result: `DONE`. Test settings are saved in `~/.config/ooh/harness-api-test.env`, mode 600. Never paste or print that file. For the combined stage deployment, use `cd ~/projects/worktrees/stage-4` instead; after acceptance use `cd ~/projects/open-office-harness`.
+   Good result: `DONE`. Test settings are saved in `~/.config/ooh/harness-api-test.env`, mode 600. Never paste or print that file. For the combined stage deployment, use `cd ~/projects/worktrees/stage-5` instead; after acceptance use `cd ~/projects/open-office-harness`.
 
 2. **Run the builder checks.**
 
    Type this in your harness terminal, in the plain shell. No password is needed. This loads only the private test database settings and checks the service. Run it after setup prints `DONE`.
 
    ```bash
-   cd ~/projects/worktrees/stage-4-part-a/services/harness-api
+   cd ~/projects/worktrees/stage-5-part-b/services/harness-api
    set +x
    set -a
    source "$HOME/.config/ooh/harness-api-test.env"
@@ -36,7 +36,7 @@
    Type this in your harness terminal, in the plain shell. Claude runs it while Aziz watches. No password is needed. This deploys the image for the current commit, runs migrations, and waits for that revision to be ready.
 
    ```bash
-   cd ~/projects/worktrees/stage-4
+   cd ~/projects/worktrees/stage-5
    bash install/67-harness-api-deploy.sh "$(git rev-parse --short=12 HEAD)"
    ```
 
@@ -102,20 +102,34 @@
 
    Repeat the status step until one replica is ready.
 
-10. **After a server reboot.** Allow five minutes, then check status. Kubernetes starts the API automatically if it had one replica before reboot. Claude runs the platform, Control Centre and Stage 2 checks while Aziz watches.
+10. **After a server reboot.** Stage 5 does not reboot the Droplet during class. After a later authorised reboot, allow five minutes, then check status. Kubernetes starts the API automatically if it had one replica before reboot. Claude runs the platform, Control Centre and Stage 2 checks while Aziz watches.
 
     Type this in your harness terminal, in the plain shell. No password is needed. This checks the combined stage after reboot.
 
     ```bash
-    cd ~/projects/worktrees/stage-4
+    cd ~/projects/worktrees/stage-5
     bash install/40-check-platform.sh
     bash install/62-check-control-centre.sh
     bash install/70-check-stage-2.sh
     bash install/77-check-stage-3.sh "$(git rev-parse --short=12 HEAD)"
-    bash install/78-check-stage-4.sh "$(git rev-parse --short=12 HEAD)"
+    bash install/87-check-stage-5.sh "$(git rev-parse --short=12 HEAD)"
     ```
 
-    Good result: each prints only passing checks and ends with `DONE`. Each run of the Stage 2 check makes short paid model calls. Aziz then signs in to the Workspace and checks chat and history.
+    Good result: each prints only passing checks and ends with `DONE`. Each run of the Stage 2 check makes short paid model calls. Aziz then signs in to the Workspace and checks chat, picture follow-ups and Word export. The Stage 5 check makes short paid calls on each active tier and one follow-up, using one daily upload per tier (three today). Six runs fit each UTC day; the seventh must wait until 08:00 Malaysia time. The failure-injection check `78` stops chat and is not run in class; carry it to the next acceptance that needs it.
+
+11. **Attach a picture in the Workspace.** Click **Attach picture**, choose a PNG
+    or JPEG, type your question and send it. The picture must be within the limit
+    shown in the chat box (7 MB by default). You can upload 20 pictures a day;
+    a day starts at 08:00 Malaysia time. A sent picture stays in the chat after
+    reloading the page. Recent pictures with successful answers can be used for
+    follow-up questions. The original file is kept, including any location or
+    device details from your camera. Files are kept even if you never send them.
+
+12. **Save a chat to Word.** Open the chat, wait for the answer to finish and click
+    **Export to Word**. Open the downloaded file in Word. It shows the chat title,
+    dates, questions and answers, and the model used for each answer. Pictures
+    appear as a line with their file name. Your text stays as typed; answers keep
+    their headings, lists, tables and code. Thinking text is left out.
 
 ## STOP messages
 
@@ -149,7 +163,7 @@ Neither script needs sudo. Resolve the named problem and run the same script aga
 
 ## API and storage
 
-Every `/api` route requires a signed, unexpired Keycloak user token with audience `ooh-harness-api`, issuer `HA_OIDC_ISSUER` and non-empty `sub`. Health alone is public and checks PostgreSQL. Unknown inputs return `400` JSON without echoing the input. Jobs, downloads and live job events are built. Uploads return `503 not_built_yet` with "Uploads are not built yet."
+Every `/api` route requires a signed, unexpired Keycloak user token with audience `ooh-harness-api`, issuer `HA_OIDC_ISSUER` and non-empty `sub`. Health alone is public and checks PostgreSQL. Unknown inputs return `400` JSON without echoing the input. Jobs, downloads, live job events, raw picture uploads, owned picture reads and Word exports are built.
 
 `GET /api/me` first observes the verified user's profile through the Control Centre, then reads rights and allowed skill titles. Its answer includes `access`: `approved`, `pending`, `rejected` or `closed` (new requests are temporarily full). The observe call uses the Harness service token and the exact user `sub`. Only the signed token supplies profile fields: name, email, organisation and access reason are trimmed and limited to 200, 320, 100 and 300 characters respectively; missing or non-string values become null. `is_admin` is true only when the verified token's `realm_access.roles` list contains `ooh-admin`. An observe failure or invalid status returns `503 rights_unavailable` before any rights call. The Control Centre owns approval and blocks grants for unapproved people; the Harness does not decide access. Other Harness routes are unchanged.
 
@@ -219,7 +233,7 @@ Configuration adds `HA_KAFKA_BOOTSTRAP`, `HA_KAFKA_USERNAME`,
 `HA_KAFKA_PASSWORD` (Secret `harness-api-kafka`) and `HA_FILES_ROOT=/files`.
 Migration `0003_jobs.sql` adds jobs, insert-only processed events and private
 reasoning state. Applied migrations are never edited. Deploy and check only
-from the merged Stage 3 worktree after Parts B–D are present.
+from the merged stage worktree after all Parts are present.
 
 
 ## Auto routing
@@ -282,3 +296,57 @@ span carries the conversation id and selected tier (including a fallback tier).
 A completed Slides result can revive only a failed job with error code
 `worker_gave_up`. Other final states remain final. A revived job emits
 `job.completed` and clears its previous error.
+
+
+## Stage 5 settings and storage
+
+A model call includes at most the three newest pictures eligible in the last
+20 history messages plus the question being sent. An older picture qualifies
+only when its next message has outcome `completed`; an empty completed answer
+still qualifies. The current picture always qualifies. Missing files and
+missing or removed upload rows are skipped with ids-only logs, so the chat can
+continue. Conversation reads obtain picture details through the messages query.
+
+Word exports contain completed, non-empty questions and answers, their times,
+the stored tier and model title, and picture file-name lines. They exclude
+Thinking, private reasoning, routing notes, token counts and personal identifiers.
+Pictures themselves are not embedded. User text stays literal; assistant Markdown
+is formatted. Times use the display time zone below.
+
+`HA_UPLOAD_MAX_BYTES` defaults to `7340032` (7 MiB). Only whole MiB from 1 to 7
+are accepted; otherwise startup logs `upload_max_bytes_invalid` and explains the
+valid range. `/api/me` exposes the limit. `HA_UPLOADS_PER_DAY` defaults to `20`
+and resets at midnight UTC (08:00 Malaysia time). `HA_DISPLAY_TIME_ZONE` defaults
+to `Asia/Kuala_Lumpur`; exports show its short name (`+08`). These are in
+`deploy/apps/harness-api/configmap.yaml`; Claude redeploys with the deploy step
+above after Aziz changes a setting. There is no new secret or setup script.
+
+Migration `0005_uploads.sql` adds owned uploads and a unique nullable message
+attachment. The application role can read, insert and update uploads; the
+removal trigger forbids deletion/truncation. There is no delete route. The
+Harness mounts `ooh-files` read-write and writes only under
+`uploads/<upload id>/<safe name>`, with temporary files and rename, refusing
+symlinks and path traversal. Slides outputs remain under `outputs/`.
+
+Upload failures: `unsupported_type` means choose a PNG or JPEG whose bytes match
+its label; `invalid_input` means the picture is empty or the request is invalid;
+`too_large` means choose a smaller picture; `upload_limit` means wait for the next
+UTC day; `storage_unavailable` means ask Aziz to check the shared files disk.
+Nothing is deleted: uploads and Slides share 20 Gi, so the daily limit only slows
+filling it. When full, uploads fail and Slides jobs fail. What to do then is
+Aziz's decision. A missing or another person's upload returns `upload_not_found`;
+`upload_used` means attach it again as a new upload. `not_allowed` is reserved
+for the single `may_attach` permission function, which allows everyone in this
+stage. Existing chat rights still apply. A budget fallback rights failure after
+the question is saved returns `unavailable`.
+
+`image_refused` (HTTP 502 before streaming) means the configured chat model could
+not read the picture. Choose another picture-capable model for that tier in the
+Admin Console. Failed-answer pictures do not remain in view; attach a fresh
+upload to retry. About 15 simultaneous calls with three maximum-size pictures
+fit the current 2 Gi service limit; larger concurrency can restart a pod.
+
+`upload.created` and `conversation.exported` audit events contain the MIME type
+and `docx` respectively, never the filename or picture data. Audit outages are
+logged using a fixed code and correlation id and do not fail either operation.
+Routing, titles, safety messages and chat Kafka events still use text only.

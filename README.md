@@ -14,6 +14,7 @@ Droplet system from nothing, start at Stage 0 near the end and work upwards.
 
 | Section | What it covers |
 |---|---|
+| [Stage 5](#stage-5--pictures-and-export-to-word) | Attach pictures and download a chat as Word |
 | [Stage 4](#stage-4--traces-replay-and-class-demos) | Traces, replay of failed messages, the class demos |
 | [AWS copy](#aws-copy--stage-4-phase-2) | The same system on AWS EKS with Terraform: build, check, destroy |
 | [Stage 3](#stage-3--skills-jobs-and-admin-screens) | Skills on Kafka, jobs, audit, cost, safety, routing |
@@ -21,6 +22,171 @@ Droplet system from nothing, start at Stage 0 near the end and work upwards.
 | [Stage 1](#stage-1--control-centre) | Control Centre: rights and approvals |
 | [Stage 0](#stage-0--foundation) | The platform: Kubernetes, certificates, Kafka, PostgreSQL, Keycloak |
 | [What is where](#what-is-where) and [Versions](#versions) | Folder map and exact versions |
+
+## Stage 5 — Pictures and Export to Word
+
+1. **Deploy the merged stage.** Claude runs these scripts in the Shell tile
+   while the class watches. Build all nine images for the merged `stage-5`
+   commit first, using the existing image workflow instructions below. All nine
+   packages must be public. Replace `MERGED_IMAGE_TAG` with the commit's first
+   12 characters. No new setup script, secret or terminal password is needed.
+
+   Type this in your harness terminal.
+   Use the plain shell. The first line selects the folder. These commands run
+   migrations and deploy the same image tag to every application.
+   Good result: every script ends with `DONE` and the applications are Ready.
+
+   ```bash
+   cd ~/projects/worktrees/stage-5
+   install/61-control-centre-deploy.sh MERGED_IMAGE_TAG
+   install/65-model-gateway-deploy.sh MERGED_IMAGE_TAG
+   install/67-harness-api-deploy.sh MERGED_IMAGE_TAG
+   install/73-slides-worker-deploy.sh MERGED_IMAGE_TAG
+   install/75-consumers-deploy.sh MERGED_IMAGE_TAG
+   install/68-workspace-deploy.sh MERGED_IMAGE_TAG
+   install/69-admin-console-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+2. **Check the stage.** These checks run in the Shell tile where everyone can
+   watch. Checks 70, 77 and 87 make short **paid model calls**. The picture check
+   makes one call per active main chat tier and one tier 1 follow-up. It stops
+   no service. It temporarily grants the check user each tier, removes only
+   grants it created, and disables its temporary sign-in client on exit.
+
+   Type this in your harness terminal.
+   Use the plain shell in the folder below. These commands check the platform,
+   rights, chat, skills, pictures and Word export.
+   Good result: PASS lines and `DONE` from each script.
+
+   ```bash
+   cd ~/projects/worktrees/stage-5
+   install/40-check-platform.sh
+   install/62-check-control-centre.sh
+   install/70-check-stage-2.sh
+   install/77-check-stage-3.sh MERGED_IMAGE_TAG
+   install/87-check-stage-5.sh MERGED_IMAGE_TAG
+   ```
+
+   Each picture check keeps its conversations and pictures. It uses one of the
+   check user's 20 daily pictures for each chat tier (three today), so **six
+   full runs fit in one UTC day**. A later run may stop partway through. Whenever
+   an upload reaches the daily limit, the check prints
+   `FAIL daily picture limit reached for the check user, try after 08:00 Malaysia time`.
+   Wait until that time before retrying. Do not run the tracing/replay check
+   `78-check-stage-4.sh` during class: it stops chat. That check and the Droplet
+   reboot check are carried to the next acceptance that needs them.
+
+3. **Attach a picture.** In Workspace, choose **Attach picture**, select one
+   PNG or JPEG up to **7 MB**, and wait for its preview. Type a question, then
+   Send. The text is required. A second selection replaces the first; **Remove
+   picture** only forgets it in the browser. The server keeps every uploaded
+   picture, even one never sent. Nothing is deleted. Each person can upload
+   **20 pictures per UTC day**, resetting at 08:00 Malaysia time.
+
+   The picture appears above your question and stays after a reload. The chat
+   model of the selected tier reads it. Follow-up questions keep the three
+   newest eligible pictures in view within the last 20 messages, plus the new
+   question. A picture whose answer failed is left out of later model calls;
+   attach it again for another try. Auto routing, titles and the safety watcher
+   read text only. Choose a tier yourself when the picture needs a stronger model.
+   `image_refused` means the selected model could not read the picture. Choose
+   another model for that tier in Admin Console → Models & tiers; a picture
+   refusal does not mark the model entry down.
+
+4. **Export the open chat.** Choose **Export to Word** in the chat header.
+   It becomes available once a conversation is saved and has a message, and
+   waits while an answer streams. Good result: a `.docx` download and
+   `Saved: <file name>`. Open it in Word. It contains the title, conversation
+   start and export times, completed non-empty questions and answers, their
+   times, and the stored answering tier and model title. Assistant Markdown
+   keeps headings, lists, tables and code formatting. Your questions stay as
+   typed. Pictures become `[Picture attached: <file name>]` lines. Thinking,
+   routing notes, token counts and personal identity details are left out.
+   Admin Console → Audit shows `upload.created` and `conversation.exported`.
+
+5. **Change picture settings.** Open
+   `deploy/apps/harness-api/configmap.yaml` in the merged stage worktree with
+   your editor. The three settings are `HA_UPLOAD_MAX_BYTES: "7340032"`,
+   `HA_UPLOADS_PER_DAY: "20"`, and `HA_DISPLAY_TIME_ZONE: "Asia/Kuala_Lumpur"`.
+   The size can only be a whole number of MB from 1 to 7 (1048576 bytes per
+   MB); any other size stops Harness startup. The help line reads the value
+   from the Harness. Change the daily limit or display zone there too.
+
+   Type this in your harness terminal.
+   Use the plain shell in the folder below. This loads the edited settings.
+   Good result: Harness Ready and `DONE`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-5
+   install/67-harness-api-deploy.sh MERGED_IMAGE_TAG
+   ```
+
+6. **Know the limits and check free space.** Pictures are stored under
+   `uploads/<upload id>/<safe file name>` on the existing `ooh-files` volume.
+   They are sent exactly as uploaded, including hidden camera details such as
+   location and device data. Nothing shrinks, converts or removes those details.
+   One PNG or JPEG per message is supported; documents, other image types,
+   drag-and-drop, clipboard paste and picture generation are not included.
+   There is no separate picture permission yet: anyone who may chat on a tier
+   may attach a picture on it. That permission is the next step. Export is to
+   Word only and covers one chat, without embedded pictures or Thinking. The
+   answer does not say how many pictures the model was sent.
+
+   Pictures and Slides output share **20 GiB** and nothing is deleted. The daily
+   limit slows growth; it cannot prevent a full disk. When full, uploads return
+   `storage_unavailable` and Slides jobs fail. Aziz decides what to do then;
+   do not delete files by hand. About 15 simultaneous calls with three pictures
+   near the size limit fit in the service memory; more can restart a pod.
+
+   Type this in your harness terminal.
+   Use the plain shell in the folder below. This reads the volume's free space.
+   Good result: the `Avail` column shows space left on `/files`.
+
+   ```bash
+   cd ~/projects/worktrees/stage-5
+   kubectl -n ooh-apps exec deployment/harness-api -c harness-api -- df -h /files
+   ```
+
+7. **Run local Workspace checks.**
+
+   Type this in your harness terminal.
+   Use the plain shell. The first line selects the Workspace folder. These
+   install the locked packages, build the app and run its tests.
+   Good result: build succeeds and all tests pass.
+
+   ```bash
+   cd ~/projects/worktrees/stage-5/apps/workspace
+   npm ci
+   npx ng build
+   npx ng test --watch=false
+   ```
+
+For start, stop, restart, status, logs and recovery after a reboot, use the
+existing everyday operations steps below with the `stage-5` folder and its
+merged image tag. Do not reboot the Droplet during class.
+
+### Stage 5 STOP and FAIL help
+
+| Message or failed check | What to do |
+|---|---|
+| Usage / missing tool | Supply the merged commit's 12-character lower-case image tag; finish the existing server setup for a missing tool. |
+| Target, kubeconfig or local settings STOP | Use the intended target and the setup/recovery steps in the AWS help below. Do not redirect a running check to another cluster. |
+| Another check running / temporary check client / token unavailable | Let the current check finish. Restore Keycloak connectivity; if the check client is missing, follow the existing realm-sync recovery instructions. Never print tokens. |
+| Every application Deployment tag / Ready | Build all nine public images and deploy the same merged tag in step 1. Inspect readiness and pod status. |
+| PNG upload / SHA-256 download | Inspect Harness readiness and its write access to the files volume. If it cannot write, stop and ask; do not change ownership by hand. |
+| Daily picture limit reached | Wait until 08:00 Malaysia time, the start of the next UTC day. Six full runs fit with three tiers; later runs may stop partway through. |
+| Model entries could not be read / model paging / no active main tier 1 model | Check Control Centre readiness and Models & tiers. An active main tier 1 entry is required for the follow-up check. |
+| Check-user tier grant / conversation creation / upload for another tier | Check approved access, Control Centre rights, Harness readiness, volume space and the daily upload limit. |
+| Tier picture answer / tier 1 follow-up | Check that the tier's model accepts pictures, its key, budget and rate limit. `image_refused` needs another picture-capable model entry. Check that the first answer says red without blue, and the follow-up says blue. |
+| unsupported_type / too_large / upload_not_found / upload_used refusal check | Deploy all merged Parts and inspect Harness validation. The oversized body must return Harness JSON, not an ingress error page. |
+| `STOP: upload_max_bytes from /api/me is not a whole MB from 1 to 7; check HA_UPLOAD_MAX_BYTES` | Set `HA_UPLOAD_MAX_BYTES` to a whole number of MB from 1 to 7 (1048576 bytes per MB) in the Harness ConfigMap, redeploy with step 5, then retry. Temporary grants and the check client are cleaned up on exit. |
+| Upload limit could not be read / Stage 5 step could not continue | Check Harness readiness, `/api/me` and the whole-MB size setting. Fix the preceding failure and rerun. |
+| Word export MIME / ZIP / question / label / +08 time | Inspect the export response and configured time zone. If the deployed image cannot use that zone, stop and ask before adding packages. |
+| Audit rows absent after 60 seconds | Check Kafka and audit writer readiness; both new audit actions must be present for this run's check user. |
+| Picture data found in pod logs / pod logs could not be read | Stop and fix the service that logs picture bytes, or restore log access. Do not print or paste the log data. |
+| Temporary check-user grants could not be removed | Restore Control Centre connectivity and remove only this run's new grants in People & rights. |
+| ooh-stage-check still enabled / check client did not disable | Restore Keycloak connectivity, complete a stage check to disable and rotate the client, then run the platform check. |
+| Stage 5 check failed / any remaining STOP | Cleanup runs on exit. Fix the named failure above, then rerun from the beginning. Retained test data stays. |
 
 ## Stage 4 — Traces, replay and class demos
 
