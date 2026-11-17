@@ -127,7 +127,10 @@ Droplet system from nothing, start at Stage 0 near the end and work upwards.
    location and device data. Nothing shrinks, converts or removes those details.
    One PNG or JPEG per message is supported; documents, other image types,
    drag-and-drop, clipboard paste and picture generation are not included.
-   Word export covers one chat, without embedded pictures or Thinking.
+   There is no separate picture permission yet: anyone who may chat on a tier
+   may attach a picture on it. That permission is the next step. Export is to
+   Word only and covers one chat, without embedded pictures or Thinking. The
+   answer does not say how many pictures the model was sent.
 
    Pictures and Slides output share **20 GiB** and nothing is deleted. The daily
    limit slows growth; it cannot prevent a full disk. When full, uploads return
@@ -176,6 +179,7 @@ merged image tag. Do not reboot the Droplet during class.
 | Check-user tier grant / conversation creation / upload for another tier | Check approved access, Control Centre rights, Harness readiness, volume space and the daily upload limit. |
 | Tier picture answer / tier 1 follow-up | Check that the tier's model accepts pictures, its key, budget and rate limit. `image_refused` needs another picture-capable model entry. Check that the first answer says red without blue, and the follow-up says blue. |
 | unsupported_type / too_large / upload_not_found / upload_used refusal check | Deploy all merged Parts and inspect Harness validation. The oversized body must return Harness JSON, not an ingress error page. |
+| `STOP: upload_max_bytes from /api/me is not a whole MB from 1 to 7; check HA_UPLOAD_MAX_BYTES` | Set `HA_UPLOAD_MAX_BYTES` to a whole number of MB from 1 to 7 (1048576 bytes per MB) in the Harness ConfigMap, redeploy with step 5, then retry. Temporary grants and the check client are cleaned up on exit. |
 | Upload limit could not be read / Stage 5 step could not continue | Check Harness readiness, `/api/me` and the whole-MB size setting. Fix the preceding failure and rerun. |
 | Word export MIME / ZIP / question / label / +08 time | Inspect the export response and configured time zone. If the deployed image cannot use that zone, stop and ask before adding packages. |
 | Audit rows absent after 60 seconds | Check Kafka and audit writer readiness; both new audit actions must be present for this run's check user. |

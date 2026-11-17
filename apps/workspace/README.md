@@ -6,7 +6,7 @@
    Good result: build finishes and all tests pass.
 
    ```bash
-   cd ~/projects/worktrees/stage-5-part-c/apps/workspace
+   cd ~/projects/worktrees/stage-5/apps/workspace
    npm ci
    npx ng build
    npx ng test --watch=false

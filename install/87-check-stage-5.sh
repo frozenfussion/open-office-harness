@@ -144,7 +144,8 @@ printf 'not a picture' > "$tmp/invalid"
 http check POST "$harness_base/api/uploads" image/png "$tmp/invalid" && [[ "$status" == 400 ]] && jq -e '.code == "unsupported_type"' "$tmp/response" >/dev/null || rc=1
 require "$rc" 'text labelled image/png is refused with 400 unsupported_type'
 request check GET "$harness_base/api/me" && [[ "$status" == 200 ]] || stop 'upload limit could not be read'
-limit="$(jq -er '.upload_max_bytes | select(. >= 1048576 and . <= 7340032 and . % 1048576 == 0)' <<< "$body")"
+limit="$(jq -er '.upload_max_bytes | select(type == "number" and . >= 1048576 and . <= 7340032 and . == floor and . % 1048576 == 0)' <<< "$body" 2>/dev/null)" ||
+  stop 'upload_max_bytes from /api/me is not a whole MB from 1 to 7; check HA_UPLOAD_MAX_BYTES'
 python3 - "$tmp/oversize" "$limit" <<'PY'
 import pathlib, sys
 pathlib.Path(sys.argv[1]).write_bytes(b'\x89PNG\r\n\x1a\n' + bytes(int(sys.argv[2]) + 1 - 8))
