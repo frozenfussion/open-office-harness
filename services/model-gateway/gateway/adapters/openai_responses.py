@@ -49,7 +49,17 @@ def messages(call: Call, entry: Entry) -> list[dict[str, Any]]:
                     for t in message.tool_calls
                 )
         else:
-            result.append({"role": message.role, "content": message.content})
+            content = message.content
+            if message.images:
+                image = message.images[0]
+                content = [
+                    {"type": "input_text", "text": message.content},
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:{image.media_type};base64,{image.data}",
+                    },
+                ]
+            result.append({"role": message.role, "content": content})
     return result
 
 

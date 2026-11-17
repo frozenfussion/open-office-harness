@@ -1,0 +1,7 @@
+{
+  "type": "failed",
+  "error": {
+    "code": "image_refused",
+    "message": "This model could not read the picture. Try another model."
+  }
+}

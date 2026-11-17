@@ -175,7 +175,7 @@ def create_app(config: Config | None = None) -> FastAPI:
                     completed = event
                 elif event["type"] == "failed":
                     raise GatewayError(
-                        503, "unavailable", "The model did not answer. Try again."
+                        503, event["error"]["code"], event["error"]["message"]
                     )
                 try:
                     event = await anext(events)
