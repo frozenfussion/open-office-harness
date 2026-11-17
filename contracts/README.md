@@ -103,9 +103,11 @@ an error object and null output for failed results, and null output/error for
 queued or awaiting-approval job updates. Only the Slides contracts constrain the
 output to PowerPoint.
 
-POST /api/uploads accepts multipart/form-data with a binary file field. Its JSON
-example represents the decoded file part's synthetic bytes as a string; clients
-send an actual multipart file part, not a JSON request. Success returns file_key.
+POST /api/uploads accepts a raw PNG or JPEG body, with Content-Type and an
+optional percent-encoded UTF-8 X-File-Name header. Its JSON examples represent
+synthetic binary bytes as strings; clients send raw bytes, not JSON. Success
+returns upload_id, file_name, mime and size_bytes. Upload reads are owner-only;
+chat messages may attach one upload, and Word export returns a binary document.
 Message and file lookups declare 404 when the resource does not exist.
 
 OpenAPI errors are defined once per document as components/schemas/Error and

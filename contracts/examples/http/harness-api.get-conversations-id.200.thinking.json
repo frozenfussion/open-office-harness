@@ -14,7 +14,8 @@
       "note": null,
       "outcome": "completed",
       "created_at": "2026-11-10T00:00:00Z",
-      "thinking": null
+      "thinking": null,
+      "picture": null
     },
     {
       "id": "00000000-0000-4000-8000-000000000003",
@@ -28,7 +29,8 @@
       "output_tokens": 2,
       "note": null,
       "outcome": "completed",
-      "created_at": "2026-11-10T00:00:01Z"
+      "created_at": "2026-11-10T00:00:01Z",
+      "picture": null
     }
   ]
 }

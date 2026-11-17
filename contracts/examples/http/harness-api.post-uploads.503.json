@@ -1,4 +1,4 @@
 {
-  "code": "not_built_yet",
-  "message": "Uploads are not built yet."
+  "code": "storage_unavailable",
+  "message": "Picture storage is unavailable. Try again."
 }

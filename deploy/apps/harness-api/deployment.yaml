@@ -85,7 +85,7 @@ spec:
             memory: 128Mi
           limits:
             cpu: '1'
-            memory: 512Mi
+            memory: 2Gi
         readinessProbe:
           httpGet:
             path: /health
@@ -104,7 +104,7 @@ spec:
         volumeMounts:
         - name: files
           mountPath: /files
-          readOnly: true
+          readOnly: false
         - name: tmp
           mountPath: /tmp
       volumes:

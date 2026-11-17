@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import asyncio
+import hashlib
 import json
 import logging
 import sys
@@ -7,14 +8,14 @@ import time
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import anyio
 import httpx
 import psycopg
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from opentelemetry import trace
 from pydantic import (
     BaseModel,
@@ -34,10 +35,19 @@ from .diagnostics import failure as record_failure
 from .errors import ApiError, gateway_error
 from .events import JobEvents, Kafka, Publisher, envelope
 from .jobs import Jobs, download_path
+from .pictures import (
+    SIGNATURES,
+    attach_pictures,
+    may_attach,
+    read_picture,
+    safe_name,
+    write_picture,
+)
 from .routing import route
 from .store import MAX_THINKING_CHARS, Store
 from .tracing import instrument
 from .upstream import GatewayStream, Upstream
+from .word_export import WORD_MIME, export_word, slug
 
 TITLE_TIMEOUT_SECONDS = 20
 CHAT_PUBLISH_TIMEOUT_SECONDS = 12
@@ -48,6 +58,7 @@ class Empty(BaseModel):
 
 
 class Message(Empty):
+    upload_id: UUID | None = None
     content: str = Field(min_length=1)
     tier: Annotated[StrictInt, Field(gt=0)] | Literal["auto"] | None = None
     thinking: StrictBool = True
@@ -118,6 +129,7 @@ def create_app(
     job_store = jobs or Jobs(settings.database, upstream, bus, notifications)
 
     chat_tasks: set[asyncio.Task[None]] = set()
+    upload_locks: dict[str, asyncio.Lock] = {}
 
     async def publish_chat(
         role: str,
@@ -152,6 +164,32 @@ def create_app(
         except Exception:
             record_failure(
                 "kafka_error", "chat_publish_failed", correlation_id=str(correlation)
+            )
+
+    async def publish_audit(
+        action: str, target: str, user_id: str, correlation: UUID
+    ) -> None:
+        try:
+            if bus is None:
+                raise RuntimeError("Audit publisher unavailable")
+            async with asyncio.timeout(CHAT_PUBLISH_TIMEOUT_SECONDS):
+                await bus.publish(
+                    "audit.events",
+                    envelope(
+                        "audit.event",
+                        str(correlation),
+                        user_id,
+                        {
+                            "actor": user_id,
+                            "action": action,
+                            "target": target,
+                            "outcome": "ok",
+                        },
+                    ),
+                )
+        except Exception:
+            record_failure(
+                "kafka_error", "audit_publish_failed", correlation_id=str(correlation)
             )
 
     async def publish_route(
@@ -313,6 +351,7 @@ def create_app(
         name = claims.get("name", "")
         return {
             "user_id": claims["sub"],
+            "upload_max_bytes": settings.upload_max_bytes,
             "access": access,
             "name": name if isinstance(name, str) else "",
             "chat_tiers": rights.chat_tiers,
@@ -358,7 +397,25 @@ def create_app(
     @app.get("/api/conversations/{id}")
     async def conversation(request: Request, id: UUID, claims: User) -> dict[str, Any]:
         query(request)
-        return await database.conversation(id, claims["sub"])
+        row = await database.conversation(id, claims["sub"])
+        return {key: value for key, value in row.items() if key != "created_at"}
+
+    @app.get("/api/conversations/{id}/export")
+    async def export(request: Request, id: UUID, claims: User) -> Response:
+        query(request)
+        row = await database.conversation(id, claims["sub"])
+        content = await anyio.to_thread.run_sync(
+            export_word, row, settings.display_time_zone
+        )
+        await publish_audit("conversation.exported", "docx", claims["sub"], id)
+        filename = slug(row["title"]) + ".docx"
+        return Response(
+            content,
+            media_type=WORD_MIME,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
 
     async def make_title(
         identifier: UUID, user_id: str, message_id: UUID, tier: int, correlation: UUID
@@ -626,12 +683,42 @@ def create_app(
         tier = body.tier if isinstance(body.tier, int) else tiers[0]
         span.set_attribute("ooh.tier", tier)
         await upstream.check(user_id, tier)
+        if body.upload_id is not None:
+            upload = await database.upload(body.upload_id, user_id)
+            if upload["used"]:
+                raise ApiError(
+                    409,
+                    "upload_used",
+                    "This picture was already sent. Attach it again to send it "
+                    "once more.",
+                )
+            if not may_attach(user_id, rights):
+                raise ApiError(403, "not_allowed", "You may not attach pictures.")
         tools = upstream.tools(skills)
         history = await database.history(id)
-        history.append({"role": "user", "content": body.content})
-        correlation = await database.append(
-            id, user_id, "user", body.content, "completed", tier
-        )
+        current = {"role": "user", "content": body.content}
+        if body.upload_id is not None:
+            current.update(upload_id=body.upload_id, picture_completed=True)
+        history.append(current)
+        try:
+            correlation = await database.append(
+                id,
+                user_id,
+                "user",
+                body.content,
+                "completed",
+                tier,
+                **({"upload_id": body.upload_id} if body.upload_id is not None else {}),
+            )
+        except psycopg.errors.UniqueViolation as error:
+            if error.diag.constraint_name != "messages_upload_once":
+                raise
+            raise ApiError(
+                409,
+                "upload_used",
+                "This picture was already sent. Attach it again to send it once more.",
+            ) from None
+        history = await attach_pictures(history, settings.files_root, database, user_id)
         note = None
         routing = None
         forced_title = None
@@ -669,7 +756,10 @@ def create_app(
                 original = tier
                 tier = lower[0]
                 span.set_attribute("ooh.tier", tier)
-                await upstream.check(user_id, tier)
+                try:
+                    await upstream.check(user_id, tier)
+                except ApiError:
+                    raise gateway_error("unavailable", tier) from None
                 note = (
                     f"tier {original} is over its daily budget; "
                     f"answered with tier {tier}"
@@ -783,10 +873,80 @@ def create_app(
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
 
-    @app.post("/api/uploads")
-    async def future(request: Request, claims: User) -> None:
+    @app.post("/api/uploads", status_code=201)
+    async def upload(request: Request, claims: User) -> dict[str, Any]:
         query(request)
-        raise ApiError(503, "not_built_yet", "Uploads are not built yet.")
+        mime = request.headers.get("content-type", "").split(";", 1)[0].strip()
+        unsupported = ApiError(
+            400, "unsupported_type", "Only PNG and JPEG pictures can be attached."
+        )
+        if mime not in SIGNATURES:
+            raise unsupported
+        user_id = claims["sub"]
+        async with upload_locks.setdefault(user_id, asyncio.Lock()):
+            if await database.upload_count(user_id) >= settings.uploads_per_day:
+                raise ApiError(
+                    429, "upload_limit", "You have reached today's limit for pictures."
+                )
+            content = bytearray()
+            async for chunk in request.stream():
+                content.extend(chunk[: settings.upload_max_bytes + 1 - len(content)])
+                if len(content) > settings.upload_max_bytes:
+                    break
+            if not content:
+                raise ApiError(400, "invalid_input", "The picture is empty.")
+            if not content.startswith(SIGNATURES[mime]):
+                raise unsupported
+            if len(content) > settings.upload_max_bytes:
+                limit = settings.upload_max_bytes // 1048576
+                raise ApiError(
+                    413,
+                    "too_large",
+                    f"This picture is larger than the limit of {limit} MB.",
+                )
+            identifier = uuid4()
+            name = safe_name(request.headers.get("x-file-name"), mime)
+            row = {
+                "id": identifier,
+                "file_name": name,
+                "mime": mime,
+                "size_bytes": len(content),
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "file_key": f"uploads/{identifier}/{name}",
+            }
+            try:
+                await anyio.to_thread.run_sync(
+                    write_picture, settings.files_root, row["file_key"], bytes(content)
+                )
+            except OSError, ValueError:
+                raise ApiError(
+                    503,
+                    "storage_unavailable",
+                    "Picture storage is unavailable. Try again.",
+                ) from None
+            await database.save_upload(row, user_id)
+        await publish_audit("upload.created", mime, user_id, uuid4())
+        return Store.picture(row)
+
+    @app.get("/api/uploads/{upload_id}")
+    async def picture(request: Request, upload_id: UUID, claims: User) -> Response:
+        query(request)
+        row = await database.upload(upload_id, claims["sub"])
+        try:
+            content = await anyio.to_thread.run_sync(
+                read_picture, settings.files_root, row["file_key"]
+            )
+        except OSError, ValueError:
+            raise ApiError(404, "upload_not_found", "Picture not found.") from None
+        return Response(
+            content,
+            media_type=row["mime"],
+            headers={
+                "Cache-Control": "private, max-age=3600",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Disposition": "inline",
+            },
+        )
 
     instrument(app, http, public=True)
     return app

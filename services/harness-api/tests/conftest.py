@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import jwt
+import psycopg
 import pytest
 import respx
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -16,7 +17,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from harness_api.app import create_app
 from harness_api.config import Settings
 from harness_api.errors import ApiError
-from harness_api.store import MAX_THINKING_CHARS
+from harness_api.store import MAX_THINKING_CHARS, Store
 
 SETTINGS = Settings(
     "unused",
@@ -33,11 +34,10 @@ class MemoryStore:
     def __init__(self) -> None:
         self.rows: dict[UUID, dict[str, Any]] = {}
         self.fail_health = False
+        self.uploads: dict[UUID, dict[str, Any]] = {}
 
     async def health(self) -> None:
         if self.fail_health:
-            import psycopg
-
             raise psycopg.OperationalError("private diagnostic")
 
     async def create(self, user: str) -> UUID:
@@ -46,6 +46,7 @@ class MemoryStore:
             "id": identifier,
             "user_id": user,
             "title": "",
+            "created_at": datetime.now(UTC),
             "updated_at": datetime.now(UTC),
             "messages": [],
         }
@@ -55,14 +56,47 @@ class MemoryStore:
         if identifier not in self.rows or self.rows[identifier]["user_id"] != user:
             raise ApiError(404, "not_found", "Conversation not found.")
         row = self.rows[identifier]
+        messages = []
+        for message in row["messages"]:
+            item = {
+                key: value
+                for key, value in message.items()
+                if key not in {"_state", "upload_id"}
+            }
+            picture = self.uploads.get(message.get("upload_id"))
+            item["picture"] = (
+                Store.picture(picture)
+                if picture
+                and picture["user_id"] == user
+                and not picture.get("deleted_at")
+                else None
+            )
+            messages.append(item)
         return {
             "id": identifier,
             "title": row["title"],
-            "messages": [
-                {key: value for key, value in message.items() if key != "_state"}
-                for message in row["messages"]
-            ],
+            "created_at": row["created_at"],
+            "messages": messages,
         }
+
+    async def upload_count(self, user: str) -> int:
+        return sum(row["user_id"] == user for row in self.uploads.values())
+
+    async def upload(self, identifier: UUID, user: str) -> dict[str, Any]:
+        row = self.uploads.get(identifier)
+        if row is None or row["user_id"] != user or row.get("deleted_at"):
+            raise ApiError(404, "upload_not_found", "Picture not found.")
+        return {
+            **row,
+            "used": any(
+                message.get("upload_id") == identifier
+                for conversation in self.rows.values()
+                for message in conversation["messages"]
+            ),
+        }
+
+    async def save_upload(self, upload: dict[str, Any], user: str) -> None:
+        self.uploads[upload["id"]] = {**upload, "user_id": user}
 
     async def listing(
         self, user: str, limit: int, before: UUID | None
@@ -90,6 +124,19 @@ class MemoryStore:
         while messages and messages[0]["role"] != "user":
             messages.pop(0)
         for message in messages:
+            original = next(
+                row
+                for row in self.rows[identifier]["messages"]
+                if row["content"] == message["content"]
+            )
+            if original.get("upload_id"):
+                all_rows = self.rows[identifier]["messages"]
+                index = all_rows.index(original)
+                message["upload_id"] = original["upload_id"]
+                message["picture_completed"] = (
+                    index + 1 < len(all_rows)
+                    and all_rows[index + 1]["outcome"] == "completed"
+                )
             if message["role"] == "assistant":
                 original = next(
                     row
@@ -145,7 +192,17 @@ class MemoryStore:
         metadata: dict[str, Any] | None = None,
         note: str | None = None,
         thinking: str | None = None,
+        upload_id: UUID | None = None,
     ) -> UUID:
+        if upload_id is not None and any(
+            message.get("upload_id") == upload_id
+            for conversation in self.rows.values()
+            for message in conversation["messages"]
+        ):
+            raise psycopg.errors.UniqueViolation(
+                "Upload already attached",
+                info={ord("n"): b"messages_upload_once"},
+            )
         identifier_message = uuid4()
         row = self.rows[identifier]
         if role == "user" and not row["title"]:
@@ -153,6 +210,11 @@ class MemoryStore:
         row["messages"].append(
             {
                 "id": identifier_message,
+                "created_at": datetime.now(UTC),
+                "upload_id": upload_id,
+                "picture": Store.picture(self.uploads[upload_id])
+                if upload_id
+                else None,
                 "role": role,
                 "content": content,
                 "outcome": outcome,
