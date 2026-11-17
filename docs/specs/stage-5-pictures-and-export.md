@@ -244,8 +244,9 @@ A "multimodality" permission and its Admin Console screen (the next step); more 
 
 | Row | Time | Change | Why | Who |
 |---|---|---|---|---|
-| 1 | 17 Nov 10:34 | The base is the head of branch `stage-5-spec` (this spec after three reviews), tagged `stage-5-base`, not `main`. The spec reaches `main` together with the stage, at acceptance | Aziz gave his yes to push and to start the builders at once; a merge into `main` needs its own yes, and the builders do not have to wait for it | Aziz ("you have a yes for the push ... get the work rolling"); Claude |
+| 1 | 17 Nov 10:35 | No change to the base: Aziz approved the merge of this spec into `main` ("Yes. The merge was approved."), so the base is `main` right after the merge (`605fcf2`), tagged `stage-5-base`, as the header says. An earlier wording of this row, merged by mistake, said the base was the spec branch | The yes came in two messages a minute apart | Aziz; corrected by Claude |
 | 2 | 17 Nov 10:34 | The three builders run Codex with full access | "Just do it full access, make it happen fast, parallelize" | Aziz |
+| 3 | 17 Nov 10:45 | Section 9: one run uses three of the check user's 20 daily pictures, so after six runs 18 are used and a seventh run meets the limit on its third upload, not at item 2. The script prints the daily-limit FAIL line at whichever upload gets 429 `upload_limit`, stops the remaining items, restores what it changed and exits non-zero | Codex C stopped and asked: the arithmetic in section 9 was wrong | Claude, as spec author, on Codex C's question |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees)
 
