@@ -98,7 +98,7 @@ No other service's data changes.
   - Writes `<files root>/uploads/<upload_id>/<file_name>` through a temporary name in the same folder, then the `uploads` row, then publishes `audit.event` `{actor: user_id, action: "upload.created", target: <mime>, outcome: "ok"}` with a new `correlation_id` (a publish failure is logged with ids only and never fails the upload).
   - The old answer 503 `not_built_yet` is gone.
 - **`GET /api/uploads/{upload_id}`** (bearer): 200 the bytes with the stored `Content-Type` and `Cache-Control: private, max-age=3600`, with `X-Content-Type-Options: nosniff` and `Content-Disposition: inline`, when the upload belongs to this user; else 404, also when the file is missing on disk. Malformed id 400. The resolved path must stay under `<files root>/uploads/`, symlinks refused.
-- **`POST /api/conversations/{id}/messages`**: the body gains optional `upload_id` (uuid). When present: the upload must belong to this user and not be attached to a message yet, else 404 `upload_not_found` or 409 `upload_used`; `may_attach` must allow it (else 403 `not_allowed`). **All of these checks run before the user message is stored and before any call that costs money.** The user message is stored with `upload_id`; if the unique index on `messages.upload_id` refuses the insert (two sends at once), the answer is 409 `upload_used`, not 503. `content` stays required. Everything else in this route behaves as today, including Auto routing on the text.
+- **`POST /api/conversations/{id}/messages`**: the body gains optional `upload_id` (uuid). When present: the upload must belong to this user and not be attached to a message yet, else 404 `upload_not_found` or 409 `upload_used`; `may_attach` must allow it (else 403 `not_allowed`). **All of these checks run before the user message is stored and before any call that costs money.** The user message is stored with `upload_id`; if the unique index on `messages.upload_id` refuses the insert (two sends at once), the answer is 409 `upload_used`, not 503. `content` stays required. Everything else in this route behaves as today, including Auto routing on the text, with one change: if the second rights check on the budget fallback fails (the question is already stored by then), the answer is 503 `unavailable`, never `rights_unavailable` or `tier_not_allowed`, so those two codes always mean "nothing was stored".
 - **History for the model:** `database.history` also returns `upload_id` for user rows. The Harness attaches pictures as section 4 "Pictures in view" says, the message being sent included (today the route reads the history before it stores the new message and appends the new one by hand; the picture goes on that appended item too). The same list is used on the budget fallback call. For each picture in view, the message item gets `images: [{media_type, data}]` (section 6.3), read from the file at call time. A picture file that cannot be read is skipped and logged with ids only; the call still goes. Tool rounds reuse the same history, pictures included.
 - **Model could not read the picture:** Gateway error `image_refused` reaches the browser like other Gateway errors, as code `image_refused`, HTTP status 502 when it is the first event, message "This model could not read the picture. Try another model." The assistant message is stored with outcome `failed`, as for other Gateway errors, so that picture is not in view again.
 - **`GET /api/conversations/{id}`**: every message gains `picture`: `{upload_id, file_name, mime, size_bytes}` or null.
@@ -200,14 +200,14 @@ Claude makes `stage-5` from `stage-5-base` in `~/projects/worktrees/stage-5`, me
 Uses `install/lib/stage-check.sh` as `78` does (lock, temporary check client, tokens never printed). It stops no service. The test picture is a PNG, 64 by 64, its left half red (`#FF0000`) and its right half blue (`#0000FF`), embedded in the script as base64.
 1. Every Deployment in `ooh-apps` runs `:<tag>` and is Ready.
 2. Upload the test picture as the check user → 201 with an `upload_id`; `GET /api/uploads/{upload_id}` returns the same bytes (compared by SHA-256).
-3. For each chat tier that has an active main entry: a new conversation, one message "What colour is the left half of this picture? Answer with one word." with the picture (a fresh upload each time), stream read to its end → the answer contains `red`, ignoring case. The tier is granted to the check user for the run and removed on every exit, as `77` does.
+3. For each chat tier that has an active main entry: a new conversation, one message "What colour is the left half of this picture? Answer with one word." with the picture (tier 1 uses the upload of item 2; each other tier a fresh upload), stream read to its end → the answer contains `red`, ignoring case, and the tier 1 answer does not contain `blue`. The tier is granted to the check user for the run and removed on every exit, as `77` does.
 4. In the tier 1 conversation, a second message without a picture: "And the right half? One word." → the answer contains `blue`. The first answer never said blue, so only the picture still in view can give it.
 5. Refusals: text bytes sent as `image/png` → 400 `unsupported_type`; a body of the limit plus one byte, made of the PNG signature followed by padding and sent as `image/png` → 413 `too_large`; a message with an unknown `upload_id` → 404 `upload_not_found`; an upload already sent in item 3, attached to a second message → 409 `upload_used`.
 6. `GET /api/conversations/{id}/export` for the tier 1 conversation → 200 with the Word MIME type; the body starts with `PK`; unpacked on harness by the script (Python's `zipfile`; no pod is needed), the text of `word/document.xml`, with the `w:t` pieces of each paragraph joined, contains the first question's text, `[Picture attached:` and `exported` followed by a time and `+08` (this proves the time zone works in the deployed image).
 7. The audit trail holds `upload.created` and `conversation.exported` for the check user from this run (the script waits up to 60 seconds for both, as `78` does).
 8. No pod log in `ooh-apps` since the run started contains a 40-character slice taken from the middle of the test picture's base64 (its image data, not its header). The script reads `kubectl logs --since-time=<run start>` for every pod on harness into a variable and searches it; the log text itself is never printed.
 9. `ooh-stage-check` is disabled again.
-Each run makes a few short paid calls (one per tier and one follow-up). The README says so.
+Each run makes a few short paid calls (one per tier and one follow-up) and uses one of the check user's 20 daily pictures per chat tier (three today), so six runs fit in one UTC day (a UTC day starts at 08:00 Malaysia time); on a seventh, item 2 prints `FAIL daily picture limit reached for the check user, try after 08:00 Malaysia time`. The README says both.
 
 ## 10. README Quick Guide additions (Part C)
 1. Stage 5 order: 61 → 65 → 67 → 73 → 75 → 68 → 69 → 40 → 62 → 70 → 77 → 87 (no new setup script, no new secret).
@@ -231,7 +231,7 @@ Each run makes a few short paid calls (one per tier and one follow-up). The READ
 | The ingress limits request size | 413 from Traefik, not from the Harness | upload fails with an HTML or empty error | UNVERIFIED: no limit is configured in the repo; item 5 sends the limit plus one byte and expects the Harness's own 413 |
 | A time zone name is not known inside the image | export fails | 500 on export | UNVERIFIED until deployed: `87` item 6 proves it in the running pod. If it fails, stop and ask before adding anything |
 | Markdown the parser reads differently from the Workspace | formatting differs between screen and file | visual only | the file is a record of the text; no content is dropped: unknown tokens are written as plain text |
-| The send is refused before the message is stored (the codes named in 6.4) | an unused upload | — | the preview and the text stay and the person sends again |
+| The send is refused before the message is stored (the codes named in 6.4) | an unused upload | — | the text stays; the preview stays, except on `upload_used`, where it clears and the person attaches the picture again |
 | The model fails after the message was stored | the picture is used and not in view | — | the person attaches it again (a new upload); the old one stays on disk (nothing is deleted) |
 | A provider's limit in section 4 is out of date | 400 from the provider on a large picture | `image_refused` | section 2 item 4 (h) tries the largest size on every tier before acceptance; the fix is the setting (lower it) |
 | Two builders need the same file | a merge conflict | — | the Part rule; the split is by service |
@@ -244,6 +244,8 @@ A "multimodality" permission and its Admin Console screen (the next step); more 
 
 | Row | Time | Change | Why | Who |
 |---|---|---|---|---|
+| 1 | 17 Nov 10:34 | The base is the head of branch `stage-5-spec` (this spec after three reviews), tagged `stage-5-base`, not `main`. The spec reaches `main` together with the stage, at acceptance | Aziz gave his yes to push and to start the builders at once; a merge into `main` needs its own yes, and the builders do not have to wait for it | Aziz ("you have a yes for the push ... get the work rolling"); Claude |
+| 2 | 17 Nov 10:34 | The three builders run Codex with full access | "Just do it full access, make it happen fast, parallelize" | Aziz |
 
 ## 15. Decisions from the spec review (binding; override anything above that disagrees)
 
@@ -291,3 +293,12 @@ Review 2, Claude Code (Opus 5.5, fresh session), 17 Nov 2026 10:24, 11 findings 
 | 9 | Audit rows arrive a little later | ACCEPTED: the check waits up to 60 seconds |
 | 10 | Two wording slips in the required tests | ACCEPTED: corrected and listed by name |
 | 11 | The daily limit does not protect the disk | ACCEPTED: lowered to 20 a day, and stated as a known limit with what happens when the volume is full |
+
+Review 3, Claude Code (Opus 5.5, fresh session), 17 Nov 2026 10:30, narrow round on the 11 fixes of round 2: eight in place with nothing new; 4 findings from the other three (1 should fix, 3 notes); `stage-5-spec-review-3.md`. All accepted.
+
+| No | Finding, in short | Decision |
+|---|---|---|
+| 1 | With 20 pictures a day, the check could run only five times a day | ACCEPTED: tier 1 reuses the first upload, so six runs fit; the seventh says why it fails (section 9) |
+| 2 | Two "not stored" codes could also come after the question was stored | ACCEPTED: that one case answers `unavailable` (section 6.2) |
+| 3 | A pre-mortem row contradicted section 6.4 for `upload_used` | ACCEPTED: row corrected |
+| 4 | "The first answer never said blue" was assumed, not checked | ACCEPTED: item 3 now checks it |
