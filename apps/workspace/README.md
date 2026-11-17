@@ -6,7 +6,7 @@
    Good result: build finishes and all tests pass.
 
    ```bash
-   cd ~/projects/worktrees/stage-3-part-c/apps/workspace
+   cd ~/projects/worktrees/stage-5-part-c/apps/workspace
    npm ci
    npx ng build
    npx ng test --watch=false
@@ -20,7 +20,7 @@
    Good result: `Running image: ...`, then `DONE`.
 
    ```bash
-   cd ~/projects/worktrees/stage-3
+   cd ~/projects/worktrees/stage-5
    install/68-workspace-deploy.sh MERGED_IMAGE_TAG
    ```
 
@@ -78,7 +78,7 @@
    is `1/1` Ready and the intended image tag.
 
    ```bash
-   cd ~/projects/worktrees/stage-3
+   cd ~/projects/worktrees/stage-5
    kubectl -n ooh-apps get deployment workspace
    kubectl -n ooh-apps get deployment workspace -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
    ```
@@ -88,7 +88,7 @@
    tokens or chat text.
 
    ```bash
-   cd ~/projects/worktrees/stage-3
+   cd ~/projects/worktrees/stage-5
    kubectl -n ooh-apps logs deployment/workspace --tail=50
    ```
 
@@ -97,7 +97,7 @@
    Workspace; good result: `successfully rolled out`.
 
    ```bash
-   cd ~/projects/worktrees/stage-3
+   cd ~/projects/worktrees/stage-5
    kubectl -n ooh-apps rollout restart deployment/workspace
    kubectl -n ooh-apps rollout status deployment/workspace --timeout=300s
    ```
@@ -107,7 +107,7 @@
    conversations stay in the Harness database. Good result: `scaled`.
 
    ```bash
-   cd ~/projects/worktrees/stage-3
+   cd ~/projects/worktrees/stage-5
    kubectl -n ooh-apps scale deployment/workspace --replicas=0
    ```
 
@@ -116,7 +116,7 @@
    good result: `successfully rolled out`.
 
    ```bash
-   cd ~/projects/worktrees/stage-3
+   cd ~/projects/worktrees/stage-5
    kubectl -n ooh-apps scale deployment/workspace --replicas=1
    kubectl -n ooh-apps rollout status deployment/workspace --timeout=300s
    ```
@@ -131,7 +131,7 @@
    the Control Centre.** It tests chat tiers 1–20.
 
    ```bash
-   cd ~/projects/worktrees/stage-3
+   cd ~/projects/worktrees/stage-5
    install/40-check-platform.sh
    install/62-check-control-centre.sh
    install/70-check-stage-2.sh
@@ -292,3 +292,28 @@ read its description, optionally enter up to 300 characters, then Send request.
 Pending requests show Requested; rejected ones show Not approved. Server
 conflicts appear in the panel. Refresh the page after an admin changes rights.
 No new browser libraries are used.
+
+## Stage 5 pictures and export
+
+Choose **Attach picture** in the chat box for one PNG or JPEG, up to the limit
+shown in the help line (7 MB by default). Uploading disables Send. A new
+selection replaces the preview; **Remove picture** forgets it locally. Type a
+question before sending. Saved pictures load through authenticated requests
+and blob URLs, released when the conversation leaves the screen. Markdown
+answers still cannot render images. No Workspace content security policy is
+configured in the repository; no policy change is needed for blob images.
+
+Before-storage refusals restore your question and preview. An already used
+picture clears the preview and asks for a fresh attachment. After storage,
+a failed answer keeps the question and picture on screen; attach again to
+retry. The server retains every upload, including unused ones. Each person
+has 20 uploads per UTC day by default. Camera location and device details are
+kept and sent as uploaded. See the [Stage 5 guide](../../README.md#stage-5--pictures-and-export-to-word)
+for settings, storage limits and recovery.
+
+**Export to Word** appears before the model picker and is enabled for a saved
+chat with messages while no answer streams. The authenticated download uses
+the response filename, or `chat.docx`, then shows `Saved: <file name>`. It
+contains completed questions and answers, times and answering model details,
+with formatted assistant Markdown. Pictures become filename labels. Thinking
+and personal identity details are omitted. No browser library was added.

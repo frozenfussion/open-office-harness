@@ -41,3 +41,11 @@ textarea { resize: vertical; max-height: 35dvh; }
 }
 
 .jobs-panel{padding:var(--space-4);max-height:50vh;overflow:auto;border-bottom:1px solid var(--line)}
+
+header { flex-wrap: wrap; }
+header h1 { flex: 1; }
+.composer-actions { flex-wrap: wrap; }
+.picture-preview { margin: 0 0 var(--space-3); display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
+.picture-preview img { max-height: 96px; max-width: 160px; border-radius: var(--radius-md); }
+.picture-preview figcaption { color: var(--ink-muted); font-size: 13px; overflow-wrap: anywhere; }
+.export-status { margin: var(--space-3) var(--space-6) 0; color: var(--ink-muted); }
