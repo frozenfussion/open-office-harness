@@ -72,6 +72,78 @@ Workspace stores a validated saved-conversation UUID in session storage before
 sign-in, consumes it once after sign-in, and scrolls wide Markdown tables without
 breaking words.
 
+## Stage 5 pictures and Word export
+
+Workspace validates a single PNG or JPEG against the size from `/api/me`, then
+sends its raw bytes to `POST /api/uploads` with the MIME type and a percent-encoded
+file name. Harness validates the token, MIME, daily count, empty body, signature
+and size in that order before writing. It reads at most the limit plus one byte.
+`HA_UPLOAD_MAX_BYTES` defaults to 7340032 (7 MiB), restricted at startup to whole
+MiB from 1 to 7; `HA_UPLOADS_PER_DAY` defaults to 20 per person per UTC day.
+No browser or server image conversion occurs. Camera location and device metadata
+are retained and sent as uploaded. `may_attach(user_id, rights)` is the single
+permission hook and returns true at this stage; ordinary chat rights still apply.
+
+The Harness owns `uploads` and nullable unique `messages.upload_id` in its own
+database, added by migration `0005_uploads.sql`. An upload has `deleted_at` and
+the database removal guard; there is no delete route. The Harness writes only
+`/files/uploads/<upload_id>/<safe file name>` using a temporary name and atomic
+rename, checks paths remain inside `uploads/` and refuses symlinks. Authenticated
+`GET /api/uploads/{upload_id}` requires ownership and returns private cached
+bytes, `nosniff`, and inline disposition; another owner or a missing file is 404.
+A send checks ownership, unused upload and permission before storing any message
+or making a paid call. Concurrent reuse returns 409 `upload_used`.
+
+The last 20 history messages plus the new question supply picture candidates.
+An old user picture qualifies only when its next message, ordered by creation
+time and ID across all rows, is a completed answer. The new question always
+qualifies. Only the three newest qualifying pictures are sent; others remain
+text only. Missing picture files are skipped with IDs-only logging. Harness
+reads picture files and sends base64 `images: [{media_type, data}]` through the
+Gateway HTTP contract. Tool rounds and budget fallback reuse that same context.
+Gateway has no file-volume mount. Its three existing adapters carry the image
+in their configured connection format. Routing, titles, the safety watcher and
+`chat.message` events still use text only.
+
+A picture request refused with 400, 413 or 422 before first output can try a
+backup without marking the model down. The existing forced-tool retry runs
+first. If all entries fail and any attempt refused a picture, `image_refused`
+is returned (Harness HTTP 502). That failed answer excludes its old picture
+from future context. Harness and Gateway memory limits are 2Gi; around 15
+simultaneous calls with three maximum-size pictures fit. The shared 20Gi files
+volume has no cleanup or capacity watcher. Full storage refuses uploads with
+`storage_unavailable` and prevents Slides output; Aziz decides the remedy.
+
+Workspace sends `upload_id`, renders an optimistic picture from its local copy,
+and fetches saved pictures with bearer authentication into blob object URLs.
+Those URLs are released when messages leave the screen. Uploading disables Send.
+Refusals before storage restore the text and preview, except `upload_used`, which
+clears the preview and asks for a fresh attachment. Once stored, a failed model
+answer keeps the question on screen and clears the composer preview. The person
+attaches again to retry. Markdown output still forbids `img`.
+
+`GET /api/conversations/{id}/export` checks ownership and constructs a Word file
+in Harness memory using python-docx and Markdown tokens from markdown-it-py.
+There is no job, topic or worker. Completed, non-empty messages appear in time
+order with title, conversation start/export times, user/assistant labels, times
+and stored model/tier. `HA_DISPLAY_TIME_ZONE` defaults to `Asia/Kuala_Lumpur`;
+the export time line includes the short zone `+08`. User text stays as typed;
+assistant headings, lists, tables, code, links and quotations retain formatting.
+A picture becomes `[Picture attached: <file name>]`; Thinking, reasoning, routing,
+usage and personal identity details are omitted. Workspace downloads the bearer-
+authenticated blob using its attachment filename, falling back to `chat.docx`.
+Export is disabled until a saved chat has a message and while an answer streams.
+
+Uploads publish `upload.created` with MIME target; exports publish
+`conversation.exported` with target `docx` and conversation correlation ID.
+Audit failures do not fail the upload or download. Picture bytes, base64 and
+file names never enter logs, traces, audit or Kafka. Script `87-check-stage-5.sh`
+uses the existing locked temporary check client, temporary tier grants and a
+red/blue PNG to check upload integrity, each tier, picture follow-up, refusals,
+Word content and zone, audit arrival and log privacy. It stops no service and
+cleans up grants and the client on exit. Paid live checks run only after merge
+and deployment, in the Shell tile where the class watches.
+
 ## Agreements between modules
 
 - [Identity](../contracts/identity.md): users authenticate through Keycloak;
@@ -85,7 +157,7 @@ breaking words.
   A tier is a positive integer field on a chat registry entry; creating one also
   creates its right. Registry assignments and credentials are runtime data.
 - [Harness HTTP](../contracts/http/harness-api.openapi.yaml): conversations,
-  message streaming, job updates and downloads by job ID. Uploads stay unavailable.
+  message streaming, owned PNG/JPEG uploads, Word export, job updates and downloads by job ID.
 - [Events](../contracts/events/envelope.schema.json): all business-event records
   share an envelope; the Kafka key is correlation_id. Consumers ignore duplicate event_id
   values, retry a fixed configured number of times, then publish to dlq.<topic>.
@@ -97,7 +169,7 @@ breaking words.
   permission, approval need and input/output shapes. Only allowed skills appear
   as model tools. Slides produces a PowerPoint file.
 - [Storage](../contracts/storage.md): the retained ooh-files volume holds private file keys;
-  downloads use a bearer token and the Harness job ownership check.
+  downloads use a bearer token and the Harness job or upload ownership check.
 
 ## Flows
 
@@ -259,7 +331,7 @@ Traefik ingress, cert-manager, Strimzi Kafka, CloudNativePG PostgreSQL and
 Keycloak in ooh-platform. The ooh-files PVC (20Gi, local-path, PV Retain) holds private
 files. The worker mounts /files read-write and atomically renames completed
 outputs/slides/<job-id>/<safe-title>.pptx files; the Harness mounts /files
-read-only. Downloads use GET /api/jobs/{job_id}/file with a bearer token, check
+read-write and writes only under uploads/. Downloads use GET /api/jobs/{job_id}/file with a bearer token, check
 the completed job belongs to that user and resolve the path under /files/outputs/.
 There are no signed links or file deletions. Workspace and its /api share harness.faysalaziz.com; Admin Console and
 its /api share admin.faysalaziz.com; Keycloak uses auth.faysalaziz.com. Gateway,

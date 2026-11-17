@@ -3,12 +3,13 @@ import { afterRenderEffect, Component, computed, ElementRef, inject, OnDestroy, 
 import { FormsModule } from '@angular/forms';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { Subscription } from 'rxjs';
-import { ChatTier, Api, ApiError, Conversation, Job, Me, Message } from './api';
+import { ChatTier, Api, ApiError, Conversation, Job, Me, Message, Picture } from './api';
 import { Rain } from './rain';
 import { MessageContent } from './message-content';
 import { ChatModels } from './chat-models';
 import { Jobs } from './jobs';
 import { JobCard } from './job-card';
+import { ChatPicture } from './chat-picture';
 
 const savedConversationKey = 'ooh.pending-conversation';
 function conversationId(value: string | null): string | null {
@@ -25,7 +26,7 @@ export function metaLine(message: Message): string {
     ((message.routing?.note || message.note) ? ` · ${message.routing?.note || message.note}` : '') +
     (message.thinkingRequested === false && message.thinking_applied === false ? ' · thinking off not supported by this model' : '');
 }
-@Component({ selector: 'app-root', imports: [FormsModule, Rain, MessageContent, ChatModels, JobCard], templateUrl: './app.html', styleUrl: './app.css' })
+@Component({ selector: 'app-root', imports: [FormsModule, Rain, MessageContent, ChatModels, JobCard, ChatPicture], templateUrl: './app.html', styleUrl: './app.css' })
 export class App implements OnInit, OnDestroy {
   private readonly auth = inject(OidcSecurityService);
   private readonly api = inject(Api);
@@ -50,6 +51,14 @@ export class App implements OnInit, OnDestroy {
   readonly notice = signal('');
   readonly forbidden = signal(false);
   readonly copied = signal(false);
+  readonly uploading = signal(false);
+  readonly exporting = signal(false);
+  readonly savedExport = signal('');
+  readonly attachment = signal<{picture: Picture; url: string} | null>(null);
+  readonly uploadLimit = computed(() => (this.me()?.upload_max_bytes ?? 7340032) / 1048576);
+  readonly canExport = computed(() => !!this.currentId() && this.messages().length > 0 && !this.streaming() && !this.loading() && !this.exporting());
+  private uploadSequence = 0;
+  private readonly localPictures = new Set<string>();
   tier: ChatTier | null = null;
   draft = '';
   metaLine = metaLine;
@@ -71,7 +80,7 @@ export class App implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.subscription.add(this.auth.isAuthenticated$.subscribe(({isAuthenticated}) => {
       this.signedIn.set(isAuthenticated);
-      if (!isAuthenticated) { this.jobs.stop(); this.streams.forEach(stream => stream.abort()); this.messages.set([]); this.me.set(null); }
+      if (!isAuthenticated) { this.jobs.stop(); this.streams.forEach(stream => stream.abort()); this.clearPictures(); this.messages.set([]); this.me.set(null); }
     }));
     this.subscription.add(this.auth.checkAuth().subscribe({
       next: (result) => {
@@ -84,7 +93,7 @@ export class App implements OnInit, OnDestroy {
       error: () => { this.ready.set(true); this.notice.set('Sign-in could not finish. Try signing in again.'); },
     }));
   }
-  ngOnDestroy(): void { this.jobs.stop(); this.subscription.unsubscribe(); this.streams.forEach(stream => stream.abort()); }
+  ngOnDestroy(): void { this.clearPictures(); this.jobs.stop(); this.subscription.unsubscribe(); this.streams.forEach(stream => stream.abort()); }
   private saveConversation(): void {
     const id = conversationId(new URL(window.location.href).searchParams.get('conversation'));
     try {
@@ -163,6 +172,7 @@ export class App implements OnInit, OnDestroy {
   }
   newChat(): void {
     if (this.me()?.access !== 'approved' || this.streaming() || this.loading()) return;
+    this.clearPictures(); this.savedExport.set('');
     this.setCurrent(null); this.title.set('New chat'); this.messages.set([]); this.notice.set(''); this.draft = '';
   }
   async open(id: string): Promise<void> {
@@ -170,9 +180,51 @@ export class App implements OnInit, OnDestroy {
     this.loading.set(true); this.notice.set('');
     try {
       const conversation = await this.api.conversation(id);
+      this.clearPictures(); this.savedExport.set('');
       this.setCurrent(conversation.id); this.title.set(conversation.title); this.messages.set(conversation.messages);
     } catch (error) { this.failure(error); }
     finally { this.loading.set(false); }
+  }
+  private releasePicture(url: string): void {
+    URL.revokeObjectURL(url); this.localPictures.delete(url);
+  }
+  removePicture(): void {
+    this.uploadSequence++; this.uploading.set(false);
+    const attachment = this.attachment();
+    if (attachment) this.releasePicture(attachment.url);
+    this.attachment.set(null);
+  }
+  private clearPictures(): void {
+    this.removePicture();
+    this.localPictures.forEach(url => URL.revokeObjectURL(url)); this.localPictures.clear();
+  }
+  async choosePicture(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0]; input.value = '';
+    if (!file || this.streaming() || this.loading()) return;
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+      this.notice.set('Only PNG and JPEG pictures can be attached.'); return;
+    }
+    if (file.size > (this.me()?.upload_max_bytes ?? 7340032)) {
+      this.notice.set(`This picture is larger than the limit of ${this.uploadLimit()} MB.`); return;
+    }
+    this.removePicture();
+    const sequence = this.uploadSequence;
+    this.uploading.set(true); this.notice.set('');
+    try {
+      const picture = await this.api.upload(file);
+      if (sequence !== this.uploadSequence) return;
+      const url = URL.createObjectURL(file); this.localPictures.add(url);
+      this.attachment.set({picture, url});
+    } catch (error) { if (sequence === this.uploadSequence) this.failure(error); }
+    finally { if (sequence === this.uploadSequence) this.uploading.set(false); }
+  }
+  async exportWord(): Promise<void> {
+    if (!this.canExport()) return;
+    this.exporting.set(true); this.savedExport.set('');
+    try { this.savedExport.set('Saved: ' + await this.api.export(this.currentId()!)); }
+    catch (error) { this.failure(error); }
+    finally { this.exporting.set(false); }
   }
   keydown(event: KeyboardEvent): void {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
@@ -180,7 +232,8 @@ export class App implements OnInit, OnDestroy {
     }
   }
   async send(): Promise<void> {
-    if (this.me()?.access !== 'approved' || !this.draft.trim() || this.tier == null || this.streaming() || this.loading()) return;
+    if (this.me()?.access !== 'approved' || !this.draft.trim() || this.tier == null || this.streaming() || this.loading() || this.uploading()) return;
+    const attachment = this.attachment();
     const content = this.draft;
     const sentAt = new Date().toISOString();
     const tier = this.tier;
@@ -189,6 +242,8 @@ export class App implements OnInit, OnDestroy {
     const controller = new AbortController();
     this.abort = controller;
     this.streams.add(controller);
+    let user: Message | undefined;
+    let stored = false;
     let assistant: Message | undefined;
     let ended = false;
     let completed = false;
@@ -203,10 +258,12 @@ export class App implements OnInit, OnDestroy {
     try {
       if (!id) { id = (await this.api.create()).id; this.setCurrent(id); this.title.set(content.slice(0, 60)); }
       assistant = { role: 'assistant', content: '', created_at: sentAt, thinkingRequested: thinking, thinking: null };
-      this.messages.update(old => [...old, {role: 'user', content, created_at: sentAt}, assistant!]);
+      user = {role: 'user', content, created_at: sentAt, picture: attachment?.picture, pictureUrl: attachment?.url};
+      this.messages.update(old => [...old, user!, assistant!]);
       this.draft = '';
       await this.api.send(id, content, tier, controller.signal, event => {
         if (controller.signal.aborted) return;
+        stored = true; this.attachment.set(null);
         if (event.type === 'title') {
           if (!completed || event.conversation_id !== id) throw new Error('Unexpected conversation title');
           generatedTitle = event.title;
@@ -238,11 +295,26 @@ export class App implements OnInit, OnDestroy {
           this.failure(new ApiError(event.error.code === 'tier_not_allowed' || event.error.code === 'no_tier' ? 403 : 503, event.error.message));
         }
         this.messages.update(old => [...old]);
-      }, thinking);
+      }, thinking, attachment?.picture.upload_id, () => {
+        if (!controller.signal.aborted) { stored = true; this.attachment.set(null); }
+      });
       if (!ended) throw new Error('Stream ended early');
     } catch (error) {
       if (completed || controller.signal.aborted) return;
-      if (assistant) {
+      const notStored = !stored && error instanceof ApiError &&
+        ['invalid_input', 'not_found', 'upload_not_found', 'upload_used', 'not_allowed', 'no_tier', 'tier_not_allowed', 'rights_unavailable', 'unauthorized'].includes(error.code ?? '');
+      if (notStored) {
+        this.messages.update(old => old.filter(message => message !== user && message !== assistant));
+        this.draft = content;
+        if (error.code === 'upload_used') {
+          this.removePicture();
+          this.failure(new ApiError(error.status, 'This picture was already sent. Attach it again to send it once more.', error.code));
+          return;
+        }
+      } else {
+        this.attachment.set(null);
+      }
+      if (assistant && !notStored) {
         assistant.outcome = 'failed';
         assistant.created_at = new Date().toISOString();
         this.messages.update(old => assistant!.content || assistant!.thinking || assistant!.jobs?.length ? [...old] : old.filter(message => message !== assistant));

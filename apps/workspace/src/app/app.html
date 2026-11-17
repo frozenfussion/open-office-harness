@@ -52,8 +52,10 @@
     </nav>
     <main class="chat">
       <header><h1>{{ title() }}</h1>
+        <button class="ooh-btn ooh-btn--secondary export-word" [disabled]="!canExport()" (click)="exportWord()">Export to Word</button>
         <app-chat-models [me]="me()!" [tier]="tier" [busy]="streaming() || loading()" (tierChange)="tier = $event" />
       </header>
+      @if (savedExport()) { <p class="export-status" role="status">{{ savedExport() }}</p> }
       @if (showJobs()) {
         <section class="jobs-panel" aria-label="Jobs"><h2>Jobs</h2>
           @if (jobs.notice()) { <p role="status">{{ jobs.notice() }}</p> }
@@ -72,6 +74,9 @@
         }
         @for (message of messages(); track message) {
           <article class="ooh-msg" [class.ooh-msg--user]="message.role === 'user'" [class.ooh-msg--assistant]="message.role === 'assistant'">
+            @if (message.role === 'user' && message.picture) {
+              <app-chat-picture [picture]="message.picture" [localUrl]="message.pictureUrl" />
+            }
             <app-message-content [content]="message.content" [thinking]="message.thinking ?? null" [role]="message.role" [createdAt]="message.created_at"
               [streaming]="streaming() && $last && message.role === 'assistant'" (rendered)="scrollMessages()" />
             @for (job of message.jobs ?? []; track job.job_id) {
@@ -84,12 +89,22 @@
         }
       </section>
       <form class="composer" (ngSubmit)="send()">
+        <input #pictureInput type="file" accept="image/png,image/jpeg" hidden (change)="choosePicture($event)" />
+        @if (attachment(); as attached) {
+          <figure class="picture-preview">
+            <img [src]="attached.url" [alt]="attached.picture.file_name" />
+            <figcaption>{{ attached.picture.file_name }} · {{ attached.picture.mime }} · {{ attached.picture.size_bytes }} bytes</figcaption>
+            <button type="button" class="ooh-btn ooh-btn--ghost" [disabled]="streaming()" (click)="removePicture()">Remove picture</button>
+          </figure>
+        }
+        @if (uploading()) { <p role="status">Uploading picture…</p> }
         <label class="ooh-field"><span class="ooh-label">Message</span>
           <textarea class="ooh-textarea" name="message" [(ngModel)]="draft" rows="3" placeholder="Ask a question…"
             [disabled]="streaming() || loading() || tier === null" (keydown)="keydown($event)"></textarea>
         </label>
-        <div class="composer-actions"><span class="ooh-help">Enter to send · Shift+Enter for a new line</span>
-          <button class="ooh-btn ooh-btn--primary" type="submit" [disabled]="streaming() || loading() || !draft.trim() || tier === null">{{ streaming() ? 'Sending…' : 'Send' }}</button>
+        <div class="composer-actions"><button type="button" class="ooh-btn ooh-btn--secondary" [disabled]="streaming() || loading() || tier === null" (click)="pictureInput.click()">Attach picture</button>
+          <span class="ooh-help">PNG or JPEG, up to {{ uploadLimit() }} MB, one per message · Enter to send · Shift+Enter for a new line</span>
+          <button class="ooh-btn ooh-btn--primary" type="submit" [disabled]="streaming() || loading() || uploading() || !draft.trim() || tier === null">{{ streaming() ? 'Sending…' : 'Send' }}</button>
         </div>
       </form>
     </main>
