@@ -54,9 +54,9 @@ def migrate(connection: str) -> None:
             )
         )
         db.execute(
-            sql.SQL("GRANT SELECT, INSERT, UPDATE ON conversations, jobs TO {}").format(
-                sql.Identifier(app_role)
-            )
+            sql.SQL(
+                "GRANT SELECT, INSERT, UPDATE ON conversations, jobs, uploads TO {}"
+            ).format(sql.Identifier(app_role))
         )
         db.execute(
             sql.SQL("GRANT SELECT, INSERT ON processed_events TO {}").format(

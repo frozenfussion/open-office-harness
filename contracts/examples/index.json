@@ -505,59 +505,6 @@
       "status": "503"
     },
     {
-      "file": "examples/http/harness-api.post-uploads.request.json",
-      "openapi": "http/harness-api.openapi.yaml",
-      "path": "/api/uploads",
-      "method": "post",
-      "kind": "request",
-      "media_type": "multipart/form-data"
-    },
-    {
-      "file": "examples/http/harness-api.post-uploads.201.json",
-      "openapi": "http/harness-api.openapi.yaml",
-      "path": "/api/uploads",
-      "method": "post",
-      "kind": "response",
-      "media_type": "application/json",
-      "status": "201"
-    },
-    {
-      "file": "examples/http/harness-api.post-uploads.400.json",
-      "openapi": "http/harness-api.openapi.yaml",
-      "path": "/api/uploads",
-      "method": "post",
-      "kind": "response",
-      "media_type": "application/json",
-      "status": "400"
-    },
-    {
-      "file": "examples/http/harness-api.post-uploads.401.json",
-      "openapi": "http/harness-api.openapi.yaml",
-      "path": "/api/uploads",
-      "method": "post",
-      "kind": "response",
-      "media_type": "application/json",
-      "status": "401"
-    },
-    {
-      "file": "examples/http/harness-api.post-uploads.403.json",
-      "openapi": "http/harness-api.openapi.yaml",
-      "path": "/api/uploads",
-      "method": "post",
-      "kind": "response",
-      "media_type": "application/json",
-      "status": "403"
-    },
-    {
-      "file": "examples/http/harness-api.post-uploads.503.json",
-      "openapi": "http/harness-api.openapi.yaml",
-      "path": "/api/uploads",
-      "method": "post",
-      "kind": "response",
-      "media_type": "application/json",
-      "status": "503"
-    },
-    {
       "file": "examples/http/harness-api.get-events.200.sse.json",
       "openapi": "http/harness-api.openapi.yaml",
       "path": "/api/events",

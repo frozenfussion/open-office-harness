@@ -618,3 +618,156 @@ async def test_only_worker_gave_up_can_complete_after_replay(
     if revives:
         assert queue.get_nowait()["type"] == "job.completed"
         assert row["error"] is None
+
+
+async def saved_picture(store: Store, user: str) -> dict[str, Any]:
+    identifier = uuid4()
+    row = {
+        "id": identifier,
+        "file_name": "picture.png",
+        "mime": "image/png",
+        "size_bytes": 8,
+        "sha256": "a" * 64,
+        "file_key": f"uploads/{identifier}/picture.png",
+    }
+    await store.save_upload(row, user)
+    return row
+
+
+@pytest.mark.anyio
+async def test_upload_database_ownership_quota_and_unique_attachment(
+    store: Store, db_user: str
+) -> None:
+    from harness_api.errors import ApiError
+
+    row = await saved_picture(store, db_user)
+    identifier = await store.create(db_user)
+    assert await store.upload_count(db_user) == 1
+    assert await store.upload_count("other-user") == 0
+    assert (await store.upload(row["id"], db_user))["used"] is False
+    with pytest.raises(ApiError) as missing:
+        await store.upload(row["id"], "other-user")
+    assert missing.value.status == 404
+    await store.append(
+        identifier,
+        db_user,
+        "user",
+        "Picture question",
+        "completed",
+        1,
+        upload_id=row["id"],
+    )
+    assert (await store.upload(row["id"], db_user))["used"] is True
+    async with await psycopg.AsyncConnection.connect(store.connection) as db:
+        async with db.transaction():
+            with pytest.raises(psycopg.errors.UniqueViolation) as conflict:
+                async with db.transaction():
+                    await store.append(
+                        identifier,
+                        db_user,
+                        "user",
+                        "Duplicate question",
+                        "completed",
+                        1,
+                        upload_id=row["id"],
+                    )
+            assert conflict.value.diag.constraint_name == "messages_upload_once"
+        for statement in ("DELETE FROM uploads", "TRUNCATE uploads CASCADE"):
+            with pytest.raises(psycopg.Error):
+                async with db.transaction():
+                    await db.execute(statement)
+        await db.execute(
+            "UPDATE uploads SET created_at=date_trunc('day',now() "
+            "AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' "
+            "- interval '1 microsecond' WHERE id=%s",
+            (row["id"],),
+        )
+    assert await store.upload_count(db_user) == 0
+    conversation = await store.conversation(identifier, db_user)
+    assert conversation["messages"][0]["picture"] == Store.picture(row)
+    assert len(conversation["messages"]) == 1
+
+
+@pytest.mark.anyio
+async def test_database_picture_answer_rule_three_newest_and_window(
+    store: Store, db_user: str, tmp_path: Any
+) -> None:
+    from harness_api.pictures import attach_pictures, write_picture
+
+    identifier = await store.create(db_user)
+    pictures = []
+    for index in range(5):
+        row = await saved_picture(store, db_user)
+        pictures.append(row)
+        write_picture(str(tmp_path), row["file_key"], bytes([index + 1]))
+        await store.append(
+            identifier,
+            db_user,
+            "user",
+            f"Picture {index}",
+            "completed",
+            1,
+            upload_id=row["id"],
+        )
+        await store.append(
+            identifier,
+            db_user,
+            "assistant",
+            "" if index == 1 else f"Answer {index}",
+            "failed" if index == 0 else "completed",
+            1,
+        )
+    history = await store.history(identifier)
+    candidates = [item for item in history if item.get("picture_completed")]
+    assert [item["upload_id"] for item in candidates] == [
+        row["id"] for row in pictures[1:]
+    ]
+    assert history[0]["picture_completed"] is False
+    attached = await attach_pictures(history, str(tmp_path), store, db_user)
+    assert [item["content"] for item in attached if item.get("images")] == [
+        "Picture 2",
+        "Picture 3",
+        "Picture 4",
+    ]
+    # An empty completed answer still qualifies; current picture takes the newest place.
+    current = await saved_picture(store, db_user)
+    write_picture(str(tmp_path), current["file_key"], b"current")
+    history.append(
+        {
+            "role": "user",
+            "content": "Current",
+            "upload_id": current["id"],
+            "picture_completed": True,
+        }
+    )
+    attached = await attach_pictures(history, str(tmp_path), store, db_user)
+    assert [item["content"] for item in attached if item.get("images")] == [
+        "Picture 3",
+        "Picture 4",
+        "Current",
+    ]
+    assert not any(
+        "upload_id" in item or "picture_completed" in item for item in attached
+    )
+    for index in range(11):
+        await store.append(identifier, db_user, "user", f"Text {index}", "completed", 1)
+        await store.append(
+            identifier, db_user, "assistant", f"Text answer {index}", "completed", 1
+        )
+    history = await store.history(identifier)
+    assert len(history) == 20
+    assert not any(item.get("upload_id") for item in history)
+
+
+@pytest.mark.anyio
+async def test_picture_answer_is_next_row_even_if_it_is_a_user(
+    store: Store, db_user: str
+) -> None:
+    identifier = await store.create(db_user)
+    row = await saved_picture(store, db_user)
+    await store.append(
+        identifier, db_user, "user", "Picture", "completed", 1, upload_id=row["id"]
+    )
+    await store.append(identifier, db_user, "user", "Next message", "completed", 1)
+    await store.append(identifier, db_user, "assistant", "Failed later", "failed", 1)
+    assert (await store.history(identifier))[0]["picture_completed"] is True

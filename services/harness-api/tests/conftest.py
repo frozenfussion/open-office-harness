@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from harness_api.app import create_app
 from harness_api.config import Settings
 from harness_api.errors import ApiError
-from harness_api.store import MAX_THINKING_CHARS
+from harness_api.store import MAX_THINKING_CHARS, Store
 
 SETTINGS = Settings(
     "unused",
@@ -33,6 +33,7 @@ class MemoryStore:
     def __init__(self) -> None:
         self.rows: dict[UUID, dict[str, Any]] = {}
         self.fail_health = False
+        self.uploads: dict[UUID, dict[str, Any]] = {}
 
     async def health(self) -> None:
         if self.fail_health:
@@ -46,6 +47,7 @@ class MemoryStore:
             "id": identifier,
             "user_id": user,
             "title": "",
+            "created_at": datetime.now(UTC),
             "updated_at": datetime.now(UTC),
             "messages": [],
         }
@@ -58,11 +60,35 @@ class MemoryStore:
         return {
             "id": identifier,
             "title": row["title"],
+            "created_at": row["created_at"],
             "messages": [
-                {key: value for key, value in message.items() if key != "_state"}
+                {
+                    key: value
+                    for key, value in message.items()
+                    if key not in {"_state", "upload_id"}
+                }
                 for message in row["messages"]
             ],
         }
+
+    async def upload_count(self, user: str) -> int:
+        return sum(row["user_id"] == user for row in self.uploads.values())
+
+    async def upload(self, identifier: UUID, user: str) -> dict[str, Any]:
+        row = self.uploads.get(identifier)
+        if row is None or row["user_id"] != user:
+            raise ApiError(404, "upload_not_found", "Picture not found.")
+        return {
+            **row,
+            "used": any(
+                message.get("upload_id") == identifier
+                for conversation in self.rows.values()
+                for message in conversation["messages"]
+            ),
+        }
+
+    async def save_upload(self, upload: dict[str, Any], user: str) -> None:
+        self.uploads[upload["id"]] = {**upload, "user_id": user}
 
     async def listing(
         self, user: str, limit: int, before: UUID | None
@@ -90,6 +116,19 @@ class MemoryStore:
         while messages and messages[0]["role"] != "user":
             messages.pop(0)
         for message in messages:
+            original = next(
+                row
+                for row in self.rows[identifier]["messages"]
+                if row["content"] == message["content"]
+            )
+            if original.get("upload_id"):
+                all_rows = self.rows[identifier]["messages"]
+                index = all_rows.index(original)
+                message["upload_id"] = original["upload_id"]
+                message["picture_completed"] = (
+                    index + 1 < len(all_rows)
+                    and all_rows[index + 1]["outcome"] == "completed"
+                )
             if message["role"] == "assistant":
                 original = next(
                     row
@@ -145,7 +184,10 @@ class MemoryStore:
         metadata: dict[str, Any] | None = None,
         note: str | None = None,
         thinking: str | None = None,
+        upload_id: UUID | None = None,
     ) -> UUID:
+        if upload_id is not None and (await self.upload(upload_id, user))["used"]:
+            raise ApiError(409, "upload_used", "This picture was already sent.")
         identifier_message = uuid4()
         row = self.rows[identifier]
         if role == "user" and not row["title"]:
@@ -153,6 +195,11 @@ class MemoryStore:
         row["messages"].append(
             {
                 "id": identifier_message,
+                "created_at": datetime.now(UTC),
+                "upload_id": upload_id,
+                "picture": Store.picture(self.uploads[upload_id])
+                if upload_id
+                else None,
                 "role": role,
                 "content": content,
                 "outcome": outcome,

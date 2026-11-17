@@ -20,6 +20,9 @@ data:
   HA_KAFKA_BOOTSTRAP: ooh-kafka-kafka-bootstrap.${PLATFORM_NAMESPACE}.svc:9092
   HA_KAFKA_USERNAME: harness-api
   HA_FILES_ROOT: /files
+  HA_UPLOAD_MAX_BYTES: "7340032"
+  HA_UPLOADS_PER_DAY: "20"
+  HA_DISPLAY_TIME_ZONE: Asia/Kuala_Lumpur
   HA_ROUTE_TIER_QUESTION: Is this a request that needs careful multi-step reasoning, such as a rigorous proof or hard maths, complex code, debugging or architecture design, or a deep expert analysis or comparison with trade-offs, rather than a fact, short writing, a translation, a summary or an everyday question?
   HA_ROUTE_TIER_THRESHOLD: "0.5"
   HA_ROUTE_UP_TIER: "2"

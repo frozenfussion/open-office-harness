@@ -34,5 +34,6 @@
       "requested": "rejected"
     }
   ],
-  "requestable_skills": []
+  "requestable_skills": [],
+  "upload_max_bytes": 7340032
 }

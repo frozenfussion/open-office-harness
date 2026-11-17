@@ -126,17 +126,23 @@ paths:
           default: 20
       - name: before
         in: query
-        description: Conversation ID from the previous page. Own active conversations only. Ordered by
-          updated_at then id, descending.
+        description: Conversation ID from the previous page. Own active conversations
+          only. Ordered by updated_at then id, descending.
         schema: &id001
           type: string
           format: uuid
   /api/conversations/{id}/messages:
     post:
       operationId: post_api_conversations_id_messages
-      description: Only tier auto invokes classification for tier and allowed-skill suggestions. Rights
-        always decide; explicit and omitted tiers bypass routing. Routing, chat and title calls use the
-        stored user message id as X-Correlation-Id. Auto metadata is returned and stored on the answer.
+      description: Runs at most two tool rounds. Follow-ups stay pinned to the first
+        entry. Provider reasoning is private database state and is sent only to the
+        Gateway; it is never included in browser events or conversation routes. Upload
+        ownership, prior use and may_attach are checked before storing the question
+        or making paid calls. A budget fallback rights failure after storage is 503
+        unavailable. Up to three newest pictures whose next message completed are
+        read at call time, from the last twenty history messages plus the current
+        message; missing files are skipped. Auto routing and title calls use text
+        only.
       security:
       - bearerAuth: []
       responses:
@@ -161,13 +167,13 @@ paths:
                     type:
                       const: completed
                     message_id: *id001
-                    tier: &id003
+                    tier: &id004
                       type: integer
                       minimum: 1
                     model_title: *id002
                     usage:
                       $ref: '#/components/schemas/Usage'
-                    note: &id007
+                    note: &id009
                       type:
                       - string
                       - 'null'
@@ -225,7 +231,7 @@ paths:
                   properties:
                     type:
                       const: job
-                    job_id: &id006
+                    job_id: &id007
                       type: string
                       format: uuid
                     skill:
@@ -240,7 +246,7 @@ paths:
                       - queued
                       - awaiting_approval
                       - failed
-                    error: &id005
+                    error: &id006
                       $ref: '#/components/schemas/Error'
                   required:
                   - type
@@ -286,9 +292,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-      description: Runs at most two tool rounds. Follow-ups stay pinned to the first entry. Provider reasoning
-        is private database state and is sent only to the Gateway; it is never included in browser events
-        or conversation routes.
+        '409':
+          description: 'upload_used: picture already attached, including a concurrent
+            send'
+          content:
+            application/json:
+              schema: &id003
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: 'image_refused: This model could not read the picture. Try
+            another model.'
+          content:
+            application/json:
+              schema: *id003
       parameters:
       - name: id
         in: path
@@ -309,12 +325,18 @@ paths:
                   pattern: \S
                 tier:
                   anyOf:
-                  - *id003
+                  - *id004
                   - const: auto
                   - type: 'null'
                 thinking:
                   type: boolean
                   default: true
+                upload_id:
+                  anyOf:
+                  - &id008
+                    type: string
+                    format: uuid
+                  - type: 'null'
               required:
               - content
               additionalProperties: false
@@ -325,56 +347,65 @@ paths:
       - bearerAuth: []
       responses:
         '201':
-          description: Success
+          description: Picture stored
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  file_key:
-                    type: string
-                    minLength: 1
-                required:
-                - file_key
-                additionalProperties: false
+              schema: &id011
+                $ref: '#/components/schemas/Picture'
         '400':
-          description: Invalid input
+          description: unsupported_type or empty body invalid_input
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+              schema: *id003
         '401':
           description: Missing or invalid token
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '403':
-          description: Not allowed
+              schema: *id003
+        '413':
+          description: 'too_large: This picture is larger than the limit of <n> MB.'
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+              schema: *id003
+        '429':
+          description: 'upload_limit: You have reached today''s limit for pictures.'
+          content:
+            application/json:
+              schema: *id003
         '503':
-          description: Unavailable
+          description: storage_unavailable; no row recorded when writing fails
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+              schema: *id003
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          image/png:
             schema:
-              type: object
-              properties:
-                file:
-                  type: string
-                  format: binary
-              required:
-              - file
-              additionalProperties: false
-      description: 'Always returns 503 not_built_yet: Uploads are not built yet.'
+              type: string
+              format: binary
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+      description: 'Raw PNG or JPEG, maximum HA_UPLOAD_MAX_BYTES (whole MiB from 1
+        to 7). Content-Type parameters are ignored. Checks: token, type, daily UTC
+        count, empty body, magic bytes, size, write. Reads stop at limit plus one
+        byte. The name is percent-decoded UTF-8; retain basename after slash or backslash,
+        replace characters outside [A-Za-z0-9._ -] with underscore, strip leading
+        dots/spaces, remove extension, truncate stem to keep total length <=100, append
+        .png or .jpg. Empty/undecodable names use picture. Stored unchanged under
+        uploads/<upload id>/<safe name> through a temporary file and rename, then
+        the row is saved and upload.created audit is attempted (MIME target, new correlation
+        id); audit failure never fails upload.'
+      parameters:
+      - name: X-File-Name
+        in: header
+        required: false
+        schema:
+          type: string
+        description: Optional percent-encoded UTF-8 name; invalid names fall back
+          to picture.png or picture.jpg.
   /api/events:
     get:
       operationId: get_api_events
@@ -480,8 +511,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-      description: 'User-scoped job events. Sends : keep-alive comments every 15 seconds. Reload /api/jobs
-        on every reconnect. Closes when the verified access token expires.'
+      description: 'User-scoped job events. Sends : keep-alive comments every 15 seconds.
+        Reload /api/jobs on every reconnect. Closes when the verified access token
+        expires.'
   /api/me:
     get:
       operationId: get_api_me
@@ -501,7 +533,7 @@ paths:
                   name: *id002
                   chat_tiers:
                     type: array
-                    items: *id003
+                    items: *id004
                   skills:
                     type: array
                     items:
@@ -524,9 +556,9 @@ paths:
                     type: object
                     additionalProperties:
                       type: string
-                    description: Tier-to-title map from the Control Centre, with string tier keys. The
-                      title comes from the active main entry with lowest priority, then created_at; a
-                      missing entry has no map value.
+                    description: Tier-to-title map from the Control Centre, with string
+                      tier keys. The title comes from the active main entry with lowest
+                      priority, then created_at; a missing entry has no map value.
                   chat_tier_thinking_switch:
                     type: object
                     additionalProperties:
@@ -573,6 +605,11 @@ paths:
                       - description
                       - requested
                       additionalProperties: false
+                  upload_max_bytes:
+                    type: integer
+                    minimum: 1048576
+                    maximum: 7340032
+                    multipleOf: 1048576
                 required:
                 - user_id
                 - name
@@ -583,6 +620,7 @@ paths:
                 - chat_tier_thinking_switch
                 - requestable_tiers
                 - requestable_skills
+                - upload_max_bytes
                 additionalProperties: false
         '400':
           description: Request could not be completed
@@ -602,12 +640,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-      description: 'Observe access first through the Control Centre using the Harness service token and
-        verified user claims, including is_admin from realm_access.roles. Missing/non-string profile claims
-        become null; strings are trimmed then limited: name 200, email 320, organisation 100, access_reason
-        300. The exact sub is preserved. Then read rights and skills. Observe or rights failure returns
-        503 rights_unavailable. Closed means new requests are temporarily full. Pass chat_tier_titles
-        through from the Control Centre.'
+      description: 'Observe access first through the Control Centre using the Harness
+        service token and verified user claims, including is_admin from realm_access.roles.
+        Missing/non-string profile claims become null; strings are trimmed then limited:
+        name 200, email 320, organisation 100, access_reason 300. The exact sub is
+        preserved. Then read rights and skills. Observe or rights failure returns
+        503 rights_unavailable. Closed means new requests are temporarily full. Pass
+        chat_tier_titles through from the Control Centre.'
   /api/conversations/{id}:
     get:
       operationId: get_api_conversations_id
@@ -666,10 +705,11 @@ paths:
       operationId: post_api_tier_requests
       security:
       - bearerAuth: []
-      description: Forwards a request using the verified sub and Harness service token. The Control Centre
-        enforces approved access, requestable tiers, a seven-day rejection wait and at most 20 pending
-        requests per user. No caller-supplied user_id. Reason is never logged. Unavailable or invalid
-        upstream responses return 503 rights_unavailable.
+      description: Forwards a request using the verified sub and Harness service token.
+        The Control Centre enforces approved access, requestable tiers, a seven-day
+        rejection wait and at most 20 pending requests per user. No caller-supplied
+        user_id. Reason is never logged. Unavailable or invalid upstream responses
+        return 503 rights_unavailable.
       requestBody:
         required: true
         content:
@@ -707,26 +747,27 @@ paths:
                 additionalProperties: false
         '400':
           description: invalid_input or tier_not_requestable
-          content: &id004
+          content: &id005
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
           description: unauthorized
-          content: *id004
+          content: *id005
         '403':
           description: not_approved
-          content: *id004
+          content: *id005
         '409':
-          description: 'already_requested or too_soon. too_soon means the last rejection was less than
-            7 days ago: You can ask for this model again 7 days after the last answer.'
-          content: *id004
+          description: 'already_requested or too_soon. too_soon means the last rejection
+            was less than 7 days ago: You can ask for this model again 7 days after
+            the last answer.'
+          content: *id005
         '429':
           description: too_many_requests
-          content: *id004
+          content: *id005
         '503':
           description: rights_unavailable
-          content: *id004
+          content: *id005
   /api/jobs/{job_id}/file:
     get:
       operationId: get_api_jobs_job_id_file
@@ -744,29 +785,30 @@ paths:
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
         '401':
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
         '404':
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
         '503':
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
       parameters:
       - name: job_id
         in: path
         required: true
-        schema: *id006
-      description: Streams the completed job file owned by the verified user; resolved paths must stay
-        under /files/outputs/. Other users and unknown, incomplete or missing files receive 404.
+        schema: *id007
+      description: Streams the completed job file owned by the verified user; resolved
+        paths must stay under /files/outputs/. Other users and unknown, incomplete
+        or missing files receive 404.
   /api/jobs:
     get:
       operationId: get_api_jobs
@@ -785,22 +827,22 @@ paths:
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
         '401':
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
         '404':
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
         '503':
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
       parameters:
       - name: limit
         in: query
@@ -811,8 +853,8 @@ paths:
           default: 20
       - name: before
         in: query
-        description: Conversation ID from the previous page. Own active conversations only. Ordered by
-          updated_at then id, descending.
+        description: Conversation ID from the previous page. Own active conversations
+          only. Ordered by updated_at then id, descending.
         schema:
           type: string
           format: uuid
@@ -829,7 +871,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  id: *id006
+                  id: *id007
                   status:
                     const: pending
                 required:
@@ -840,32 +882,32 @@ paths:
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
         '401':
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
         '403':
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
         '409':
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
         '429':
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
         '503':
           description: Success
           content:
             application/json:
-              schema: *id005
+              schema: *id006
       requestBody:
         required: true
         content:
@@ -884,6 +926,106 @@ paths:
               required:
               - skill
               additionalProperties: false
+  /api/uploads/{upload_id}:
+    get:
+      operationId: get_api_upload
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: upload_id
+        in: path
+        required: true
+        schema: *id008
+      description: Owner only; missing disk file also 404. Resolved path stays under
+        uploads; symlinks refused.
+      responses:
+        '200':
+          description: Stored picture
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: private, max-age=3600
+            X-Content-Type-Options:
+              schema:
+                type: string
+              description: nosniff
+            Content-Disposition:
+              schema:
+                type: string
+              description: inline
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Malformed id
+          content:
+            application/json:
+              schema: *id003
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema: *id003
+        '404':
+          description: Upload not found or file missing
+          content:
+            application/json:
+              schema: *id003
+  /api/conversations/{id}/export:
+    get:
+      operationId: get_api_conversation_export
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id008
+      description: 'Owner-only Word export in memory: title, started/exported times
+        in HA_DISPLAY_TIME_ZONE with zone short name, completed nonempty questions
+        and answers in order, You/Assistant labels and stored tier/model title, picture
+        filename placeholder. User text is literal with line breaks; assistant Markdown
+        formatting is retained (headings, lists, tables, code, quotes, links); raw
+        HTML and LaTeX stay literal. No Thinking, reasoning state, routing notes,
+        token counts or personal identifiers. Audit conversation.exported targets
+        docx, correlation id is conversation id; unavailable/failed audit never fails
+        export. Filename is lowercase title, runs outside [a-z0-9] replaced by dash,
+        trimmed, at most 60 characters, or chat.'
+      responses:
+        '200':
+          description: Word document
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              description: attachment; filename="<slug>.docx"
+          content:
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Malformed id
+          content:
+            application/json:
+              schema: *id003
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema: *id003
+        '404':
+          description: Conversation not found
+          content:
+            application/json:
+              schema: *id003
 components:
   securitySchemes:
     bearerAuth:
@@ -922,7 +1064,7 @@ components:
       properties:
         id: *id001
         title: *id002
-        updated_at: &id008
+        updated_at: &id010
           type: string
           format: date-time
       required:
@@ -932,8 +1074,9 @@ components:
       additionalProperties: false
     Routing:
       type: object
-      description: Present for Auto routing. Scores are suggestions; rights decide. When a forced skill
-        was not applied and no tool was called, note says "The model chose not to use <skill title>."
+      description: Present for Auto routing. Scores are suggestions; rights decide.
+        When a forced skill was not applied and no tool was called, note says "The
+        model chose not to use <skill title>."
       properties:
         tier:
           type: integer
@@ -971,7 +1114,7 @@ components:
           - string
           - 'null'
           format: uuid
-        model_title: *id007
+        model_title: *id009
         input_tokens:
           type:
           - integer
@@ -986,21 +1129,26 @@ components:
           anyOf:
           - $ref: '#/components/schemas/Routing'
           - type: 'null'
-        note: *id007
+        note: *id009
         outcome:
           enum:
           - completed
           - failed
           - tool_requested
-        created_at: *id008
+        created_at: *id010
         thinking:
           type:
           - string
           - 'null'
-          description: Concatenated assistant thinking, separate from answer content. Null when absent
-            or for older messages. Never logged or sent back to a model. At most the first 100000 characters
-            per message are stored; later thinking continues streaming.
+          description: Concatenated assistant thinking, separate from answer content.
+            Null when absent or for older messages. Never logged or sent back to a
+            model. At most the first 100000 characters per message are stored; later
+            thinking continues streaming.
           maxLength: 100000
+        picture:
+          anyOf:
+          - *id011
+          - type: 'null'
       required:
       - id
       - role
@@ -1014,11 +1162,12 @@ components:
       - outcome
       - created_at
       - thinking
+      - picture
       additionalProperties: false
     Job:
       type: object
       properties:
-        job_id: *id006
+        job_id: *id007
         skill:
           type: string
         title:
@@ -1059,7 +1208,7 @@ components:
           - type: 'null'
         error:
           anyOf:
-          - *id005
+          - *id006
           - type: 'null'
       required:
       - job_id
@@ -1071,4 +1220,25 @@ components:
       - updated_at
       - output
       - error
+      additionalProperties: false
+    Picture:
+      type: object
+      properties:
+        upload_id: *id008
+        file_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        mime:
+          enum:
+          - image/png
+          - image/jpeg
+        size_bytes:
+          type: integer
+          minimum: 1
+      required:
+      - upload_id
+      - file_name
+      - mime
+      - size_bytes
       additionalProperties: false

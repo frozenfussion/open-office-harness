@@ -26,6 +26,15 @@ EVENTS = frozenset(
 )
 CODES = frozenset(
     {
+        "upload_max_bytes_invalid",
+        "unsupported_type",
+        "too_large",
+        "upload_limit",
+        "storage_unavailable",
+        "upload_not_found",
+        "upload_used",
+        "not_allowed",
+        "image_refused",
         "audit_publish_failed",
         "chat_publish_failed",
         "consumer_stopped",
@@ -76,6 +85,10 @@ class JsonFormatter(logging.Formatter):
             body["code"] = (
                 code if isinstance(code, str) and code in CODES else "unavailable"
             )
+            if code == "upload_max_bytes_invalid":
+                body["message"] = (
+                    "HA_UPLOAD_MAX_BYTES must be a whole number of MiB from 1 to 7"
+                )
             tier = getattr(record, "tier", None)
             if type(tier) is int and tier > 0:
                 body["tier"] = tier

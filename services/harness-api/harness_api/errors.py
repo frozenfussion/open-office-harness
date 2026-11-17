@@ -10,6 +10,10 @@ class ApiError(Exception):
 
 
 def gateway_error(code: str, tier: int) -> ApiError:
+    if code == "image_refused":
+        return ApiError(
+            502, code, "This model could not read the picture. Try another model."
+        )
     if code == "no_model":
         return ApiError(
             503, code, f"No model is set up for tier {tier} yet. An admin can add one."
