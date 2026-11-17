@@ -27,15 +27,14 @@ def picture_call(call: Call, **changes: Any) -> Call:
     return Call.model_validate(call.model_dump() | {"messages": [MESSAGE]} | changes)
 
 
-INVALID_MESSAGES = [
-    [MESSAGE | {"role": role}] for role in ("system", "assistant", "tool")
-] + [
+INVALID_MESSAGES = [[MESSAGE | {"role": role}] for role in ("system", "assistant")] + [
+    [MESSAGE | {"role": "tool", "tool_call_id": "fake-call"}],
     [MESSAGE | {"images": [IMAGE, IMAGE]}],
     [MESSAGE | {"images": [IMAGE | {"extra": "no"}]}],
     [MESSAGE | {"images": [IMAGE | {"media_type": "image/gif"}]}],
     *[
         [MESSAGE | {"images": [IMAGE | {"data": data}]}]
-        for data in ("", "A" * 9786713, "not base64!", "é", "YQ=", "YQ==\n")
+        for data in ("", "A" * 9786716, "not base64!", "é", "YQ=", "YQ==\n")
     ],
     [MESSAGE] * 4,
     [MESSAGE | {"content": ""}],

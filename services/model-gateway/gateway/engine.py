@@ -540,7 +540,7 @@ class Engine:
                         error_code,
                         error_message,
                         provider_status=status,
-                        provider_message=None if has_images else message,
+                        provider_message=message,
                     ) from None
                 if started:
                     yield {
