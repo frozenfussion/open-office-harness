@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 import anyio
 
 from .diagnostics import failure
+from .errors import ApiError
 from .upstream import Rights
 
 SIGNATURES = {"image/png": b"\x89PNG\r\n\x1a\n", "image/jpeg": b"\xff\xd8\xff"}
@@ -130,7 +131,11 @@ async def attach_pictures(
                         "data": base64.b64encode(content).decode("ascii"),
                     }
                 ]
-            except OSError, ValueError:
+            except (OSError, ValueError, ApiError) as error:
+                if isinstance(error, ApiError) and (
+                    error.status != 404 or error.code != "upload_not_found"
+                ):
+                    raise
                 failure(
                     "request_error",
                     "storage_unavailable",

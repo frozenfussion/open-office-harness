@@ -237,3 +237,23 @@ async def test_export_route_and_audit(
         await h.client.get(f"/api/conversations/{identifier}/export")
     ).status_code == 404
     assert h.store.rows[UUID(identifier)]["messages"]
+
+
+def test_prices_keep_bold_and_italic_between_them() -> None:
+    row = conversation()
+    text = "Plan A costs $5 and **Plan B** is *better*, it costs $10."
+    row["messages"][1]["content"] = text
+    document = Document(BytesIO(export_word(row, "Asia/Kuala_Lumpur", NOW)))
+    paragraph = next(p for p in document.paragraphs if p.text.startswith("Plan A"))
+    assert paragraph.text == "Plan A costs $5 and Plan B is better, it costs $10."
+    assert any(run.text == "Plan B" and run.bold for run in paragraph.runs)
+    assert any(run.text == "better" and run.italic for run in paragraph.runs)
+
+
+@pytest.mark.parametrize("text", [r"\(a_*b*\)", r"\[a_*b*\]", "$$a_*b*$$"])
+def test_explicit_latex_delimiters_stay_literal(text: str) -> None:
+    row = conversation()
+    row["messages"][1]["content"] = text
+    document = Document(BytesIO(export_word(row, "Asia/Kuala_Lumpur", NOW)))
+    paragraph = next(p for p in document.paragraphs if p.text == text)
+    assert all(not run.italic and not run.bold for run in paragraph.runs)

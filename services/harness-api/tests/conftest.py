@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import jwt
+import psycopg
 import pytest
 import respx
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -37,8 +38,6 @@ class MemoryStore:
 
     async def health(self) -> None:
         if self.fail_health:
-            import psycopg
-
             raise psycopg.OperationalError("private diagnostic")
 
     async def create(self, user: str) -> UUID:
@@ -57,18 +56,27 @@ class MemoryStore:
         if identifier not in self.rows or self.rows[identifier]["user_id"] != user:
             raise ApiError(404, "not_found", "Conversation not found.")
         row = self.rows[identifier]
+        messages = []
+        for message in row["messages"]:
+            item = {
+                key: value
+                for key, value in message.items()
+                if key not in {"_state", "upload_id"}
+            }
+            picture = self.uploads.get(message.get("upload_id"))
+            item["picture"] = (
+                Store.picture(picture)
+                if picture
+                and picture["user_id"] == user
+                and not picture.get("deleted_at")
+                else None
+            )
+            messages.append(item)
         return {
             "id": identifier,
             "title": row["title"],
             "created_at": row["created_at"],
-            "messages": [
-                {
-                    key: value
-                    for key, value in message.items()
-                    if key not in {"_state", "upload_id"}
-                }
-                for message in row["messages"]
-            ],
+            "messages": messages,
         }
 
     async def upload_count(self, user: str) -> int:
@@ -76,7 +84,7 @@ class MemoryStore:
 
     async def upload(self, identifier: UUID, user: str) -> dict[str, Any]:
         row = self.uploads.get(identifier)
-        if row is None or row["user_id"] != user:
+        if row is None or row["user_id"] != user or row.get("deleted_at"):
             raise ApiError(404, "upload_not_found", "Picture not found.")
         return {
             **row,
@@ -186,8 +194,15 @@ class MemoryStore:
         thinking: str | None = None,
         upload_id: UUID | None = None,
     ) -> UUID:
-        if upload_id is not None and (await self.upload(upload_id, user))["used"]:
-            raise ApiError(409, "upload_used", "This picture was already sent.")
+        if upload_id is not None and any(
+            message.get("upload_id") == upload_id
+            for conversation in self.rows.values()
+            for message in conversation["messages"]
+        ):
+            raise psycopg.errors.UniqueViolation(
+                "Upload already attached",
+                info={ord("n"): b"messages_upload_once"},
+            )
         identifier_message = uuid4()
         row = self.rows[identifier]
         if role == "user" and not row["title"]:

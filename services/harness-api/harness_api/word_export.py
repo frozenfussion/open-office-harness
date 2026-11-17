@@ -32,7 +32,7 @@ def slug(title: str) -> str:
 
 
 def latex(state: StateInline, silent: bool) -> bool:
-    for start, end in ((r"\(", r"\)"), (r"\[", r"\]"), ("$$", "$$"), ("$", "$")):
+    for start, end in ((r"\(", r"\)"), (r"\[", r"\]"), ("$$", "$$")):
         if state.src.startswith(start, state.pos):
             stop = state.src.find(end, state.pos + len(start))
             if stop < 0:

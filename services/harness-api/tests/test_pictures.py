@@ -88,30 +88,30 @@ async def test_upload_and_owned_read(
 
 
 @pytest.mark.parametrize(
-    "header,expected",
+    "header,expected,jpeg_name",
     [
-        (None, "picture.png"),
-        ("", "picture.png"),
-        ("%FF", "picture.png"),
-        ("ÿ", "picture.png"),
-        ("/path/to/cat.jpeg", "cat.png"),
-        (r"C:\folder\cat.jpeg", "cat.png"),
-        ("%2Ffolder%2Fmy%20photo.jpeg", "my photo.png"),
-        ("%E7%8C%AB%21.png", "__.png"),
-        (".. .hidden.jpeg", "hidden.png"),
-        ("...", "picture.png"),
-        (".png", "png.png"),
-        ("a" * 120 + ".jpeg", "a" * 96 + ".png"),
+        (None, "picture.png", "picture.jpg"),
+        ("", "picture.png", "picture.jpg"),
+        ("%FF", "picture.png", "picture.jpg"),
+        ("ÿ", "picture.png", "picture.jpg"),
+        ("/path/to/cat.jpeg", "cat.png", "cat.jpg"),
+        (r"C:\folder\cat.jpeg", "cat.png", "cat.jpg"),
+        ("%2Ffolder%2Fmy%20photo.jpeg", "my photo.png", "my photo.jpg"),
+        ("%E7%8C%AB%21.png", "__.png", "__.jpg"),
+        (".. .hidden.jpeg", "hidden.png", "hidden.jpg"),
+        ("...", "picture.png", "picture.jpg"),
+        (".png", "png.png", "png.jpg"),
+        ("a" * 120 + ".jpeg", "a" * 96 + ".png", "a" * 96 + ".jpg"),
     ],
 )
 async def test_file_names(
-    picture_h: Harness, header: str | None, expected: str
+    picture_h: Harness, header: str | None, expected: str, jpeg_name: str
 ) -> None:
     headers = {"X-File-Name": header} if header is not None else {}
     response = await upload(picture_h, **headers)
     assert response.status_code == 201
     assert response.json()["file_name"] == expected
-    assert safe_name(header, "image/jpeg").endswith(".jpg")
+    assert safe_name(header, "image/jpeg") == jpeg_name
 
 
 @pytest.mark.parametrize(
@@ -376,3 +376,73 @@ async def test_daily_limit_serializes_simultaneous_uploads(picture_h: Harness) -
     responses = await asyncio.gather(upload(h), upload(h))
     assert sorted(response.status_code for response in responses) == [201, 429]
     assert await h.store.upload_count("test-user") == 20
+
+
+async def test_used_upload_is_refused_before_append(
+    picture_h: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    h = picture_h
+    conversation = await h.conversation()
+    identifier = (await upload(h)).json()["upload_id"]
+    assert (await h.send(conversation, upload_id=identifier)).status_code == 200
+    messages = list(h.store.rows[UUID(conversation)]["messages"])
+    gateway_calls = h.gateway.call_count
+    title_calls = h.title_gateway.call_count
+    append_attempts = []
+    append = h.store.append
+
+    async def record_append(*args: Any, **kwargs: Any) -> UUID:
+        append_attempts.append((args, kwargs))
+        return await append(*args, **kwargs)
+
+    monkeypatch.setattr(h.store, "append", record_append)
+    response = await h.send(conversation, upload_id=identifier)
+    assert response.status_code == 409
+    assert response.json() == {
+        "code": "upload_used",
+        "message": (
+            "This picture was already sent. Attach it again to send it once more."
+        ),
+    }
+    assert h.store.rows[UUID(conversation)]["messages"] == messages
+    assert h.gateway.call_count == gateway_calls
+    assert h.title_gateway.call_count == title_calls
+    assert append_attempts == []
+
+
+@pytest.mark.parametrize("removed", [False, True], ids=["missing-row", "removed-row"])
+async def test_missing_upload_row_does_not_block_followup(
+    picture_h: Harness,
+    removed: bool,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    h = picture_h
+    conversation = await h.conversation()
+    row = (await upload(h, **{"X-File-Name": "private-camera.png"})).json()
+    assert (await h.send(conversation, upload_id=row["upload_id"])).status_code == 200
+    if removed:
+        from datetime import UTC, datetime
+
+        h.store.uploads[UUID(row["upload_id"])]["deleted_at"] = datetime.now(UTC)
+    else:
+        # The conversation references a row absent from this isolated fake store.
+        h.store.rows[UUID(conversation)]["messages"][0]["upload_id"] = uuid4()
+    response = await h.send(
+        conversation, content="Follow-up without the removed picture"
+    )
+    assert response.status_code == 200
+    messages = json.loads(h.gateway.calls[-1].request.content)["messages"]
+    assert not any(item.get("images") for item in messages)
+    read = await h.client.get(f"/api/conversations/{conversation}")
+    assert read.status_code == 200 and read.json()["messages"][0]["picture"] is None
+    assert (
+        await h.client.get(f"/api/conversations/{conversation}/export")
+    ).status_code == 200
+    lines = [json.loads(JsonFormatter().format(record)) for record in caplog.records]
+    missing = [line for line in lines if line.get("code") == "storage_unavailable"]
+    assert missing and "correlation_id" in missing[-1]
+    assert set(missing[-1]) == {"level", "event", "code", "correlation_id"}
+    formatted = json.dumps(lines)
+    assert "private-camera" not in formatted
+    assert base64.b64encode(PNG).decode() not in formatted

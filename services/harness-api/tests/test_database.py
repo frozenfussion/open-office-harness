@@ -771,3 +771,56 @@ async def test_picture_answer_is_next_row_even_if_it_is_a_user(
     await store.append(identifier, db_user, "user", "Next message", "completed", 1)
     await store.append(identifier, db_user, "assistant", "Failed later", "failed", 1)
     assert (await store.history(identifier))[0]["picture_completed"] is True
+
+
+@pytest.mark.anyio
+async def test_joined_picture_read_and_removed_upload(
+    store: Store,
+    db_user: str,
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from harness_api.pictures import attach_pictures, write_picture
+    from harness_api.word_export import export_word
+
+    identifier = await store.create(db_user)
+    picture = await saved_picture(store, db_user)
+    write_picture(str(tmp_path), picture["file_key"], b"picture")
+    await store.append(
+        identifier,
+        db_user,
+        "user",
+        "Picture question",
+        "completed",
+        1,
+        upload_id=picture["id"],
+    )
+    await store.append(
+        identifier, db_user, "assistant", "Picture answer", "completed", 1
+    )
+
+    async def unexpected_lookup(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("Conversation opened a separate upload lookup")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "upload", unexpected_lookup)
+        row = await store.conversation(identifier, db_user)
+        assert row["messages"][0]["picture"] == Store.picture(picture)
+    async with await psycopg.AsyncConnection.connect(store.connection) as db:
+        await db.execute(
+            "UPDATE uploads SET deleted_at=now() WHERE id=%s", (picture["id"],)
+        )
+    row = await store.conversation(identifier, db_user)
+    assert row["messages"][0]["picture"] is None
+    assert export_word(row, "Asia/Kuala_Lumpur").startswith(b"PK")
+    history = await store.history(identifier)
+    assert history[0]["upload_id"] == picture["id"]
+    attached = await attach_pictures(history, str(tmp_path), store, db_user)
+    assert not any(item.get("images") for item in attached)
+    records = [
+        record
+        for record in caplog.records
+        if getattr(record, "code", "") == "storage_unavailable"
+    ]
+    assert records and records[-1].correlation_id == str(picture["id"])

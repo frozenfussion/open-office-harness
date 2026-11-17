@@ -43,19 +43,21 @@ class Store:
             if row is None:
                 raise ApiError(404, "not_found", "Conversation not found.")
             cursor = await db.execute(
-                "SELECT id,role,content,tier,model_entry_id,model_title,input_tokens,"
-                "output_tokens,note,outcome,created_at,thinking,routing,upload_id "
-                "FROM messages "
-                "WHERE conversation_id=%s ORDER BY created_at,id",
-                (identifier,),
+                "SELECT m.id,m.role,m.content,m.tier,m.model_entry_id,m.model_title,"
+                "m.input_tokens,m.output_tokens,m.note,m.outcome,m.created_at,"
+                "m.thinking,m.routing,u.id AS picture_id,"
+                "u.file_name,u.mime,u.size_bytes "
+                "FROM messages m LEFT JOIN uploads u ON u.id=m.upload_id "
+                "AND u.user_id=%s AND u.deleted_at IS NULL "
+                "WHERE m.conversation_id=%s ORDER BY m.created_at,m.id",
+                (user, identifier),
             )
             row["messages"] = await cursor.fetchall()
             for message in row["messages"]:
-                upload = message.pop("upload_id")
-                message["picture"] = None
-                if upload:
-                    picture = await self.upload(upload, user)
-                    message["picture"] = self.picture(picture)
+                upload = {"id": message.pop("picture_id")}
+                for key in ("file_name", "mime", "size_bytes"):
+                    upload[key] = message.pop(key)
+                message["picture"] = self.picture(upload) if upload["id"] else None
             return row
 
     @staticmethod

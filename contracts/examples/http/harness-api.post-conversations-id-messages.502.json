@@ -1,4 +1,4 @@
 {
   "code": "image_refused",
-  "message": "Example error."
+  "message": "This model could not read the picture. Try another model."
 }

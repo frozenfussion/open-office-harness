@@ -1,19 +1,5 @@
 # QUICK GUIDE
 
-Pictures: attach one PNG or JPEG with required question text, up to the limit
-shown in the chat box (7 MB by default), at most 20 uploads per UTC day.
-Pictures stay on the existing files volume, even when never sent. Their original
-bytes, including camera location/device details, are kept and sent unchanged.
-The three newest pictures whose answers completed stay in view within the last
-20 history messages, together with the current picture. Missing files are skipped.
-
-Export to Word downloads the open chat with its title, local start/export times,
-completed questions and answers, timestamps, stored tier/model titles and picture
-filename placeholders. User text stays literal; assistant Markdown is formatted.
-Thinking, private reasoning, routing notes, token counts and personal identifiers
-are excluded. No picture bytes are embedded in Word.
-
-
 1. **Set up the databases, sign-in and Kafka secrets.**
 
    Type this in your harness terminal, in the plain shell. Claude runs it while Aziz watches. No password is needed. This creates the databases and saves private test settings. Run platform apply and realm sync first. Existing credentials are kept.
@@ -130,6 +116,20 @@ are excluded. No picture bytes are embedded in Word.
     ```
 
     Good result: each prints only passing checks and ends with `DONE`. Each run of the Stage 2 check makes short paid model calls. Aziz then signs in to the Workspace and checks chat, picture follow-ups and Word export. The Stage 5 check makes short paid calls on each active tier and one follow-up, using one daily upload per tier (three today). Six runs fit each UTC day; the seventh must wait until 08:00 Malaysia time. The failure-injection check `78` stops chat and is not run in class; carry it to the next acceptance that needs it.
+
+11. **Attach a picture in the Workspace.** Click **Attach picture**, choose a PNG
+    or JPEG, type your question and send it. The picture must be within the limit
+    shown in the chat box (7 MB by default). You can upload 20 pictures a day;
+    a day starts at 08:00 Malaysia time. A sent picture stays in the chat after
+    reloading the page. Recent pictures with successful answers can be used for
+    follow-up questions. The original file is kept, including any location or
+    device details from your camera. Files are kept even if you never send them.
+
+12. **Save a chat to Word.** Open the chat, wait for the answer to finish and click
+    **Export to Word**. Open the downloaded file in Word. It shows the chat title,
+    dates, questions and answers, and the model used for each answer. Pictures
+    appear as a line with their file name. Your text stays as typed; answers keep
+    their headings, lists, tables and code. Thinking text is left out.
 
 ## STOP messages
 
@@ -299,6 +299,19 @@ A completed Slides result can revive only a failed job with error code
 
 
 ## Stage 5 settings and storage
+
+A model call includes at most the three newest pictures eligible in the last
+20 history messages plus the question being sent. An older picture qualifies
+only when its next message has outcome `completed`; an empty completed answer
+still qualifies. The current picture always qualifies. Missing files and
+missing or removed upload rows are skipped with ids-only logs, so the chat can
+continue. Conversation reads obtain picture details through the messages query.
+
+Word exports contain completed, non-empty questions and answers, their times,
+the stored tier and model title, and picture file-name lines. They exclude
+Thinking, private reasoning, routing notes, token counts and personal identifiers.
+Pictures themselves are not embedded. User text stays literal; assistant Markdown
+is formatted. Times use the display time zone below.
 
 `HA_UPLOAD_MAX_BYTES` defaults to `7340032` (7 MiB). Only whole MiB from 1 to 7
 are accepted; otherwise startup logs `upload_max_bytes_invalid` and explains the

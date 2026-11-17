@@ -1,4 +1,4 @@
 {
-  "code": "not_found",
-  "message": "Example error."
+  "code": "upload_not_found",
+  "message": "Picture not found."
 }
