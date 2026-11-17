@@ -60,7 +60,21 @@ def messages(call: Call, entry: Entry) -> list[dict[str, Any]]:
                 ]
             item = {"role": "assistant", "content": blocks}
         else:
-            item = {"role": message.role, "content": message.content}
+            content = message.content
+            if message.images:
+                image = message.images[0]
+                content = [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": image.media_type,
+                            "data": image.data,
+                        },
+                    },
+                    {"type": "text", "text": message.content},
+                ]
+            item = {"role": message.role, "content": content}
         result.append(item)
     return result
 

@@ -3,11 +3,11 @@
 1. Type this in your harness terminal, in the plain shell. This creates the Gateway databases, Kafka credential copy and private settings. First finish the platform and realm updates in the root guide. No password is needed. Claude runs setup and deployment in the shell tile while Aziz watches.
 
    ```bash
-   cd ~/projects/worktrees/stage-4-part-b
+   cd ~/projects/worktrees/stage-5-part-a
    install/64-model-gateway-setup.sh
    ```
 
-   Good result: `DONE`. Test settings stay outside the repository in `~/.config/ooh/model-gateway-test.env`, mode 600. After the Parts merge, use `cd ~/projects/worktrees/stage-4` instead; after acceptance, use `cd ~/projects/open-office-harness`.
+   Good result: `DONE`. Test settings stay outside the repository in `~/.config/ooh/model-gateway-test.env`, mode 600. After the Parts merge, use `cd ~/projects/worktrees/stage-5` instead; after acceptance, use `cd ~/projects/open-office-harness`.
 
 2. Do this in the GitHub package settings in your PC browser, after the first green Model Gateway image workflow. Open the package settings link below and choose **Change visibility → Public**. This lets the cluster pull the image without signing in. Good result: the package says Public.
 
@@ -16,7 +16,7 @@
 3. Type this in your harness terminal, in the plain shell. This deploys the image for this checkout and waits for its migration and new pod. No password is needed. First deploy the Control Centre changes as the root Stage 3 guide describes.
 
    ```bash
-   cd ~/projects/worktrees/stage-4-part-b
+   cd ~/projects/worktrees/stage-5-part-a
    install/65-model-gateway-deploy.sh "$(git rev-parse --short=12 HEAD)"
    ```
 
@@ -29,7 +29,7 @@
    kubectl -n ooh-apps get deployment model-gateway -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
    ```
 
-   Good result: one Ready pod and the intended image tag. Requests are 100m CPU / 128Mi memory for both migration and app; limits are 1 CPU / 512Mi. Actual live use is checked after deployment.
+   Good result: one Ready pod and the intended image tag. Requests are 100m CPU / 128Mi memory for both migration and app; limits are 1 CPU / 2Gi for the app and 1 CPU / 512Mi for migration. Actual live use is checked after deployment.
 
 5. Type this in your harness terminal, in the plain shell. This reads recent application logs. No password is needed; the folder does not matter for this command.
 
@@ -75,7 +75,7 @@
 8. Type this in your harness terminal, in the plain shell. This runs the builder checks with fake providers and the isolated test database. No password is needed. Run setup first; never print or paste the private settings.
 
    ```bash
-   cd ~/projects/worktrees/stage-4-part-b/services/model-gateway
+   cd ~/projects/worktrees/stage-5-part-a/services/model-gateway
    set +x
    set -a
    source ~/.config/ooh/model-gateway-test.env
@@ -91,13 +91,21 @@
 9. Type this in your harness terminal, in the plain shell. This checks the contracts and scripts without changing the cluster. No password is needed.
 
    ```bash
-   cd ~/projects/worktrees/stage-4-part-b
+   cd ~/projects/worktrees/stage-5-part-a
    uv run --project contracts/check pytest contracts/check/tests
    bash -n install/64-model-gateway-setup.sh install/65-model-gateway-deploy.sh
    shellcheck install/64-model-gateway-setup.sh install/65-model-gateway-deploy.sh
    ```
 
    Good result: all contract tests pass and the shell checks print no errors. The explicit test folder keeps the contracts environment from collecting unrelated service tests.
+
+## Pictures in chat
+
+`/v1/call` user messages may include `images: [{media_type, data}]`: one PNG or JPEG per message, at most three messages per call. Text remains required and non-empty. Base64 data must be valid and contain 1–9786712 characters (the encoded 7 MiB limit). Extra picture fields, pictures on another role, or invalid data return 400 `invalid_input`. The Gateway receives bytes through this contract and has no files-volume mount. Text-only provider requests keep their existing format.
+
+A picture call refused with HTTP 400, 413 or 422 before output tries the backup without marking the refusing entry down. A forced-tool 400 first retries with auto, as before. If no entry succeeds, any picture refusal makes the final code `image_refused`, even if another entry is down, rate-limited or over budget. Before output it is HTTP 503; after output it is a `failed` event. Choose a model entry that accepts pictures in the Admin Console. Usage and cost include picture input tokens reported by the provider. Audit outcome is `failed` for a refused call. Picture data is never logged, traced or sent to Kafka.
+
+Official shape check, 17 November 2026: [Chat Completions reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) confirms text and `image_url` blocks with a base64 data URL; [Responses reference](https://developers.openai.com/api/reference/resources/responses/methods/create) confirms `input_text` and `input_image` with a data URL; [Messages vision reference](https://platform.claude.com/docs/en/build-with-claude/vision) confirms image blocks with a base64 source (`media_type`, `data`) followed by text. No difference from the Stage 5 shapes was found. Live model support and the largest requests remain for the merged stage checks and Aziz's browser tests.
 
 ## Gateway behavior
 
@@ -135,7 +143,7 @@ All direct and transitive locked library versions were checked against official 
 
 ## Images and operating errors
 
-The image keeps Python 3.14.10 and uv 0.13.7, running as 10001 with a read-only root and writable memory `/tmp`. Requests are 100m CPU / 128Mi; limits 1 CPU / 512Mi. The deployment has its existing migrate init container and one API replica. Setup preserves existing credentials, atomically writes mode-600 test settings outside the repository, waits up to 120 seconds for KafkaUser readiness and its Secret, and refuses a changed Kafka password.
+The image keeps Python 3.14.10 and uv 0.13.7, running as 10001 with a read-only root and writable memory `/tmp`. Requests are 100m CPU / 128Mi; limits 1 CPU / 2Gi for the app and 1 CPU / 512Mi for migration. The deployment has its existing migrate init container and one API replica. Setup preserves existing credentials, atomically writes mode-600 test settings outside the repository, waits up to 120 seconds for KafkaUser readiness and its Secret, and refuses a changed Kafka password.
 
 | Message | Action |
 |---|---|

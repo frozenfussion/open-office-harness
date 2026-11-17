@@ -148,7 +148,21 @@ def create_app(config: Config | None = None) -> FastAPI:
                     yield "data: " + json.dumps(first) + "\n\n"
                     async for event in events:
                         yield "data: " + json.dumps(event) + "\n\n"
-                except GatewayError, psycopg.Error:
+                except GatewayError as error:
+                    body = (
+                        error.body()
+                        if error.code == "image_refused"
+                        else {
+                            "code": "unavailable",
+                            "message": "The model did not answer. Try again.",
+                        }
+                    )
+                    yield (
+                        "data: "
+                        + json.dumps({"type": "failed", "error": body})
+                        + "\n\n"
+                    )
+                except psycopg.Error:
                     yield 'data: {"type":"failed","error":{"code":"unavailable","message":"The model did not answer. Try again."}}\n\n'
                 finally:
                     await events.aclose()
@@ -175,7 +189,7 @@ def create_app(config: Config | None = None) -> FastAPI:
                     completed = event
                 elif event["type"] == "failed":
                     raise GatewayError(
-                        503, "unavailable", "The model did not answer. Try again."
+                        503, event["error"]["code"], event["error"]["message"]
                     )
                 try:
                     event = await anext(events)

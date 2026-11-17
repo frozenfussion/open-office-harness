@@ -201,6 +201,32 @@
       "method": "post",
       "kind": "request",
       "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.request.picture.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "request",
+      "media_type": "application/json"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.503.image-refused.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "application/json",
+      "status": "503"
+    },
+    {
+      "file": "examples/http/model-gateway.post-v1-call.200.image-refused.sse.json",
+      "openapi": "http/model-gateway.openapi.yaml",
+      "path": "/v1/call",
+      "method": "post",
+      "kind": "response",
+      "media_type": "text/event-stream",
+      "status": "200"
     }
   ]
 }

@@ -31,6 +31,17 @@ def messages(call: Call, entry: Entry) -> list[dict[str, Any]]:
     result = []
     for message in call.messages:
         item: dict[str, Any] = {"role": message.role, "content": message.content}
+        if message.images:
+            image = message.images[0]
+            item["content"] = [
+                {"type": "text", "text": message.content},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{image.media_type};base64,{image.data}"
+                    },
+                },
+            ]
         if message.role == "assistant":
             state = matching_state(message, entry)
             if "reasoning_content" in state:
