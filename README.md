@@ -14,6 +14,7 @@ Droplet system from nothing, start at Stage 0 near the end and work upwards.
 
 | Section | What it covers |
 |---|---|
+| [Your own Droplet](#install-on-your-own-droplet) | Run your own copy: Droplet, DNS, your domain and IP, AI keys |
 | [Stage 5](#stage-5--pictures-and-export-to-word) | Attach pictures and download a chat as Word |
 | [Stage 4](#stage-4--traces-replay-and-class-demos) | Traces, replay of failed messages, the class demos |
 | [AWS copy](#aws-copy--stage-4-phase-2) | The same system on AWS EKS with Terraform: build, check, destroy |
@@ -22,6 +23,41 @@ Droplet system from nothing, start at Stage 0 near the end and work upwards.
 | [Stage 1](#stage-1--control-centre) | Control Centre: rights and approvals |
 | [Stage 0](#stage-0--foundation) | The platform: Kubernetes, certificates, Kafka, PostgreSQL, Keycloak |
 | [What is where](#what-is-where) and [Versions](#versions) | Folder map and exact versions |
+
+## Install on your own Droplet
+
+The guide below was written for the maintainer's Droplet. To run your own copy,
+do these four things first, then follow Stage 0 to Stage 5 from the bottom of
+this page upwards. Where a step says "harness terminal" or "`shell` tile", use
+an SSH terminal on your own Droplet; skip `gh auth login`, it is only needed to push.
+
+1. **Create the Droplet.** Ubuntu 24.04 (the setup script refuses any other),
+   8 vCPU and 16 GB memory (the full system uses about 7 GB), with a normal user
+   that has `sudo`; do not install as `root`. Allow incoming TCP 22, 80 and 443
+   in the firewall.
+
+2. **Point three names at it.** At your DNS provider, create three `A` records
+   for your own domain, each pointing to the Droplet's public IP address:
+   `harness`, `admin` and `auth` (for example `harness.example.com`). Wait until
+   they resolve before step 3 of Stage 0.
+
+3. **Put your domain and IP in the settings.** After cloning (Stage 0, step 2),
+   open `deploy/values/do.env` and change the first two values to your own:
+
+   ```bash
+   DOMAIN=example.com
+   PUBLIC_IP=203.0.113.10
+   ```
+
+   Leave the other lines as they are. Web addresses in this guide that end in
+   `faysalaziz.com` mean the same address on your own domain.
+
+4. **Use the published images and bring your own AI keys.** The Docker images on
+   GitHub are public; deploy them with the image tag `e22421684eca` (Stage 5,
+   accepted, all nine images) wherever a step asks for a tag. Chat needs at least one model with
+   your own provider key (DeepSeek, OpenAI or Anthropic), added in the Admin
+   Console under **Models & tiers** (Stage 2). The check scripts that call a
+   model make small paid calls on your key.
 
 ## Stage 5 — Pictures and Export to Word
 
